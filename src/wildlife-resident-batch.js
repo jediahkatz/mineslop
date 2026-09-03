@@ -2,6 +2,7 @@ import { synchronousEcologyHook } from "./aquatic-ai.js";
 import { MAX_LIVING_HORSES } from "./horse-definitions.js";
 import { horseDataArray, horseDataRecord } from "./horse-save.js";
 import { MAX_ECOLOGY_RESIDENTS } from "./mob-species.js";
+import { TransactionInvariantError } from "./transactions.js";
 import {
   captureResidentBatch, installResidentEdits, prepareResidentEdit,
 } from "./wildlife-resident-edit.js";
@@ -159,6 +160,9 @@ function finalize(state, wildlife, options) {
         if (result && typeof result.then === "function") throw new TypeError("notify must be synchronous");
       } catch (error) { errors.push(error); }
     }
+    // Run every observer before preserving the fatal type that callers inspect.
+    const fatal = errors.find((error) => error instanceof TransactionInvariantError);
+    if (fatal) throw fatal;
     if (errors.length) throw new AggregateError(errors, "Resident edit observers failed after commit");
   } : undefined;
   state.phase = "finalized";
