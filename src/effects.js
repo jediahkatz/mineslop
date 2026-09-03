@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { AudioEngine } from "./audio-engine.js";
 import { BLOCKS } from "./blocks.js";
 import {
   createHeldItemView,
@@ -13,6 +14,11 @@ export class Effects {
   constructor(scene, camera) {
     this.scene = scene;
     this.camera = camera;
+    this.audioEngine = new AudioEngine();
+    this.audioListener = {
+      position: new THREE.Vector3(),
+      right: new THREE.Vector3(),
+    };
     this.soundEnabled = true;
     this.audio = null;
     this.particles = [];
@@ -43,57 +49,36 @@ export class Effects {
     scene.add(camera);
   }
 
-  unlockAudio() {
-    if (!this.soundEnabled) return;
-    try {
-      this.audio ??= new (window.AudioContext || window.webkitAudioContext)();
-      void this.audio.resume();
-    } catch {
-      // Audio is optional; restrictive autoplay policies must not block play.
-    }
+  get soundEnabled() {
+    return this._soundEnabled;
   }
 
-  sound(kind = "mine", id = 3) {
-    if (!this.audio || !this.soundEnabled) return;
-    const context = this.audio;
-    if (kind === "xp") {
-      const tone = context.createOscillator();
-      const gain = context.createGain();
-      tone.type = "sine";
-      tone.frequency.value = 850 + Math.min(8, Math.max(1, id)) * 45;
-      gain.gain.setValueAtTime(0.07, context.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.14);
-      tone.connect(gain).connect(context.destination);
-      tone.start();
-      tone.stop(context.currentTime + 0.15);
-      tone.onended = () => {
-        tone.disconnect();
-        gain.disconnect();
-      };
-      return;
+  set soundEnabled(enabled) {
+    this._soundEnabled = Boolean(enabled);
+    this.audioEngine?.setEnabled(this._soundEnabled);
+  }
+
+  unlockAudio() {
+    if (this._disposed || !this.soundEnabled) return Promise.resolve(false);
+    const ready = this.audioEngine?.unlock() ?? Promise.resolve(false);
+    this.audio = this.audioEngine?.context ?? null;
+    return ready;
+  }
+
+  /** See AUDIO.md: animal/species and horse-step/block accept position or distance/pan. */
+  sound(kind = "mine", id = 3, options = {}) {
+    if (this._disposed || !this.soundEnabled) return false;
+    let listener = null;
+    if (options?.position !== undefined) {
+      this.camera.getWorldPosition(this.audioListener.position);
+      this.audioListener.right.setFromMatrixColumn(this.camera.matrixWorld, 0);
+      listener = this.audioListener;
     }
-    const duration = kind === "step" ? 0.08 : 0.14;
-    const length = Math.ceil(context.sampleRate * duration);
-    const buffer = context.createBuffer(1, length, context.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < length; i++) {
-      data[i] = (Math.random() * 2 - 1) * (1 - i / length) ** 2;
-    }
-    const source = context.createBufferSource();
-    source.buffer = buffer;
-    const filter = context.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.value =
-      kind === "place" ? 700 : [1, 2, 4, 6].includes(id) ? 1200 : 2500;
-    const gain = context.createGain();
-    gain.gain.value = kind === "step" ? 0.055 : 0.13;
-    source.connect(filter).connect(gain).connect(context.destination);
-    source.start();
-    source.onended = () => {
-      source.disconnect();
-      filter.disconnect();
-      gain.disconnect();
-    };
+    return this.audioEngine?.play(kind, id, options, listener) ?? false;
+  }
+
+  audioDiagnostics() {
+    return this.audioEngine?.diagnostics();
   }
 
   select(id) {
@@ -193,6 +178,10 @@ export class Effects {
   }
 
   dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+    this.audioEngine?.dispose();
+    this.audio = null;
     for (const arrow of this.arrows) this.scene.remove(arrow.mesh);
     this.arrowGeometry.dispose();
     this.arrowMaterial.dispose();
@@ -205,6 +194,5 @@ export class Effects {
     for (const texture of this.itemTextures.values()) texture.dispose();
     this.atlas.texture.dispose();
     this.atlas.emissiveTexture.dispose();
-    void this.audio?.close();
   }
 }
