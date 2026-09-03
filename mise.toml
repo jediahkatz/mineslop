@@ -16,6 +16,10 @@ run = "npm run dev"
 description = "Test voxel generation, persistence, raycasting, and physics"
 run = "npm test"
 
+[tasks."test:pages"]
+description = "Verify the production build under the GitHub Pages project path"
+run = "npm run test:pages"
+
 [tasks."test:realtime"]
 description = "Benchmark continuous browser controls and chunk streaming"
 run = "npm run test:realtime"

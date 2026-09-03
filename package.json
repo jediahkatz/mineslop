@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 5173",
     "test": "node --test test/*.test.js test/realtime/*.test.mjs",
+    "test:pages": "node --test test/pages-build.test.mjs",
     "test:realtime": "node test/realtime/run.mjs",
     "test:streaming": "node test/realtime/streaming-flight.mjs",
     "test:controls": "node --test test/controls.browser.integration.mjs",
