@@ -2,10 +2,13 @@
 
 ## Status and scope
 
-Checkpoint status: harness prepared, not executed or visually reviewed. At this
-checkpoint the catalog contains 270 block IDs: 105 historical IDs and 165 expansion
-IDs. All 270 start **unreviewed**. No texture/painter changes accompany this
-checkpoint. The parent must commit/push it before running tests or capturing.
+The catalog contains 270 block IDs: 105 historical IDs and 165 expansion IDs.
+All 270 have rendered through the real browser harness. The 19 ore IDs have
+completed a source-specific paired visual review after refinement, including
+controlled native-32px comparisons; see the [ore review checkpoint](ore-art-review.md).
+Their final manifest status is **blocked**, pending final combined-source
+evidence and live-world checks. The other 251 IDs remain **unreviewed**.
+No final approval is claimed by runtime coverage or an intermediate review.
 
 The denominator is always the live `BLOCK_CATALOG`, never an ID interval,
 `BLOCKS.length`, a handpicked gallery, or the number of unique shared textures.
@@ -272,7 +275,7 @@ or copy a family's approval to its constituent blocks.
 11 WATER unreviewed -
 12 SNOW unreviewed -
 13 BEDROCK unreviewed -
-14 COAL_ORE unreviewed -
+14 COAL_ORE blocked -
 15 BIRCH_LOG unreviewed -
 16 BIRCH_LEAVES unreviewed -
 17 GLOWSTONE unreviewed -
@@ -320,13 +323,13 @@ or copy a family's approval to its constituent blocks.
 59 MANGROVE_LEAVES unreviewed -
 60 CORAL unreviewed -
 61 SEAGRASS unreviewed -
-62 IRON_ORE unreviewed -
-63 GOLD_ORE unreviewed -
-64 DIAMOND_ORE unreviewed -
-65 COPPER_ORE unreviewed -
-66 REDSTONE_ORE unreviewed -
-67 EMERALD_ORE unreviewed -
-68 LAPIS_ORE unreviewed -
+62 IRON_ORE blocked -
+63 GOLD_ORE blocked -
+64 DIAMOND_ORE blocked -
+65 COPPER_ORE blocked -
+66 REDSTONE_ORE blocked -
+67 EMERALD_ORE blocked -
+68 LAPIS_ORE blocked -
 69 OBSIDIAN unreviewed -
 70 NETHERRACK unreviewed -
 71 SOUL_SAND unreviewed -
@@ -393,17 +396,17 @@ or copy a family's approval to its constituent blocks.
 1052 HORN_CORAL_BLOCK unreviewed -
 1053 HORN_CORAL unreviewed -
 1054 HORN_CORAL_FAN unreviewed -
-1060 DEEPSLATE_COAL_ORE unreviewed -
-1061 DEEPSLATE_IRON_ORE unreviewed -
-1062 DEEPSLATE_COPPER_ORE unreviewed -
-1063 DEEPSLATE_GOLD_ORE unreviewed -
-1064 DEEPSLATE_REDSTONE_ORE unreviewed -
-1065 DEEPSLATE_DIAMOND_ORE unreviewed -
-1066 DEEPSLATE_LAPIS_ORE unreviewed -
-1067 DEEPSLATE_EMERALD_ORE unreviewed -
-1068 NETHER_GOLD_ORE unreviewed -
-1069 NETHER_QUARTZ_ORE unreviewed -
-1070 ANCIENT_DEBRIS unreviewed -
+1060 DEEPSLATE_COAL_ORE blocked -
+1061 DEEPSLATE_IRON_ORE blocked -
+1062 DEEPSLATE_COPPER_ORE blocked -
+1063 DEEPSLATE_GOLD_ORE blocked -
+1064 DEEPSLATE_REDSTONE_ORE blocked -
+1065 DEEPSLATE_DIAMOND_ORE blocked -
+1066 DEEPSLATE_LAPIS_ORE blocked -
+1067 DEEPSLATE_EMERALD_ORE blocked -
+1068 NETHER_GOLD_ORE blocked -
+1069 NETHER_QUARTZ_ORE blocked -
+1070 ANCIENT_DEBRIS blocked -
 1071 QUARTZ_BLOCK unreviewed -
 1072 DEAD_TUBE_CORAL_BLOCK unreviewed -
 1073 DEAD_TUBE_CORAL unreviewed -
