@@ -148,6 +148,13 @@ test("native cave look-back reuses the rendered horizon on the first visible fra
       const clip = mouth.clone().project(camera);
       const along = Math.max(0, Math.min(1, (depth - g.scene.fog.near) / (g.scene.fog.far - g.scene.fog.near)));
       const gl = g.renderer.getContext();
+      const coverage = g.detailCoverage(), missingDetail = [];
+      const cx = Math.floor(camera.position.x / 16), cz = Math.floor(camera.position.z / 16);
+      for (let z = -g.renderRadius; z <= g.renderRadius; z++)
+        for (let x = -g.renderRadius; x <= g.renderRadius; x++) {
+          const key = `${cx + x},${cz + z}`;
+          if (!coverage.has(key)) missingDetail.push(key);
+        }
       return {
         ready: d.ready, visible: d.group.visible, fogDistance: d.fogDistance,
         ground: d._active?.terrain.geometry.uuid ?? null,
@@ -157,6 +164,8 @@ test("native cave look-back reuses the rendered horizon on the first visible fra
         fog: [g.scene.fog.near, g.scene.fog.far],
         mouthVisible: depth > 0 && Math.abs(clip.x) <= 1 && Math.abs(clip.y) <= 1,
         mouthFog: along * along * (3 - 2 * along),
+        missingDetail,
+        streamingFog: g.streamingFogDistance(camera.position, coverage),
         edits: game.world.edits.size,
         contextLost: gl.isContextLost(), glError: gl.getError(),
         failedPrograms: g.renderer.info.programs.filter((program) => program.diagnostics?.runnable === false).length,
@@ -203,8 +212,18 @@ test("native cave look-back reuses the rendered horizon on the first visible fra
   for (const state of result.returned) {
     assert.equal(state.skyVisible, true);
     assert.equal(state.ready, true, `Horizon was not ready on return frame ${state.frame}`);
+    assert.equal(state.fogDistance, result.before.fogDistance);
     assert.equal(state.mouthVisible, true);
-    assert.ok(state.mouthFog < 0.05, `Mouth fog on return frame ${state.frame}: ${state.mouthFog}`);
   }
+  // Availability is immediate; the pre-existing fog interpolation is not.
+  // The scripted station jump also starts with unmeshed detail rows (recorded
+  // above). Do not change production fog policy to make that setup instantaneous.
+  assert.ok(result.returned[0].fog[1] > result.occluded.at(-1).fog[1]);
+  for (let frame = 1; frame < result.returned.length; frame++) {
+    assert.ok(result.returned[frame].fog[1] >= result.returned[frame - 1].fog[1] - 0.000001);
+    assert.ok(result.returned[frame].mouthFog <= result.returned[frame - 1].mouthFog + 0.000001);
+  }
+  assert.ok(result.returned[3].mouthFog < 0.05, "Existing fog interpolation should clear the mouth within four frames");
+  assert.ok(result.returned.at(-1).mouthFog < 0.05);
   assert.deepEqual(errors, []);
 });
