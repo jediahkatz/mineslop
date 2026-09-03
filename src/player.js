@@ -159,6 +159,7 @@ export class Player {
     this.sneaking = false;
     this.seated = false;
     this._vehicleType = this._vehicleId = this._hullHeading = null;
+    this._boatViewContext = null;
     this.climbing = false;
     this.onStep = null;
     this.onFlightChange = null;
@@ -459,6 +460,7 @@ export class Player {
     if (this.vehicleType === "horse") this._keys.clear();
     this.seated = false;
     this._vehicleType = this._vehicleId = this._hullHeading = null;
+    this._boatViewContext = null;
     this._resetMovement();
     this._updateStance();
     this._syncCamera(0);
@@ -709,6 +711,28 @@ export class Player {
       const wasHorse = this.vehicleType === "horse";
       const sameHorse = wasHorse && seated && pose.vehicleType === "horse" &&
         pose.id === this._vehicleId;
+      const boatContext = seated && pose.vehicleType === "boat"
+        ? {
+            world: this.world,
+            epoch: this.world.epoch ?? this.world._epoch,
+            dimension: this.world.dimension ?? "overworld",
+          }
+        : null;
+      // Transport free look only between accepted poses of the same boat.
+      // First mount/reload or missing identity/heading seeds without a snap.
+      if (
+        boatContext &&
+        this.vehicleType === "boat" &&
+        pose.id != null && pose.id === this._vehicleId &&
+        Number.isFinite(pose.hullYaw) && Number.isFinite(this._hullHeading) &&
+        this._boatViewContext?.world === boatContext.world &&
+        this._boatViewContext.epoch === boatContext.epoch &&
+        this._boatViewContext.dimension === boatContext.dimension
+      ) {
+        const turn = pose.hullYaw - this._hullHeading;
+        this.yaw += Math.atan2(Math.sin(turn), Math.cos(turn));
+      }
+      this._boatViewContext = boatContext;
       this.seated = seated;
       this._vehicleType = seated ? pose.vehicleType ?? null : null;
       this._vehicleId = seated ? pose.id ?? null : null;

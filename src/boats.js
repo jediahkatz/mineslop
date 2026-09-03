@@ -467,6 +467,7 @@ export class Boats {
     const boat = this._boats.get(mount.id);
     return {
       ...mount,
+      vehicleType: "boat",
       position: boatSeat(boat, mount.slot),
       velocity: { x: boat.vx, y: boat.vy, z: boat.vz },
       hullYaw: boat.yaw,

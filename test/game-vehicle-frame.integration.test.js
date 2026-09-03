@@ -489,3 +489,71 @@ test("real Game frames suppress overlay input, freeze paused owners, and resume 
   assert.equal(f.observed.hurt.length, 0);
   assert.deepEqual(f.frames.map(({ now }) => now), [50, 100, 2100, 2150]);
 });
+
+test("real Game frames carry boat turns once through free look, overlay coasting and paused projection", options, async (t) => {
+  const f = await vehicleFrameFixture(t);
+  mountAndCast(f, { cast: false, consume: false });
+  f.player.perspective = "back";
+  const retained = {
+    world: f.world.serialize(),
+    columns: [...f.world.chunks.keys()],
+    bytes: f.coordinator.budget.totalBytes,
+    inventory: f.gameplay.serialize(),
+  };
+  for (const method of ["ensureArea", "_generateSync", "applyCells"])
+    t.mock.method(f.world, method, () =>
+      assert.fail(`mounted view cannot call World.${method}`)
+    );
+  const turn = (frame) => {
+    const delta = frame.after.seat.hullYaw - frame.before.seat.hullYaw;
+    return Math.atan2(Math.sin(delta), Math.cos(delta));
+  };
+  for (const key of ["KeyA", "ArrowLeft", "ArrowUp"]) f.key(key);
+  const mounted = f.frameAt(50);
+  assertFrame(mounted);
+  assert.ok(turn(mounted) > 0, "the real owner turns before the first mount");
+  assert.equal(f.player.vehicleType, "boat");
+  near(mounted.after.player.yaw, mounted.before.player.yaw + 1.6 * mounted.dt);
+  near(mounted.after.player.pitch, mounted.before.player.pitch + 1.3 * mounted.dt);
+
+  const turning = f.frameAt(100);
+  assertFrame(turning);
+  assert.ok(turn(turning) > 0);
+  const yaw = turning.before.player.yaw + turn(turning) + 1.6 * turning.dt;
+  near(turning.after.player.yaw, yaw);
+  near(turning.after.player.pitch, turning.before.player.pitch + 1.3 * turning.dt);
+  const consumed = one(turning, "player");
+  assert.deepEqual(consumed.after.boats, consumed.before.boats,
+    "native Player consumption cannot advance hull physics");
+  for (const name of ["target", "use", "projectiles", "environment", "player-render", "draw"])
+    near(one(turning, name).before.player.yaw, yaw);
+  const beforeRepeat = f.read();
+  assert.equal(f.game.applyVehiclePose(), true);
+  near(f.player.yaw, yaw);
+  near(f.player.pitch, beforeRepeat.player.pitch);
+  assert.deepEqual(f.boats.serialize(), beforeRepeat.boats);
+  assert.equal(f.player.poseRevision, beforeRepeat.player.poseRevision + 1);
+
+  f.game.overlayChanged(true);
+  const coast = f.frameAt(150);
+  assertFrame(coast, { active: false });
+  assert.ok(turn(coast) > 0, "real angular inertia continues without input");
+  assert.deepEqual(one(coast, "boat-tick").args[1].controls, {
+    player: { forward: 0, turn: 0, dismount: false },
+  });
+  near(coast.after.player.yaw, coast.before.player.yaw + turn(coast));
+  near(coast.after.player.pitch, coast.before.player.pitch);
+
+  f.game.paused = true;
+  const paused = f.frameAt(1150);
+  assertFrame(paused, { active: false, simulating: false });
+  assert.equal(turn(paused), 0);
+  near(paused.after.player.yaw, paused.before.player.yaw);
+  near(paused.after.player.pitch, paused.before.player.pitch);
+  assert.deepEqual(paused.after.boats, paused.before.boats);
+  assert.deepEqual(f.world.serialize(), retained.world);
+  assert.deepEqual([...f.world.chunks.keys()], retained.columns);
+  assert.equal(f.coordinator.budget.totalBytes, retained.bytes);
+  for (const key of ["slots", "offhand", "equipment", "experience"])
+    assert.deepEqual(f.gameplay.serialize()[key], retained.inventory[key]);
+});
