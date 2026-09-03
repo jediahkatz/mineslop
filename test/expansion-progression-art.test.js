@@ -172,7 +172,28 @@ test("progression material faces are deterministic opaque full-tile replacements
   assert.equal(images.size, PROGRESSION_MATERIAL_KEYS.length);
 });
 
-test("ancient debris has continuous side strata and a distinct cut end; quartz stone stays pale and quiet", () => {
+test("unrelated progression items and quartz material retain their pre-refinement pixel fingerprints", () => {
+  // Recorded before the ore/debris refinement; these are scope guards, not
+  // aesthetic approvals or reference snapshots of the changed debris art.
+  const fingerprints = {
+    quartz: "228e02923930e0cd53c81d142cbbb811569420ce8608fc169c2d3fe716030af9",
+    gold_nugget: "53046acaa2b31a69c4d97473f6706085d696c48888d234fc772c1b49675d4d49",
+    netherite_scrap: "8cd837ce1a3d6b29bd6f81b85a55f077a20d52cd2b2eab6682849fe9664e1b5a",
+    netherite_ingot: "a66c4fb60c107e58e07803e5e447bfb8455efa66008b6658f68bc17e51073c08",
+    prismarine_shard: "f16032e97a72f7a956e5fc74cc4d5d8889e0ef1693ece8e36f100cf57ad9e4df",
+    prismarine_crystals: "49e5b0d967624817b85bf606737b8906f363c6493602d0e5dd40960c2ebdd935",
+  };
+  assert.deepEqual(PROGRESSION_ITEM_KEYS, Object.keys(fingerprints));
+  for (const [kind, expected] of Object.entries(fingerprints))
+    assert.equal(digest(render(paintProgressionItem, { kind })), expected, kind);
+  for (const face of PROGRESSION_MATERIAL_FACES)
+    assert.equal(
+      digest(render(paintProgressionMaterial, { kind: "quartz_block", face })),
+      "7f89c3e63cae6c0c333dd02a189ad07083b60e49a3d912b66f83ac9c2b2ad60a"
+    );
+});
+
+test("ancient debris keeps interrupted plate edges and a distinct cut end; quartz stays pale and quiet", () => {
   const side = render(paintProgressionMaterial, { kind: "ancient_debris" });
   const top = render(paintProgressionMaterial, {
     kind: "ancient_debris",
@@ -184,12 +205,18 @@ test("ancient debris has continuous side strata and a distinct cut end; quartz s
   });
   assert.notDeepEqual(side, top);
   assert.deepEqual(top, bottom);
-  for (const y of [3, 8, 14])
-    assert.deepEqual(
-      pixel(side, 0, y),
-      pixel(side, 15, y),
-      "layer continues across tile edges"
+  // The former continuous-band assertion enshrined the wooden-rail cue.
+  // Bound the exposed cut edges without prescribing a new exact silhouette.
+  for (const pixels of [side, top]) {
+    const edges = Uint8Array.from({ length: COUNT }, (_, at) =>
+      Number(brightness(pixels.subarray(at * 4, at * 4 + 3)) >= 125)
     );
+    const exposed = edges.filter(Boolean).length;
+    assert.ok(exposed >= 8 && exposed <= 36, "sparse exposed mineral edges");
+    for (const group of components(edges))
+      assert.ok(group.length <= 8, "no uninterrupted bright cross-tile rail");
+    assert.ok(meanBrightness(pixels) < 120, "retain the brown geological body");
+  }
   const stone = render(paintProgressionMaterial, { kind: "quartz_block" });
   assert.ok(meanBrightness(stone) > meanBrightness(side) + 50);
   for (let channel = 0; channel < 3; channel++) {

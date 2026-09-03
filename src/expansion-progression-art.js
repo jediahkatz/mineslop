@@ -14,12 +14,12 @@ const NETHERITE = [
   "#aa927c",
 ];
 const DEBRIS = [
-  "#342f2d",
-  "#493d37",
-  "#5f4f44",
-  "#796858",
-  "#96846d",
-  "#b09b80",
+  "#342e2e",
+  "#493e3a",
+  "#60504a",
+  "#78665b",
+  "#948478",
+  "#ac9f93",
 ];
 
 // Original mineral silhouettes, independent of equipment tiers and registries.
@@ -154,71 +154,37 @@ function supported(options, keys, fields) {
   );
 }
 
-function stroke(p, points, color, width = 1) {
-  for (let i = 1; i < points.length; i++)
-    p.line(...points[i - 1], ...points[i], color, width);
-}
-
 function paintAncientDebris(p, face) {
   p.field(DEBRIS.slice(1, 4), 983, 4, 6);
-  if (face === "side") {
-    const layers = [
-      [
-        [0, 3],
-        [5, 3],
-        [7, 2],
-        [12, 2],
-        [15, 3],
-      ],
-      [
-        [0, 8],
-        [4, 8],
-        [6, 9],
-        [11, 9],
-        [13, 7],
-        [15, 8],
-      ],
-      [
-        [0, 14],
-        [3, 14],
-        [6, 13],
-        [10, 13],
-        [12, 14],
-        [15, 14],
-      ],
-    ];
-    for (const layer of layers) {
-      stroke(p, layer, DEBRIS[0], 3);
-      stroke(p, layer, DEBRIS[2], 2);
-      stroke(p, layer, DEBRIS[4]);
-    }
-    p.stamp(2, 5, [".54.", "4321", ".10."], DEBRIS);
-    p.stamp(10, 10, ["543.", "2210"], DEBRIS);
-  } else {
-    // A fractured cross-section with flat lamellae, not concentric log rings.
-    p.stamp(
-      1,
-      1,
-      ["..444443..", ".432222231", "4322222231", "3222222210", ".21111110."],
-      DEBRIS
-    );
-    p.stamp(
-      6,
-      9,
-      ["..44443..", ".43222231", "432222221", "322222210", ".2111110."],
-      DEBRIS
-    );
-    const fracture = [
-      [0, 12],
-      [5, 8],
-      [10, 8],
-      [15, 4],
-    ];
-    stroke(p, fracture, DEBRIS[0], 2);
-    stroke(p, fracture, DEBRIS[3]);
-    p.stamp(2, 7, [".54.", "4321", ".10."], DEBRIS);
-    p.line(5, 3, 7, 3, DEBRIS[5]);
-  }
+  // Compressed, chipped plates end inside the brown matrix. Short cut edges
+  // replace continuous tan rails; the end face has no enclosing grain rings.
+  const plates =
+    face === "side"
+      ? [
+          [-2, 1, ["..43...", "432221.", "221.10.", ".10...."]],
+          [7, 0, ["...43..", ".45321.", "3222.10", ".110..."]],
+          [2, 6, [".43.....", "43222.3.", "22112210", "..110..."]],
+          [11, 5, [".54..", "43221", "21.10"]],
+          [-1, 12, ["..43..", ".43221", "322.10", ".110.."]],
+          [8, 11, ["...43..", ".43221.", "322.210", ".211.1.", "..10..."]],
+        ]
+      : [
+          [
+            1,
+            1,
+            ["..43..", ".4321.", "432221", "322.10", ".21...", "..0..."],
+          ],
+          [10, 2, [".34..", "23251", "12.21", ".10.."]],
+          [
+            4,
+            8,
+            ["...3...", ".24321.", "432.210", "221.21.", ".110...", "..0...."],
+          ],
+          [12, 10, ["..43.", ".3221", "231.0", ".210.", "..1.."]],
+          [-2, 6, [".32..", "43210", "21..."]],
+          [6, -1, [".43.", "3210", "10.."]],
+        ];
+  for (const [x, y, shape] of plates) p.stamp(x, y, shape, DEBRIS, true);
 }
 
 function paintQuartzBlock(p) {
