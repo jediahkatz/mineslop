@@ -1,6 +1,9 @@
+import { experienceProgress } from "../experience-feedback.js";
+import { isValidExperience } from "../experience.js";
 import { stackIdentity } from "../item-stack-data.js";
 import { createCombatIndicator } from "./combat-indicator.js";
 import { element, setText } from "./dom.js";
+import { createExperienceFeedback } from "./experience-feedback.js";
 import { createFpsIndicator } from "./fps-indicator.js";
 import { createHotbar } from "./hotbar.js";
 import { createHurtIndicator } from "./hurt-indicator.js";
@@ -14,6 +17,9 @@ export function createHUD(root, { listen, onSelect }) {
   const combat = createCombatIndicator($(".game-hud"));
   const hurt = createHurtIndicator($(".game-hud"));
   const compactFps = createFpsIndicator($(".game-hud"));
+  const experienceFeedback = createExperienceFeedback(
+    $(".game-hud"), $(".experience-meter")
+  );
   const debugFps = $(".fps-indicator");
   const hotbar = createHotbar($(".hotbar"), { listen, onSelect });
   const offhand = createStackSlot({
@@ -39,6 +45,7 @@ export function createHUD(root, { listen, onSelect }) {
   }
   let selectedSignature = "";
   let selectedTimer;
+  let experienceVisible = false;
 
   function updateGameplay(state, hasSnapshot) {
     hotbar.update(state);
@@ -62,8 +69,9 @@ export function createHUD(root, { listen, onSelect }) {
     $(".hud-offhand").hidden = !state.offhand;
     const creative = state.mode === "creative";
     $(".survival-vitals").hidden = creative || !hasSnapshot;
-    $(".experience-meter").hidden =
-      creative || !hasSnapshot || !state.experience;
+    experienceVisible = !creative && hasSnapshot && Boolean(state.experience) && !state.dead;
+    $(".experience-meter").hidden = !experienceVisible;
+    if (!experienceVisible) experienceFeedback.update();
     if (state.experience) {
       const progress = clamp(state.experience.progress);
       const level = Math.max(
@@ -79,7 +87,14 @@ export function createHUD(root, { listen, onSelect }) {
         "aria-label",
         `Experience level ${level}`
       );
-      setText($(".experience-level"), level || "");
+      const label = isValidExperience(state.experience.total)
+        ? experienceProgress(state.experience.total).label
+        : `Level ${level} · ${Math.round(progress * 100)}% to level ${level + 1}`;
+      $(".experience-track").setAttribute("aria-valuetext", label);
+      $(".experience-meter").setAttribute(
+        "title", `${label}. Spend levels at an enchanting table or anvil.`
+      );
+      setText($(".experience-level"), level);
     }
     if (creative || !hasSnapshot) return;
     for (const name of ["health", "hunger", "armor", "air"]) {
@@ -120,7 +135,10 @@ export function createHUD(root, { listen, onSelect }) {
       blockName,
       miningProgress,
       spawnGrace,
+      experienceFeedback: feedback,
     } = {}) {
+      if (feedback !== undefined)
+        experienceFeedback.update(experienceVisible ? feedback : {});
       if (spawnGrace !== undefined) {
         const seconds = Number.isFinite(spawnGrace)
           ? Math.max(0, Math.ceil(spawnGrace))
@@ -175,6 +193,7 @@ export function createHUD(root, { listen, onSelect }) {
       combat.dispose();
       hurt.dispose();
       compactFps.dispose();
+      experienceFeedback.dispose();
     },
   };
 }
