@@ -3,10 +3,37 @@
 Checkout: `/tmp/mineslop-development`.
 Branch: `cursor/mineslop-distance-horses-audio-351d`.
 
-This is an **unexecuted integration delivery for the parent's checkpoint**.
-No tests, builds, servers, installs, staging, commits or pushes were performed
-by this worker. Existing movement diagnostics and other workers' changes are
-not part of this delivery and remain untouched.
+The coherent integration is checkpointed at
+`c6bf9a63048828333de6cab56d10c1342e2ace4e`. Existing movement diagnostics and
+concurrent art changes are excluded and remain untouched. Verification is in
+progress; this document does not constitute release clearance.
+
+## Runtime verification — September 3, 2026
+
+The initial checkpoint ran in an isolated worktree with the unchanged lockfile:
+
+- Ecology owner contract: **43/43 pass**.
+- Existing Game/vehicle/input/travel/progression regressions: **180/180 pass**.
+- Existing horse/ecology/Wildlife suites: **245/250 pass**. The five failures
+  are the already-failing native ecology fixtures (`World loading was
+  cancelled`), also present before this integration.
+- New Game host suites: **36 pass, three failures**. Egg mining returns no
+  prepared plan; the owned-bow observer/replay case throws; the archive suite
+  completes six cases before its saved-rider restoration test process reaches
+  the heap limit. The latter is not yet evidence of a production save failure:
+  its test instrumentation and assertions also need investigation.
+- Production build succeeds. Both Pages-path checks pass, including real
+  WebGL2, the terrain worker, IndexedDB save/reload, camera and control settings.
+
+The native Game suite initially exposed a strict-data boundary error:
+`Trading.jobsiteOwnerAt` received a rich block hit instead of `{ x, y, z }`.
+Checkpoint `def3370d2a94dbfe665c214986074ff5e92c03ad` projects the coordinates
+without weakening the Trading validator. The new ordinary-mining regression
+passes, and **all five native Game cases pass** after the fix: ocean admission,
+finite villager trading/jobsite removal, villager death and V4/V5 marker reads.
+
+The remaining Game-host failures, full-suite comparison and manual riding/
+Survival acceptance are still open. Do not publish this batch as verified.
 
 ## Completed ecology owner contract
 
@@ -14,8 +41,8 @@ The previously missing owner APIs are implemented in this delivery. Game now
 has the concrete constructor → one Wildlife load → adoption → Horses bind →
 Ecology activation path, including an empty new-world horse sidecar. No
 always-successful owner substitutes or fallback second base loads are used.
-This removes the known missing-API activation blocker; execution and acceptance
-still belong to the parent after the coherent checkpoint.
+This removes the missing-API activation blocker. The owner-contract tests pass;
+the remaining runtime acceptance gates are recorded above.
 
 - `normalizeEcologyServicesSnapshot(value, context, options = {})` in
   `src/ecology-save.js` validates optional data-only `{ horses }`. Explicit
@@ -163,7 +190,8 @@ single base load; sequential/composed mount races; saddle conservation and
 session races; held Space/input reset/frame order; corpse/late exit and observer
 ownership; source-first inspection/departure/rollback; death/bed/pearl handoff;
 shared ecology, atomic feeds/eggs/jobsites/trades and bounded native markers.
-Every test remains unrun pending the parent checkpoint.
+The executed groups and outstanding failures are recorded above. Use the
+commands below against a frozen checkpoint when repeating them.
 
 `test/game-mob-integration-fixture.js` uses actual Game methods, World, Player,
 Wildlife, vehicle, progression, Ecology, XP, drops and coordinator ownership.
@@ -209,8 +237,8 @@ The previously named parent fixture gaps are aligned in this delivery:
 
 ## Exact post-checkpoint commands
 
-Run only after the parent checkpoints this coherent source, including the
-completed owner APIs and fixture alignments. All commands use
+Run against coherent checkpointed source, including the completed owner APIs
+and fixture alignments. All commands use
 `/tmp/mineslop-development` as their working directory.
 Use the parent's immutable-checkpoint workflow; do not run while another worker
 is modifying the same source. No dependency installation is required by this
