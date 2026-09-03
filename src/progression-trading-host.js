@@ -70,10 +70,10 @@ export class ProgressionTradingHost {
     const profession = assignment.profession;
     if (!TRADING_PROFESSIONS.includes(profession) || !assignment.jobSite) return null;
     const kind = TRADING_JOBSITES[profession];
-    const { position } = assignment.jobSite;
+    const { position: jobPosition } = assignment.jobSite;
     const site = {
       id: assignment.jobSite.id, kind, dimension: assignment.dimension,
-      position: { x: Math.floor(position.x), y: Math.floor(position.y), z: Math.floor(position.z) },
+      position: { x: Math.floor(jobPosition.x), y: Math.floor(jobPosition.y), z: Math.floor(jobPosition.z) },
     };
     const reads = progressionReadSet(this.world, this.trading.context);
     if (!reads || reads.read(site.position.x, site.position.y, site.position.z)?.id !== BLOCK[kind])
