@@ -6,6 +6,7 @@ import { placeFluidBlock } from "./game-fluid-block-actions.js";
 import { canShieldBlock, ItemUse, itemUseKind } from "./item-use.js";
 import { stackIdentity } from "./item-stack-data.js";
 import { getItem, ITEM } from "./items.js";
+import { progressionStationKind } from "./progression-station-state.js";
 import { raycast } from "./world.js";
 import {
   bucketPourChange,
@@ -96,7 +97,10 @@ export class GameUseActions {
         return;
       }
       if (this.use.advance(dt)) {
-        if (game.eat(this.use.hand)) this.use.completeFoodCycle();
+        if (this.use.kind === "drink") {
+          if (!game.progressionIntegration?.completeDrink(this.use)?.ok)
+            this.use.cancel();
+        } else if (game.eat(this.use.hand)) this.use.completeFoodCycle();
         else this.use.cancel();
       }
     } else if (
@@ -131,7 +135,7 @@ export class GameUseActions {
         if (building.message) game.ui.toast(building.message);
         return building.ok;
       }
-      if (interactiveBlocks.has(game.target.id))
+      if (interactiveBlocks.has(game.target.id) || progressionStationKind(game.target.id))
         return game.openStation(game.target);
     }
 
@@ -153,6 +157,15 @@ export class GameUseActions {
       if (!stack || stack.count < 1) continue;
       const vehicle = game.vehicleServices?.useHand(hand, { held });
       if (vehicle != null) return this.finishVehicleAction(vehicle);
+      const item = getItem(stack.id);
+      if (game.progressionIntegration && (item?.emptyBottle || item?.potionForm === "splash")) {
+        const result = item.emptyBottle
+          ? game.progressionIntegration.fillBottle(hand)
+          : game.progressionIntegration.throwPotion(hand);
+        if (result.reason === "inventory_full")
+          game.ui.toast("Make room for the filled bottle");
+        return result.ok === true;
+      }
       if (this.useHand(hand, stack, held)) return true;
     }
     return false;
@@ -184,7 +197,7 @@ export class GameUseActions {
     if (kind) {
       if (held) this.use.start(kind, hand, stack, handRevision);
       else if (game.player.inputMode === "remote")
-        game.ui.toast("Remote controls: hold V to eat, draw a bow or block");
+        game.ui.toast("Remote controls: hold V to eat, drink, draw a bow or block");
       return true;
     }
     if (equipmentItems.has(item.id)) {

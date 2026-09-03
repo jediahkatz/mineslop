@@ -118,7 +118,8 @@ export function bindGameControls(game) {
     if (event.code === "Escape" && game.started) {
       event.preventDefault();
       if (event.repeat || game.building || game.gameplay.dead) return;
-      if (game.containerUI?.isOpen) game.containerUI.close();
+      if (game.progressionIntegration?.isOpen) game.progressionIntegration.close("escape");
+      else if (game.containerUI?.isOpen) game.containerUI.close();
       else if (game.overlayOpen) {
         void game.ui.closeInventory();
         game.ui.closeAtlas?.();
@@ -142,14 +143,15 @@ export function bindGameControls(game) {
     if (event.code === "KeyE") {
       event.preventDefault();
       if (event.repeat) return;
-      if (game.containerUI?.isOpen) game.containerUI.close();
+      if (game.progressionIntegration?.isOpen) game.progressionIntegration.close("inventory-key");
+      else if (game.containerUI?.isOpen) game.containerUI.close();
       else game.ui.toggleInventory();
       return;
     }
     // Mineslop extensions: B opens the atlas; P saves the local world.
     if (event.code === "KeyB") {
       event.preventDefault();
-      if (event.repeat || game.containerUI?.isOpen) return;
+      if (event.repeat || game.containerUI?.isOpen || game.progressionIntegration?.isOpen) return;
       game.ui.toggleAtlas?.();
       return;
     }

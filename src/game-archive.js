@@ -41,6 +41,7 @@ export class GameArchive {
       ...game.buildingServices?.serialize(),
       ...game.fluidServices?.serialize(),
       ...game.projectileServices?.serialize(),
+      ...game.progressionIntegration?.serialize(),
       ...game.vehicleServices?.serialize(),
       ...game.explorationServices?.serialize(),
       quality: game.quality,

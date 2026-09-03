@@ -4,6 +4,7 @@ import { normalizeExplorationServicesSnapshot } from "./exploration-host-state.j
 import { normalizeFuseSnapshot } from "./fuses.js";
 import { normalizeBuildingServicesSnapshot } from "./game-building-services.js";
 import { normalizeFluidServicesSnapshot } from "./game-fluid-state.js";
+import { normalizeProgressionArchive } from "./game-progression-state.js";
 import { normalizeProjectileServicesSnapshot } from "./game-projectile-state.js";
 import { normalizeVehicleServicesSnapshot } from "./game-vehicle-state.js";
 import { Gameplay } from "./gameplay.js";
@@ -121,6 +122,7 @@ export function normalizeWorldComponents(saved, { normalizers = {} } = {}) {
   const descriptors = Object.getOwnPropertyDescriptors(saved);
   delete descriptors.exploration;
   delete descriptors.playerProjectiles;
+  delete descriptors.progression;
   delete descriptors.boats;
   delete descriptors.fishing;
   const input = structuredClone(Object.defineProperties({}, descriptors));
@@ -144,6 +146,9 @@ export function normalizeWorldComponents(saved, { normalizers = {} } = {}) {
   const projectiles = normalizeProjectileServicesSnapshot(saved, context);
   if (!projectiles) throw new Error("Invalid saved player projectiles");
   Object.assign(normalized, projectiles);
+  const progression = normalizeProgressionArchive(saved, context);
+  if (!progression) throw new Error("Invalid saved progression data");
+  Object.assign(normalized, progression);
   const vehicles = normalizeVehicleServicesSnapshot(saved, context);
   if (!vehicles) throw new Error("Invalid saved boats or fishing");
   Object.assign(normalized, vehicles);

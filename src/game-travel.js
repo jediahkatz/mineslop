@@ -198,6 +198,11 @@ export class GameTravel {
         ok: false,
         message: "Respawn owners were replaced before inspection",
       };
+    const progression = game.progressionIntegration?.beforeTravel();
+    if (progression && !progression.ok) {
+      if (!game.gameplay.dead) game.ui.showMenu?.("pause");
+      return { ok: false, message: "Could not safely preserve progression before travel." };
+    }
     game.projectileServices?.cancel("travel");
     game.building = true;
     game.overlayOpen = false;
@@ -263,6 +268,7 @@ export class GameTravel {
         observe(() =>
           game.projectileServices?.cancel("respawn", { advanceLife: true })
         );
+        observe(() => game.progressionIntegration?.onRespawn());
         const closed = observe(() =>
           game.gameplay.inventoryAction?.(
             { type: "close" },

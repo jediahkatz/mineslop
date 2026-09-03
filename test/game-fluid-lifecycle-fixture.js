@@ -466,6 +466,7 @@ export function authoredPrepareWorld(t) {
 }
 
 export function disposeFluidStage(staged) {
+  staged.progressionIntegration?.dispose();
   for (const name of [
     "vehicleServices",
     "projectileServices",

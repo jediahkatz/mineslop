@@ -5,6 +5,7 @@
 @import "./ui/hurt-indicator.css";
 @import "./ui/inventory.css";
 @import "./ui/survival.css";
+@import "./ui/progression.css";
 
 @font-face {
   font-family: "Voxelcraft";

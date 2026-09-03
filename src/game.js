@@ -20,6 +20,7 @@ import { GameExplorationServices } from "./game-exploration-services.js";
 import { GameFluidServices } from "./game-fluid-services.js";
 import { GameHarvestActions } from "./game-harvest-actions.js";
 import { GameInventoryActions } from "./game-inventory-actions.js";
+import { stageProgressionServices } from "./game-progression-integration.js";
 import { GameProjectileServices } from "./game-projectile-services.js";
 import { GameTravel } from "./game-travel.js";
 import { GameUseActions, physicalEye } from "./game-use-actions.js";
@@ -203,6 +204,7 @@ export class VoxelGame {
         if (this.gameplay !== gameplay) return;
         this.vehicleServices?.onDeath();
         this.projectileServices?.cancel("death", { advanceLife: true });
+        this.progressionIntegration?.onDeath();
         this.resetActions();
         if (this.player) {
           this.player.enabled = false;
@@ -322,6 +324,15 @@ export class VoxelGame {
         allowOverBudget: saved != null,
       });
       owners.push(projectileServices);
+      const progressionIntegration = stageProgressionServices({
+        world: staged.world,
+        gameplay,
+        context,
+        projectileServices,
+        saved,
+        allowOverBudget: saved != null,
+      });
+      owners.push(progressionIntegration);
       const vehicleServices = await stageVehicleServices({
         world: staged.world,
         gameplay,
@@ -355,11 +366,12 @@ export class VoxelGame {
         buildingServices,
         fluidServices,
         projectileServices,
+        progressionIntegration,
         vehicleServices,
         explorationServices,
       };
     } catch (error) {
-      for (const owner of owners) {
+      for (const owner of owners.reverse()) {
         try {
           owner.dispose?.();
         } catch {
@@ -407,6 +419,8 @@ export class VoxelGame {
     // Required terrain and a collision-checked pose exist before live teardown.
     this.unbindWorldEvents?.();
     this.unbindWorldEvents = null;
+    this.progressionIntegration?.dispose();
+    this.progressionIntegration = this.progressionServices = null;
     this.vehicleServices?.dispose();
     this.vehicleServices = this.boats = this.fishing = null;
     this.explorationServices?.dispose();
@@ -503,9 +517,9 @@ export class VoxelGame {
     this.experienceOrbs = new ExperienceOrbs(this.graphics.scene, this.world, {
       context: this.worldContext,
       coordinator: this.coordinator,
-      prepareCollect: (amount) => this.gameplay.prepareExperience(amount),
-      onCollect: (amount) => {
-        this.effects.sound("xp", amount);
+      prepareCollect: (amount) =>
+        this.progressionIntegration?.prepareExperience(amount) ?? null,
+      onCollect: () => {
         this.scheduleSave();
         return true;
       },
@@ -541,6 +555,13 @@ export class VoxelGame {
       staged.projectileServices.dispose();
       throw new Error("The staged projectile services could not be activated");
     }
+    const progression = staged.progressionIntegration.activate(this, {
+      root: document.querySelector("#ui"),
+      onSessionChange: (open) => this.overlayChanged(open),
+      getEcologyServices: () => this.ecologyServices,
+    });
+    if (!progression.ok)
+      throw new Error(`Progression activation failed: ${progression.reason}`);
     if (
       staged.explorationServices &&
       !staged.explorationServices.activate(this).ok
@@ -693,6 +714,12 @@ export class VoxelGame {
   }
 
   openStation(hit) {
+    const progression = this.progressionIntegration?.openStation(hit);
+    if (progression?.handled) {
+      if (!progression.ok)
+        this.ui.toast(progression.message ?? "This station is not available right now");
+      return progression.ok;
+    }
     this.inventoryActions ??= new GameInventoryActions(this);
     return this.inventoryActions.openStation(hit);
   }
@@ -761,6 +788,8 @@ export class VoxelGame {
     this.closingScreens = true;
     this.screenClose = (async () => {
       try {
+        if (this.progressionIntegration?.close("screen-change")?.ok === false)
+          return false;
         if (this.containerUI?.isOpen && this.containerUI.close() === false)
           return false;
         if ((await this.ui?.closeInventory()) === false) return false;
@@ -1078,7 +1107,12 @@ export class VoxelGame {
     const retained = this.experienceOrbs?.spawn(amount, position, {
       pickupDelay: 0.2,
     });
-    if (retained !== true) this.gameplay.addExperience(amount);
+    if (retained !== true) {
+      const accepted = this.progressionIntegration
+        ? this.progressionIntegration.earnExperience(amount).ok
+        : this.gameplay.addExperience(amount);
+      if (!accepted) return false;
+    }
     this.scheduleSave();
     return true;
   }
@@ -1288,6 +1322,7 @@ export class VoxelGame {
     }
     this.useActions.update(this.active ? dt : 0);
     this.projectileServices?.frame(dt, { simulating: this.simulating });
+    this.progressionIntegration?.frame(dt, { simulating: this.simulating });
     this.ui.updateCombat?.(
       this.combatFeedback.view({
         now: this.elapsed,

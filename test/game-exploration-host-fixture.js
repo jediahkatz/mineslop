@@ -100,6 +100,7 @@ export function authorStageTerrain(t) {
 /** Includes the independent projectile host and releases dependents first. */
 export function disposeExplorationStage(staged) {
   for (const key of [
+    "progressionIntegration",
     "explorationServices",
     "vehicleServices",
     "projectileServices",
