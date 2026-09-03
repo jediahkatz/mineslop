@@ -4,11 +4,13 @@ import * as THREE from "three";
 import { BLOCKS } from "../src/blocks.js";
 import { Effects } from "../src/effects.js";
 import { usesHeldSprite } from "../src/held-item.js";
+import { createHeldMotion } from "../src/held-motion.js";
 import { ITEM, ITEMS } from "../src/items.js";
 import { tileFor } from "../src/textures.js";
 
 test("held glass is translucent and switching back restores opaque rendering", () => {
   const effects = {
+    motion: createHeldMotion(),
     handMaterial: new THREE.MeshLambertMaterial(),
     handGeometry: new THREE.BoxGeometry(),
     atlas: { uvFor: () => [0.25, 0.25, 0.5, 0.5] },
@@ -37,6 +39,7 @@ test("particle instances retain sub-block detail near the large-world boundary",
   const camera = new THREE.PerspectiveCamera();
   camera.position.set(29_000_000, 40, 29_000_000);
   const effects = {
+    motion: createHeldMotion(),
     swing: 0,
     camera,
     mesh,
@@ -71,6 +74,7 @@ test("survival food, tools, and empty hands never enter the block texture atlas"
   const geometry = new THREE.BoxGeometry();
   const texture = new THREE.Texture();
   const effects = {
+    motion: createHeldMotion(),
     handMaterial: material,
     handGeometry: geometry,
     held: new THREE.Object3D(),
@@ -108,6 +112,7 @@ test("survival food, tools, and empty hands never enter the block texture atlas"
 test("every inventory item can be equipped using its correct rendering path", () => {
   const texture = new THREE.Texture();
   const effects = {
+    motion: createHeldMotion(),
     handMaterial: new THREE.MeshLambertMaterial(),
     handGeometry: new THREE.BoxGeometry(),
     held: new THREE.Object3D(),
