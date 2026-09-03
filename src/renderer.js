@@ -1,8 +1,10 @@
 import * as THREE from "three";
 import { Atmosphere } from "./atmosphere.js";
 import { FLUID, isWaterFluid } from "./block-state.js";
+import { CaveDaylight } from "./cave-daylight.js";
 import { buildChunkGeometry } from "./chunk-mesh.js";
 import { fluidAtPoint } from "./collision.js";
+import { DaylightMaterial } from "./daylight-material.js";
 import { DistantTerrain } from "./distant-terrain.js";
 import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
 import {
@@ -28,6 +30,7 @@ import {
   sectionColumnCovered,
   usesSectionMeshing,
 } from "./section-renderer.js";
+import { SkyColumns } from "./sky-columns.js";
 import { CHUNK_SIZE, WORLD_MAX, WORLD_MIN } from "./terrain.js";
 import { createAtlas } from "./textures.js";
 
@@ -512,7 +515,14 @@ export class GameRenderer {
     const position = playerPosition || this.camera.position;
     this.waterTime.value = time;
     this.syncVisibleChunks();
+    this.updateDaylight();
     this.atmosphere.update(dt, time, position, this.camera);
+    this.daylightMaterial?.update(this.atmosphere, this.skyAccess);
+    if (
+      this.skyAccess &&
+      this.atmosphere.sunlight.castShadow !== this.naturalShadowsEnabled()
+    )
+      this.updateLightingMode();
     this.updateShadows(time, position);
     this.updateLocalLights(time, position);
     const spec = geometryWorldSpec(this.world);
@@ -520,8 +530,10 @@ export class GameRenderer {
     const underwater = isWaterFluid(medium);
     const inLava = medium === FLUID.LAVA_SOURCE;
     const outdoors =
-      this.biome?.category !== "cave" ||
-      !hasTerrainRoof(this.world, this.camera.position);
+      this.world.dimension === "overworld" && this.skyAccess
+        ? this.skyAccess.known && this.skyAccess.skyVisible
+        : this.biome?.category !== "cave" ||
+          !hasTerrainRoof(this.world, this.camera.position);
     const coverage = this.detailCoverage();
     const nearFog = this.streamingFogDistance(this.camera.position, coverage);
     this.distant.update(this.camera.position, {
@@ -532,7 +544,9 @@ export class GameRenderer {
       coverage,
       budgetMs: this.quality === "high" ? 2 : 1,
     });
-    const horizonVisible = this.distant.ready && !underwater && !inLava;
+    const horizonVisible =
+      this.distant.ready && !underwater && !inLava &&
+      this.atmosphere.cameraMediumKnown !== false;
     this.distant.group.visible = horizonVisible;
     const targetFar = horizonVisible
       ? Math.max(nearFog, this.distant.fogDistance)
@@ -608,6 +622,39 @@ export class GameRenderer {
     // Visibility was fixed before taking the coverage snapshot. Do not cull
     // another detail row by horizontal fog after cutting its fallback away;
     // Three's mesh frustum culling still handles off-screen geometry.
+  }
+
+  updateDaylight() {
+    if (!this.atmosphere.setSkyAccess) return;
+    if (!this.skyColumns) {
+      this.skyColumns = new SkyColumns();
+      this.caveDaylight = new CaveDaylight(this.skyColumns);
+      this.daylightMaterial = new DaylightMaterial(this.skyColumns);
+      this.daylightPosition = new THREE.Vector3();
+      this.daylightForward = new THREE.Vector3();
+      for (const material of Object.values(this.materials))
+        this.daylightMaterial.install(material);
+      this.distant?.setDaylight?.(this.daylightMaterial);
+    }
+    this.camera.getWorldPosition(this.daylightPosition);
+    this.camera.getWorldDirection(this.daylightForward);
+    this.skyColumns.begin(this.world);
+    if (this.world.dimension === "overworld")
+      this.skyColumns.updateField(this.daylightPosition, this.renderRadius);
+    this.skyAccess = this.caveDaylight.sample(
+      this.world,
+      this.daylightPosition,
+      this.daylightForward
+    );
+    this.atmosphere.setSkyAccess(
+      this.skyAccess,
+      this.world.dimension === "overworld"
+        ? this.world.getBiome?.(
+            Math.floor(this.daylightPosition.x),
+            Math.floor(this.daylightPosition.z)
+          )
+        : undefined
+    );
   }
 
   updateLocalLights(time, position) {
@@ -716,6 +763,7 @@ export class GameRenderer {
       this.camera.position,
       this.camera
     );
+    this.daylightMaterial?.update(this.atmosphere, this.skyAccess);
   }
 
   setFullbrightInspection(enabled) {
@@ -725,18 +773,24 @@ export class GameRenderer {
     this.updateLightingMode();
     const position = this.atmosphere.sunlight.target.position;
     this.atmosphere.update(0, this.waterTime.value, position, this.camera);
+    this.daylightMaterial?.update(this.atmosphere, this.skyAccess);
     this.updateLocalLights(this.waterTime.value, position);
     return next;
+  }
+
+  naturalShadowsEnabled() {
+    return (
+      !this.fullbrightInspection &&
+      QUALITY[this.quality].shadows &&
+      this.atmosphere.dimension === "overworld" &&
+      (this.skyAccess ? this.skyAccess.exposure > 0 : !this.atmosphere.underground)
+    );
   }
 
   updateLightingMode() {
     const settings = QUALITY[this.quality];
     const sunlight = this.atmosphere.sunlight;
-    const shadows =
-      !this.fullbrightInspection &&
-      settings.shadows &&
-      this.atmosphere.dimension === "overworld" &&
-      !this.atmosphere.underground;
+    const shadows = this.naturalShadowsEnabled();
     if (shadows && !sunlight.castShadow) {
       this.shadowDirty = true;
       this.lastShadowTime = -Infinity;
@@ -839,6 +893,7 @@ export class GameRenderer {
   dispose() {
     clearSectionJobs(this);
     this.distant?.dispose();
+    this.skyColumns?.dispose();
     window.removeEventListener("resize", this.resizeHandler);
     for (const key of this.chunks.keys()) this.removeChunk(key);
     for (const material of Object.values(this.materials)) material.dispose();

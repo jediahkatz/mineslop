@@ -16,6 +16,8 @@ export class Atmosphere {
     this.dimension = "overworld";
     this.cloudsEnabled = true;
     this.underground = false;
+    this.skyAccess = null;
+    this.surfaceBiome = null;
     this.fullbrightInspection = false;
     this.cameraFluid = createFluidSample();
     this.cameraMediumKnown = true;
@@ -229,29 +231,20 @@ export class Atmosphere {
   }
 
   setBiome(biome) {
+    if (this.dimension !== (biome?.dimension ?? "overworld"))
+      this.skyAccess = null;
     this.dimension = biome?.dimension ?? "overworld";
     this.underground = biome?.category === "cave";
     this.waterFog.set(biome?.waterColor ?? "#448f9e");
     const fog = biome?.fogColor;
-    this.dayHorizon.set(fog ?? "#d6e1cf");
-    this.dayZenith.set("#65a6d4");
     if (this.dimension === "overworld") {
-      const temperature = THREE.MathUtils.clamp(
-        biome?.temperature ?? 0.6,
-        0,
-        1
-      );
-      this.dayZenith
-        .set("#609bd1")
-        .lerp(new THREE.Color("#79b2d4"), temperature);
-      if (biome?.category === "swamp") this.dayZenith.set("#80a7a8");
-      if (this.underground) {
-        this.dimensionHorizon.set(fog ?? "#36444d").multiplyScalar(0.12);
-        this.dimensionZenith.copy(this.dimensionHorizon).multiplyScalar(0.55);
-      }
-      this.dayGround
-        .set("#958671")
-        .lerp(new THREE.Color(biome?.grassColor ?? "#7c754a"), 0.16);
+      this.setSurfaceBiome(this.underground ? this.surfaceBiome : biome);
+      // A loaded roof can precede the HUD's cave label (or be player-built).
+      // It must not inherit a bright Nether/End backdrop after a world switch.
+      this.dimensionHorizon
+        .set((this.underground ? fog : undefined) ?? "#36444d")
+        .multiplyScalar(0.12);
+      this.dimensionZenith.copy(this.dimensionHorizon).multiplyScalar(0.55);
       this.hemi.color.copy(this.dayAmbient);
       this.hemi.groundColor.copy(this.dayGround);
     } else {
@@ -272,6 +265,30 @@ export class Atmosphere {
     if (this.underground) this.inspectionFog.set(fog ?? "#36444d");
     if (this.underground || this.dimension !== "overworld")
       this.inspectionFog.lerp(INSPECTION_FOG_LIFT, 0.25);
+  }
+
+  setSurfaceBiome(biome) {
+    this.surfaceBiome = biome ?? null;
+    const temperature = THREE.MathUtils.clamp(biome?.temperature ?? 0.6, 0, 1);
+    this.dayHorizon.set(biome?.fogColor ?? "#d6e1cf");
+    this.dayZenith.set("#609bd1").lerp(new THREE.Color("#79b2d4"), temperature);
+    if (biome?.category === "swamp") this.dayZenith.set("#80a7a8");
+    this.dayGround
+      .set("#958671")
+      .lerp(new THREE.Color(biome?.grassColor ?? "#7c754a"), 0.16);
+  }
+
+  setSkyAccess(access, surfaceBiome) {
+    this.skyAccess = access;
+    // The sky seen through an entrance belongs to the surface, not the cave's
+    // near-black fog palette. Biomes still own water and inspection palettes.
+    if (
+      this.dimension === "overworld" &&
+      surfaceBiome &&
+      surfaceBiome?.category !== "cave" &&
+      surfaceBiome !== this.surfaceBiome
+    )
+      this.setSurfaceBiome(surfaceBiome);
   }
 
   /** Render camera only: never the player's feet or unbobbed physical eye. */
@@ -303,10 +320,15 @@ export class Atmosphere {
     );
     const { daylight, warmth } = lighting;
     const uniforms = this.sky.material.uniforms;
-    const overworldSky = this.dimension === "overworld" && !this.underground;
+    const overworld = this.dimension === "overworld";
+    const exposure = this.skyAccess
+      ? THREE.MathUtils.clamp(this.skyAccess.exposure, 0, 1)
+      : Number(!this.underground);
+    const overworldSky =
+      overworld && (this.skyAccess?.skyVisible ?? !this.underground);
     this.lightDirection
       .copy(this.sunDirection)
-      .multiplyScalar(overworldSky ? lighting.keySign : 1);
+      .multiplyScalar(overworld ? lighting.keySign : 1);
     if (overworldSky) {
       uniforms.zenith.value
         .copy(this.nightZenith)
@@ -357,12 +379,12 @@ export class Atmosphere {
       .set(position.x, position.y, position.z)
       .addScaledVector(this.lightDirection, 90);
     this.sunlight.target.position.set(position.x, position.y, position.z);
-    this.sunlight.intensity = overworldSky
-      ? lighting.keyIntensity
+    this.sunlight.intensity = overworld
+      ? lighting.keyIntensity * exposure
       : this.underground
         ? 0
         : 0.35;
-    if (overworldSky) {
+    if (overworld) {
       if (lighting.keySign > 0)
         this.sunlight.color
           .copy(this.daySun)
@@ -376,8 +398,8 @@ export class Atmosphere {
         .copy(this.nightGround)
         .lerp(this.dayGround, daylight);
     } else this.sunlight.color.set("#d7c4ce");
-    this.hemi.intensity = overworldSky
-      ? lighting.hemisphereIntensity
+    this.hemi.intensity = overworld
+      ? THREE.MathUtils.lerp(0.05, lighting.hemisphereIntensity, exposure)
       : this.underground
         ? 0.05
         : 1.55;

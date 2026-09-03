@@ -127,6 +127,12 @@ export class DistantTerrain {
     return this.ready ? this._fogDistance : 0;
   }
 
+  setDaylight(lighting) {
+    lighting.install(this._terrainMaterial, true);
+    lighting.install(this._waterMaterial, true);
+    // Vegetation uses the same terrain material, including future LOD jobs.
+  }
+
   _sameIdentity(identity) {
     return (
       identity &&
