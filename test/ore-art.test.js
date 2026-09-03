@@ -15,8 +15,8 @@ import {
   tileFor,
 } from "../src/textures.js";
 
-// Pixel/dispatch guardrails only. These do not replace current-source native
-// icon, held, placed, day/shadow/night and repeated-state independent reviews.
+// Safety/scope guardrails, not fidelity approval. Current rendered art still
+// needs direct comparison with the vanilla Java 26.2 references.
 const COUNT = TEXTURE_SIZE * TEXTURE_SIZE;
 const BYTES = COUNT * 4;
 const FACES = ["side", "top", "bottom"];
@@ -39,17 +39,19 @@ const ORES = [
   { id: BLOCK.NETHER_GOLD_ORE, host: BLOCK.NETHERRACK, deposit: BLOCK.GOLD_ORE },
   { id: BLOCK.NETHER_QUARTZ_ORE, host: BLOCK.NETHERRACK, deposit: "quartz" },
 ];
-const REVIEWED_IDS = [
+const ORE_IDS = [
   14, 62, 63, 64, 65, 66, 67, 68, 1060, 1061, 1062, 1063, 1064,
   1065, 1066, 1067, 1068, 1069, 1070,
 ];
-const REFINED_MINERALS = [
+const MINERAL_IDS = [
   BLOCK.COAL_ORE,
+  BLOCK.IRON_ORE,
   BLOCK.GOLD_ORE,
   BLOCK.COPPER_ORE,
   BLOCK.DIAMOND_ORE,
   BLOCK.EMERALD_ORE,
   BLOCK.REDSTONE_ORE,
+  BLOCK.LAPIS_ORE,
 ];
 const digest = (pixels) => createHash("sha256").update(pixels).digest("hex");
 const brightness = (color) => (color[0] + color[1] + color[2]) / 3;
@@ -120,16 +122,18 @@ function componentSizes(pixels) {
 }
 
 test("all 19 ore catalog entries retain their host, mineral and face dispatch", () => {
+  // Preserve the current caller contract, not a claim of vanilla face fidelity:
+  // Nether gold still shares gold, and deepslate ores still use host face art.
   assert.equal(TEXTURE_SIZE, 16);
   assert.deepEqual(
     [...ORES.map(({ id }) => id), BLOCK.ANCIENT_DEBRIS].sort((a, b) => a - b),
-    REVIEWED_IDS
+    ORE_IDS
   );
   assert.deepEqual(
     BLOCK_CATALOG.filter(
       (block) => block.texture === "ore" || block.id === BLOCK.ANCIENT_DEBRIS
     ).map(({ id }) => id).sort((a, b) => a - b),
-    REVIEWED_IDS
+    ORE_IDS
   );
   for (const { id, host, deposit } of ORES) {
     for (const face of FACES) {
@@ -146,7 +150,7 @@ test("all 19 ore catalog entries retain their host, mineral and face dispatch", 
     );
     assert.deepEqual(blockTexturePixels(BLOCK.ANCIENT_DEBRIS, face), expected);
   }
-  for (const id of REVIEWED_IDS) {
+  for (const id of ORE_IDS) {
     assert.equal(Boolean(BLOCKS[id].emissive), false, `${id}: no default glow`);
     assert.ok(blockEmissionPixels(id).every((value) => value === 0));
     for (const face of FACES) {
@@ -205,31 +209,33 @@ test("deposit overlays are deterministic, opaque, bounded and preserve every hos
   assert.ok(unsupported.every((value) => value === 41));
 });
 
-test("refined deposits retain several unequal mineral masses rather than single-pixel noise", () => {
-  for (const id of REFINED_MINERALS) {
-    const sizes = componentSizes(depositPixels(id));
-    assert.ok(sizes.length >= 3 && sizes.length <= 5, `${id}: fragment count`);
-    assert.ok(
-      sizes.every((size) => size >= 6 && size <= 32),
-      `${id}: mass bounds`
+test("mineral families keep distinct bounded masks that allow small grains", () => {
+  // Java 26.2 has small chips and more than five pockets in several families.
+  // Do not enforce the previous four-island design or an invented size ratio.
+  const masks = new Set();
+  for (const id of MINERAL_IDS) {
+    const pixels = depositPixels(id);
+    const sizes = componentSizes(pixels);
+    assert.ok(sizes.length >= 2 && sizes.length <= 16, `${id}: bounded fragments`);
+    assert.ok(sizes.every((size) => size <= 32), `${id}: bounded connected mass`);
+    assert.ok(sizes.some((size) => size >= 4), `${id}: not only isolated pixels`);
+    const alpha = Uint8Array.from(
+      { length: COUNT },
+      (_, at) => pixel(pixels, at)[3]
     );
-    assert.ok(new Set(sizes).size >= 3, `${id}: unequal exposures`);
-    assert.ok(Math.max(...sizes) >= Math.min(...sizes) * 2, `${id}: size range`);
+    masks.add(digest(alpha));
   }
+  assert.equal(masks.size, MINERAL_IDS.length, "not one recolored ore template");
 });
 
-test("coal is neutral dark mineral with sparse fracture highlights over the unchanged hosts", () => {
+test("coal remains a predominantly dark near-neutral mineral over unchanged hosts", () => {
   const colors = mineralColors(BLOCK.COAL_ORE);
   for (const [r, g, b] of colors)
-    assert.ok(Math.max(r, g, b) - Math.min(r, g, b) <= 16, "no olive rim");
+    assert.ok(Math.max(r, g, b) - Math.min(r, g, b) <= 16, "near-neutral tones");
   assert.ok(
     colors.filter((color) => brightness(color) < 60).length >= colors.length * 0.7
   );
-  const highlights = colors.filter((color) => brightness(color) > 100);
-  assert.ok(
-    highlights.length >= 2 && highlights.length <= 6,
-    "broken, sparse cleavage"
-  );
+  // The reference has dark grains, not mandatory bright silver fractures.
   for (const { id, host } of ORES.filter(
     (entry) => entry.deposit === BLOCK.COAL_ORE
   )) {
@@ -239,35 +245,35 @@ test("coal is neutral dark mineral with sparse fracture highlights over the unch
         mean(differences) < -12,
         `${id}/${face}: dark mineral, not a lifted host`
       );
-      if (host === BLOCK.DEEPSLATE)
-        assert.ok(
-          differences.filter((value) => value > 25).length >= 2,
-          "visible fracture edges"
-        );
     }
   }
 });
 
-test("mineral hue cues survive the mask changes without white sparkle or amber-only copper", () => {
-  for (const id of REFINED_MINERALS)
-    for (const color of mineralColors(id))
-      assert.ok(color.subarray(0, 3).every((channel) => channel < 245));
+test("mineral palettes retain coarse hue families without forbidding pale diffuse facets", () => {
+  // Vanilla includes near-white gold/gem cores and mint-cyan diamond facets.
+  // Emission is checked independently; bright RGB is not a glow flag.
+  for (const [r, g, b] of mineralColors(BLOCK.IRON_ORE))
+    assert.ok(r > g + 8 && g > b + 8, "warm iron");
   for (const [r, g, b] of mineralColors(BLOCK.GOLD_ORE))
-    assert.ok(r > g + 12 && g > b + 32, "yellow gold");
+    assert.ok(r >= g && g > b + 32, "yellow gold, including pale cores");
   for (const [r, g, b] of mineralColors(BLOCK.DIAMOND_ORE))
-    assert.ok(g >= r + 25 && b >= r + 20 && Math.abs(g - b) <= 16, "cyan facets");
+    assert.ok(g >= r + 25 && b >= r + 20 && Math.abs(g - b) <= 32, "cyan facets");
   for (const [r, g, b] of mineralColors(BLOCK.EMERALD_ORE))
     assert.ok(g >= r + 20 && g >= b + 16, "green facets");
   for (const [r, g, b] of mineralColors(BLOCK.REDSTONE_ORE))
     assert.ok(
-      r >= g + 45 && r >= b + 35 && Math.abs(g - b) <= 12,
-      "red, not rusty orange"
+      r >= g + 35 && r >= b + 35 && Math.abs(g - b) <= 12,
+      "red with muted host-facing edges"
     );
+  for (const [r, g, b] of mineralColors(BLOCK.LAPIS_ORE))
+    assert.ok(b >= g + 25 && g >= r + 10, "blue lapis");
   const copper = mineralColors(BLOCK.COPPER_ORE);
   const orange = copper.filter(([r, g, b]) => r >= g + 45 && g >= b + 18).length;
   const oxidized = copper.filter(([r, g, b]) => g >= r + 20 && g >= b + 8).length;
-  assert.ok(orange >= 20, "substantial orange exposures, not amber pips");
-  assert.ok(oxidized >= 6 && oxidized < orange, "unequal oxidized faces");
+  // The reference contains substantial green areas, not just sparse accents.
+  // Keep both hue families; their precise balance needs visual comparison.
+  assert.ok(orange >= 8, "copper-colored exposures");
+  assert.ok(oxidized >= 8, "green exposures");
 });
 
 test("bright minerals keep local value separation from their dark geological hosts", () => {
@@ -287,8 +293,9 @@ test("bright minerals keep local value separation from their dark geological hos
   }
 });
 
-test("iron, lapis, quartz and shared plain hosts stay byte-identical to the pre-refinement source", () => {
-  // Recorded before this bounded deposit edit, not generated from the new art.
+test("shared plain hosts and the unrelated quartz block stay byte-identical", () => {
+  // Java 26.2 comparison reopened iron, lapis and quartz ore; their old pixels
+  // are no longer scope guards. Plain hosts and quartz block remain untouched.
   const unchanged = [
     [
       BLOCK.STONE,
@@ -302,28 +309,6 @@ test("iron, lapis, quartz and shared plain hosts stay byte-identical to the pre-
     [
       BLOCK.NETHERRACK,
       "172ce8e1afe913dc289ed5a0c749b33b0f48af91c4c5a1ae8c766e06e8e745c3",
-    ],
-    [
-      BLOCK.IRON_ORE,
-      "6851714cec8e4a6a0ca8c8c6bc77b2b06ed7e997e51a0612aaab301671bbea13",
-    ],
-    [
-      BLOCK.DEEPSLATE_IRON_ORE,
-      "df9dc28e7d372c171096bd21f59b169f961f4bc0f28bada9601a814e4fdbaa16",
-      "89ec0ee42422258e221a3047352fa0dd45ef5839ad337f3e36019b141657377a",
-    ],
-    [
-      BLOCK.LAPIS_ORE,
-      "20e410b5327bb3c12bc65a63e9449f2a2cf3aeefbc37af665c21d83996b4b0d8",
-    ],
-    [
-      BLOCK.DEEPSLATE_LAPIS_ORE,
-      "c027ef4f853748e5a6b20230c4a58171127ce6fac6f4e63ba8ee400735ad6c16",
-      "b99261963e06fbc621afad14e0fb0b4e3e8f81ca4b012ed9dece758ff755291a",
-    ],
-    [
-      BLOCK.NETHER_QUARTZ_ORE,
-      "99a499168d21ef90745d376b503ed157cf0d601dc1917d669d8f0a26f25f916b",
     ],
     [
       BLOCK.QUARTZ_BLOCK,
@@ -350,7 +335,7 @@ test("the ore refinement keeps the existing face allocations and 320 by 580 atla
   assert.equal(allTiles.size, 463);
   assert.equal(Math.max(...allTiles), 462);
   const oreTiles = new Set(
-    REVIEWED_IDS.flatMap((id) => FACES.map((face) => tileFor(id, face)))
+    ORE_IDS.flatMap((id) => FACES.map((face) => tileFor(id, face)))
   );
   assert.equal(oreTiles.size, 37, "no extra ore variants or atlas slots");
   const previous = globalThis.document;

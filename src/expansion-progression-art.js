@@ -2,6 +2,8 @@ import { expansionPainter } from "./expansion-art-common.js";
 import { painter, TEXTURE_SIZE } from "./pixel-art.js";
 
 const QUARTZ = ["#6e6762", "#a99c90", "#cfc3b2", "#e3dccc", "#f1eddf"];
+// Ore seams have warm host-facing edges; keep the unrelated item ramp intact.
+const QUARTZ_ORE = ["#735848", "#ad7e73", "#baa994", "#d4cbbb", "#ece5db"];
 const GOLD = ["#775332", "#a47834", "#c8a046", "#e2bf66", "#efd89b"];
 const PRISMARINE = ["#294d50", "#3f716e", "#609991", "#88bdb0", "#bddcca"];
 const SEA_CRYSTAL = ["#315357", "#557f79", "#81ada0", "#b1d7bd", "#e4edd0"];
@@ -14,12 +16,13 @@ const NETHERITE = [
   "#aa927c",
 ];
 const DEBRIS = [
-  "#342e2e",
-  "#493e3a",
-  "#60504a",
-  "#78665b",
-  "#948478",
-  "#ac9f93",
+  "#341a12",
+  "#45241b",
+  "#503127",
+  "#633c32",
+  "#6d4e45",
+  "#82645a",
+  "#9b8b80",
 ];
 
 // Original mineral silhouettes, independent of equipment tiers and registries.
@@ -155,36 +158,52 @@ function supported(options, keys, fields) {
 }
 
 function paintAncientDebris(p, face) {
-  p.field(DEBRIS.slice(1, 4), 983, 4, 6);
-  // Compressed, chipped plates end inside the brown matrix. Short cut edges
-  // replace continuous tan rails; the end face has no enclosing grain rings.
-  const plates =
-    face === "side"
-      ? [
-          [-2, 1, ["..43...", "432221.", "221.10.", ".10...."]],
-          [7, 0, ["...43..", ".45321.", "3222.10", ".110..."]],
-          [2, 6, [".43.....", "43222.3.", "22112210", "..110..."]],
-          [11, 5, [".54..", "43221", "21.10"]],
-          [-1, 12, ["..43..", ".43221", "322.10", ".110.."]],
-          [8, 11, ["...43..", ".43221.", "322.210", ".211.1.", "..10..."]],
-        ]
-      : [
-          [
-            1,
-            1,
-            ["..43..", ".4321.", "432221", "322.10", ".21...", "..0..."],
-          ],
-          [10, 2, [".34..", "23251", "12.21", ".10.."]],
-          [
-            4,
-            8,
-            ["...3...", ".24321.", "432.210", "221.21.", ".110...", "..0...."],
-          ],
-          [12, 10, ["..43.", ".3221", "231.0", ".210.", "..1.."]],
-          [-2, 6, [".32..", "43210", "21..."]],
-          [6, -1, [".43.", "3210", "10.."]],
-        ];
-  for (const [x, y, shape] of plates) p.stamp(x, y, shape, DEBRIS, true);
+  p.field(DEBRIS.slice(2, 5), 983, 4, 6);
+  // Java 26.2 has broad side strata and a winding end, not isolated ore chips.
+  // The paths and interruptions here are hand-authored, not sampled bitmaps.
+  if (face === "side") {
+    for (const [x, y, shape] of [
+      [-2, 0, ["...45554....", ".455665432..", "43233322110.", ".210001112.."]],
+      [8, 1, ["..4544...", "45665321.", "332221100", ".110012.."]],
+      [1, 6, ["...4554.....", ".456655432..", "43233322210.", ".210001110.."]],
+      [11, 6, [".454.", "56654", "33321", ".1100"]],
+      [-1, 11, ["..4554.....", ".456654321.", "4333221110.", ".110001223."]],
+      [8, 12, ["..4554..", ".4566543", "43332221", ".2100011"]],
+    ])
+      p.stamp(x, y, shape, DEBRIS, true);
+    return;
+  }
+  const winding = [
+    [0, 2],
+    [12, 2],
+    [12, 13],
+    [2, 13],
+    [2, 5],
+    [8, 5],
+    [8, 10],
+    [5, 10],
+    [5, 8],
+  ];
+  for (let i = 1; i < winding.length; i++)
+    p.line(...winding[i - 1], ...winding[i], DEBRIS[0], 3);
+  for (let i = 1; i < winding.length; i++)
+    p.line(...winding[i - 1], ...winding[i], DEBRIS[5], 2);
+  for (const [x0, y0, x1, y1] of [
+    [3, 2, 5, 2],
+    [8, 2, 10, 2],
+    [12, 4, 12, 6],
+    [7, 13, 10, 13],
+    [2, 10, 2, 11],
+    [4, 5, 7, 5],
+    [8, 8, 8, 9],
+  ])
+    p.line(x0, y0, x1, y1, DEBRIS[6]);
+  p.rect(6, 2, 2, 1, DEBRIS[4]);
+  p.rect(12, 7, 1, 2, DEBRIS[3]);
+  p.rect(4, 13, 2, 1, DEBRIS[4]);
+  p.rect(2, 8, 1, 1, DEBRIS[2]);
+  p.rect(8, 6, 1, 1, DEBRIS[3]);
+  p.rect(5, 8, 1, 1, DEBRIS[1]);
 }
 
 function paintQuartzBlock(p) {
@@ -231,7 +250,7 @@ export function paintProgressionMaterial(pixels, options) {
 }
 
 /**
- * Overlay three connected quartz deposits, preserving every other host byte.
+ * Overlay narrow quartz seams, preserving every other host byte.
  * Paint the intended host rock first; this function never clears, recolors, or
  * chooses it. Deposit ink is opaque, with no lighting/emission interpretation.
  * Targets must be exactly 1024 Uint8Array/Uint8ClampedArray elements. Invalid
@@ -248,10 +267,13 @@ export function paintQuartzDeposits(pixels) {
     throw new RangeError("Quartz deposits need exactly 16 × 16 RGBA pixels");
   const p = painter(pixels);
   for (const [x, y, shape] of [
-    [1, 2, ["...3...", "..342..", ".23421.", "012210.", "..110.."]],
-    [10, 1, ["..3..", ".342.", "03221", "12210", ".110.", "..0.."]],
-    [5, 10, ["...3..", "..342.", ".03221", "032210", ".110.."]],
+    [5, 1, ["..32", "..42", ".321", "210."]],
+    [1, 5, ["..3.", ".432", "321.", "10.."]],
+    [10, 5, ["..34", ".321", "210.", "10.."]],
+    [6, 8, ["..3", ".42", "321", "210"]],
+    [3, 11, ["..3", ".42", "321", "10."]],
+    [12, 11, [".3", "42", "21", "10"]],
   ])
-    p.stamp(x, y, shape, QUARTZ);
+    p.stamp(x, y, shape, QUARTZ_ORE);
   return true;
 }

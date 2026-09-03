@@ -165,7 +165,13 @@ test("progression material faces are deterministic opaque full-tile replacements
       const colors = new Set(
         visibleColors(target).map((color) => color.join(","))
       );
-      assert.ok(colors.size >= 4 && colors.size <= 6, `${kind}/${face}`);
+      // The Java 26.2 debris reference has seven brown/shadow/edge tones.
+      // Leave the unrelated material's palette budget unchanged.
+      const maximumColors = kind === "ancient_debris" ? 7 : 6;
+      assert.ok(
+        colors.size >= 4 && colors.size <= maximumColors,
+        `${kind}/${face}`
+      );
       if (face === "side") images.add(digest(target));
     }
   }
@@ -193,7 +199,7 @@ test("unrelated progression items and quartz material retain their pre-refinemen
     );
 });
 
-test("ancient debris keeps interrupted plate edges and a distinct cut end; quartz stays pale and quiet", () => {
+test("ancient debris retains distinct side/end dispatch while quartz stays pale and quiet", () => {
   const side = render(paintProgressionMaterial, { kind: "ancient_debris" });
   const top = render(paintProgressionMaterial, {
     kind: "ancient_debris",
@@ -205,18 +211,11 @@ test("ancient debris keeps interrupted plate edges and a distinct cut end; quart
   });
   assert.notDeepEqual(side, top);
   assert.deepEqual(top, bottom);
-  // The former continuous-band assertion enshrined the wooden-rail cue.
-  // Bound the exposed cut edges without prescribing a new exact silhouette.
-  for (const pixels of [side, top]) {
-    const edges = Uint8Array.from({ length: COUNT }, (_, at) =>
-      Number(brightness(pixels.subarray(at * 4, at * 4 + 3)) >= 125)
-    );
-    const exposed = edges.filter(Boolean).length;
-    assert.ok(exposed >= 8 && exposed <= 36, "sparse exposed mineral edges");
-    for (const group of components(edges))
-      assert.ok(group.length <= 8, "no uninterrupted bright cross-tile rail");
+  // Vanilla has long side bands and an angular winding end. The old <=8-pixel
+  // bright-component rule rejected that structure; keep safety/dispatch guards,
+  // and let direct reference comparison judge the authored layers instead.
+  for (const pixels of [side, top])
     assert.ok(meanBrightness(pixels) < 120, "retain the brown geological body");
-  }
   const stone = render(paintProgressionMaterial, { kind: "quartz_block" });
   assert.ok(meanBrightness(stone) > meanBrightness(side) + 50);
   for (let channel = 0; channel < 3; channel++) {
@@ -236,7 +235,7 @@ test("ancient debris keeps interrupted plate edges and a distinct cut end; quart
     );
 });
 
-test("quartz deposits form a few connected pale clusters while leaving most of the host visible", () => {
+test("quartz seams retain bounded connected fragments and leave most host pixels visible", () => {
   const deposits = new Uint8ClampedArray(BYTES);
   assert.equal(paintQuartzDeposits(deposits), true);
   const ink = mask(deposits);
@@ -244,7 +243,8 @@ test("quartz deposits form a few connected pale clusters while leaving most of t
   const filled = ink.filter(Boolean).length;
   assert.ok(filled >= 36 && filled <= 64, `${filled}/256 deposit pixels`);
   const groups = components(ink);
-  assert.ok(groups.length >= 3 && groups.length <= 4);
+  // The Java 26.2 texture has several slim seams, not three broad white lumps.
+  assert.ok(groups.length >= 3 && groups.length <= 8);
   for (const group of groups) {
     assert.ok(
       group.length >= 6 && group.length <= 24,
@@ -322,10 +322,8 @@ test("pale quartz contrasts against a red host without bleaching the surrounding
     else changed.push(brightness(after) - brightness(before));
   }
   assert.ok(untouched >= COUNT * 0.75);
-  assert.ok(
-    Math.min(...changed) > 15,
-    "even the cavity edge has mineral contrast"
-  );
+  // The reference includes brown/pink cavity pixels. Individual seam edges
+  // need not be brighter than the host; the deposit as a whole still contrasts.
   assert.ok(
     changed.reduce((sum, value) => sum + value, 0) / changed.length > 70
   );
