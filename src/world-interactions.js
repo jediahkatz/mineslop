@@ -287,10 +287,19 @@ function clearBody(world, x, y, z) {
   );
 }
 
+/**
+ * Bounded coarse search; rejected candidates do not end it or change its order.
+ * Validation is opt-in for legacy callers. Set allowPlatform=false for read-only use.
+ */
 export function findSafeLanding(
   world,
   destination,
-  { allowFlying = false, preferUnderground = false, allowPlatform = true } = {}
+  {
+    allowFlying = false,
+    preferUnderground = false,
+    allowPlatform = true,
+    validateLanding = () => true,
+  } = {}
 ) {
   const { minY, maxY, seaLevel } = boundsFor(world);
   const baseX = Math.floor(destination.x);
@@ -319,22 +328,33 @@ export function findSafeLanding(
               world.isSolid(x, y - 1, z) &&
               clearBody(world, x, y, z) &&
               world.getBiome(x, z, y)?.id === cave.id
-            )
-              return { x: x + 0.5, y: y + 0.01, z: z + 0.5 };
+            ) {
+              const landing = { x: x + 0.5, y: y + 0.01, z: z + 0.5 };
+              if (validateLanding(landing)) return landing;
+            }
         }
   }
   if (
     allowFlying &&
     seaLevel !== null &&
     world.get(baseX, seaLevel, baseZ) === BLOCK.WATER
-  )
-    return { x: baseX + 0.5, y: seaLevel + 4, z: baseZ + 0.5, flying: true };
+  ) {
+    const landing = {
+      x: baseX + 0.5,
+      y: seaLevel + 4,
+      z: baseZ + 0.5,
+      flying: true,
+    };
+    if (validateLanding(landing)) return landing;
+  }
   if (
     Number.isFinite(wantedY) &&
     clearBody(world, baseX, wantedY, baseZ) &&
     world.isSolid(baseX, wantedY - 1, baseZ)
-  )
-    return { x: baseX + 0.5, y: wantedY + 0.01, z: baseZ + 0.5 };
+  ) {
+    const landing = { x: baseX + 0.5, y: wantedY + 0.01, z: baseZ + 0.5 };
+    if (validateLanding(landing)) return landing;
+  }
   for (let distance = 0; distance <= 12; distance++) {
     for (let dz = -distance; dz <= distance; dz++) {
       for (let dx = -distance; dx <= distance; dx++) {
@@ -343,19 +363,23 @@ export function findSafeLanding(
           z = baseZ + dz;
         if (!world.isLoaded(x, z)) continue;
         for (let y = maxY - 1; y >= minY; y--) {
-          if (world.isSolid(x, y, z) && clearBody(world, x, y + 1, z))
-            return { x: x + 0.5, y: y + 1.01, z: z + 0.5 };
+          if (world.isSolid(x, y, z) && clearBody(world, x, y + 1, z)) {
+            const landing = { x: x + 0.5, y: y + 1.01, z: z + 0.5 };
+            if (validateLanding(landing)) return landing;
+          }
         }
       }
     }
   }
-  if (allowFlying)
-    return {
+  if (allowFlying) {
+    const landing = {
       x: baseX + 0.5,
       y: Math.max((seaLevel ?? minY + 24) + 5, wantedY || minY + 40),
       z: baseZ + 0.5,
       flying: true,
     };
+    if (validateLanding(landing)) return landing;
+  }
   if (!allowPlatform) return null;
   // A tiny arrival platform prevents portal travel from depositing a survivor in lava/the void.
   const y = Math.max(
@@ -374,5 +398,6 @@ export function findSafeLanding(
       world.set(baseX + dx, y + 1, baseZ + dz, 0);
     }
   }
-  return { x: baseX + 0.5, y: y + 0.01, z: baseZ + 0.5 };
+  const landing = { x: baseX + 0.5, y: y + 0.01, z: baseZ + 0.5 };
+  return validateLanding(landing) ? landing : null;
 }

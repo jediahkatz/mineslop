@@ -112,6 +112,9 @@ export async function stageTravelDestination(game, destination, {
       await ensure(destination, game.graphics.renderRadius + 1);
       landing = findSafeLanding(preview, destination, {
         allowFlying: mode === "creative", allowPlatform: false,
+        // Reject wet/shape-invalid candidates inside the search, not after its
+        // first coarse match has suppressed later landings and the platform.
+        validateLanding: (candidate) => travelLandingValid(preview, candidate),
       });
       if (!landing && mode !== "creative") {
         const platform = arrivalPlatform(preview, destination);
