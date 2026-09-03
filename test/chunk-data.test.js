@@ -10,6 +10,7 @@ import {
   normalizeGeneratedChunk,
   readChunkCell,
 } from "../src/chunk-data.js";
+import { SUPPORTED_GENERATOR_VERSIONS } from "../src/generator-version.js";
 import { createGenerator, GENERATOR_VERSION } from "../src/terrain.js";
 import { handleTerrainRequest } from "../src/terrain.worker.js";
 import { V4_GENERATION_MANIFEST } from "../src/terrain-v4-manifest.js";
@@ -318,7 +319,7 @@ test("the default worker factory admits real native v4 packets in all dimensions
 
 test("worker helpers still reject malformed jobs and unsupported generator versions", () => {
   for (const request of [
-    job(5),
+    job(Math.max(...SUPPORTED_GENERATOR_VERSIONS) + 1),
     { ...job(), id: -1 },
     { ...job(), epoch: 0.5 },
     { ...job(), seed: 123 },
