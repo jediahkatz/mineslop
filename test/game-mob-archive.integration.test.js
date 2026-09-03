@@ -173,25 +173,37 @@ test("real detached Game restore loads Wildlife once, binds both borrowers and p
   const saved = f.snapshot();
   const original = Wildlife.prototype.load;
   let loads = 0;
-  t.mock.method(Wildlife.prototype, "load", function (...args) {
+  const loadSpy = t.mock.method(Wildlife.prototype, "load", function (...args) {
     loads++;
-    assert.equal(this.horseServices, null);
-    assert.equal(this.ecologyServices, null);
+    // Diagnostic safety: preserve strict identity checks without formatting owner graphs on failure.
+    assert.equal(this.horseServices === null, true, "load spy expects detached Horses");
+    assert.equal(this.ecologyServices === null, true, "load spy expects detached Ecology");
     assert.ok(args[1].horses);
     assert.ok(args[1].ecology);
-    return Reflect.apply(original, this, args);
+    const result = Reflect.apply(original, this, args);
+    return result;
   });
   const restored = await gameMobFixture(t, { saved });
+  // Detached-only assertions apply to restoration, not the bound-load refusal.
+  loadSpy.mock.restore();
   assert.equal(loads, 1);
-  assert.equal(restored.wildlife.horseServices, restored.horses);
-  assert.equal(restored.wildlife.ecologyServices, restored.ecology);
+  assert.equal(restored.wildlife.horseServices === restored.horses, true, "restored Horses identity");
+  assert.equal(restored.wildlife.ecologyServices === restored.ecology, true, "restored Ecology identity");
   assert.equal(restored.coordinator.usage(restored.wildlife), 0);
-  assert.equal(restored.ecology.trading, restored.progression.services.trading);
+  assert.equal(restored.ecology.trading === restored.progression.services.trading, true, "restored Trading identity");
   assert.equal(restored.horses.mountFor().id, mob.id);
   assert.equal(restored.player.vehicleType, "horse");
   assert.equal(restored.wildlife.byId.size, 1);
   assert.deepEqual(restored.snapshot().mobs, saved.mobs);
-  assert.equal(restored.wildlife.load(saved.mobs, { context: restored.context, horses: saved.horses }), false);
+  assert.equal(restored.wildlife.load === original, true, "bound reload uses real Wildlife.load");
+  const before = restored.ownership();
+  const rejected = restored.wildlife.load(saved.mobs, { context: restored.context, horses: saved.horses });
+  assert.equal(rejected, false);
+  assert.equal(loads, 1);
+  assert.equal(restored.wildlife.horseServices === restored.horses, true, "refused reload preserves Horses identity");
+  assert.equal(restored.wildlife.ecologyServices === restored.ecology, true, "refused reload preserves Ecology identity");
+  assert.equal(restored.ecology.trading === restored.progression.services.trading, true, "refused reload preserves Trading identity");
+  assert.deepEqual(restored.ownership(), before, "refused bound load cannot mutate live owners");
 });
 
 test("an obstructed staged saved rider rejects without changing an already-live source owner", async (t) => {
