@@ -434,6 +434,7 @@ export const ITEM_IDS = Object.freeze({
   NETHERITE_BOOTS: 65630,
   TURTLE_HELMET: 65631,
   ROTTEN_FLESH: 65632,
+  SADDLE: 65633,
 });
 
 export const MAX_BLOCK_ID = 65535;

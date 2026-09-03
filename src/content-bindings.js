@@ -11,6 +11,7 @@ export const FISHING_SYMBOL_BINDINGS = Object.freeze({
 // Append to the domain's treasure table at composition, then compile normally.
 // This is a finite authored subset, not exact Java weights/enchantment sampling.
 export const FISHING_TREASURE_ADDITIONS = Object.freeze([
+  Object.freeze({ item: "SADDLE", weight: 1 }),
   Object.freeze({ item: "NAUTILUS_SHELL", weight: 1 }),
   Object.freeze({
     item: "ENCHANTED_BOOK",
@@ -79,6 +80,11 @@ export const ENCHANTING_RESOURCES = Object.freeze({
 export const CONTENT_ACQUISITION_HOOKS = Object.freeze(
   Object.fromEntries(
     [
+      [
+        "SADDLE",
+        "three leather and one iron ingot / fishing treasure",
+        "horse saddle ownership and riding",
+      ],
       [
         "RAW_COD",
         "cod drops / fishing",

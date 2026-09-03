@@ -321,6 +321,13 @@ export function resourceItems() {
         consumptionEffects: Object.freeze([effect("hunger", 0, 600, 0.8)]),
       }
     ),
+    entry(
+      I.SADDLE,
+      "Saddle",
+      "#945a36",
+      { kind: "saddle" },
+      { kind: "equipment", saddle: true, stackSize: 1 }
+    ),
   ];
 }
 

@@ -9,6 +9,27 @@ const sprite = (at, palette, rows) => ({ at, palette, rows });
 // Original authored forms: a tied ink sac, heaps of dust, crystalline tear,
 // curled cream, chart and carved upgrade tablet. No color-only fallback glyphs.
 const SPRITES = {
+  saddle: sprite(
+    [2, 2],
+    [
+      "#3e281e", "#623b28", "#945a36", "#c17b45",
+      "#e0ad64", "#455157", "#9ea6a2", "#e2e4d7",
+    ],
+    [
+      "..000..000..",
+      ".0343003430.",
+      "034223322230",
+      "032222222210",
+      "032233332210",
+      ".0322222210.",
+      "..01111110..",
+      "..00....00..",
+      ".0550..0550.",
+      ".0570..0570.",
+      ".0560..0560.",
+      "..00....00..",
+    ]
+  ),
   ink_sac: sprite(
     [3, 2],
     ["#262a36", "#424454", "#626273", "#8c8d9c", "#b9b9bd"],

@@ -21,6 +21,10 @@ export function resourceRecipes() {
     "Any wooden slab"
   );
   return [
+    shaped("saddle", I.SADDLE, 1, ["LLL", " I "], {
+      L: ingredient(I.LEATHER),
+      I: ingredient(I.IRON_INGOT),
+    }),
     shaped("fishing_rod", I.FISHING_ROD, 1, ["  S", " ST", "S T"], {
       S: ingredient(I.STICK),
       T: ingredient(I.STRING),
