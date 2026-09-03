@@ -4,6 +4,7 @@ import { BLOCK } from "../src/blocks.js";
 import { normalizeCell } from "../src/block-state.js";
 import { CombatRuntime, COMBAT_RUNTIME_LIMITS } from "../src/combat-runtime.js";
 import { MAX_RESERVED_BYTES } from "../src/save-budget.js";
+import { TransactionInvariantError } from "../src/transactions.js";
 import { combatWorld } from "./combat-collision-fixtures.js";
 import {
   assertRuntimeScalars, combatRuntimeFixture, runtimeActorFixture, runtimeHealthPeer,
@@ -130,6 +131,61 @@ test("refused/conflicting/malformed contributions poison the batch, never publis
   assert.equal(batch.launch(f.shotSpec("arrow", { validate: async () => f.runtime.available })).ok, false);
   assert.equal(batch.finalize().ok, false);
   assert.deepEqual(f.runtime.shots, before);
+});
+
+test("empty or unreadable guard errors poison all earlier contributions", (t) => {
+  const f = combatRuntimeFixture(t);
+  const before = { shots: f.runtime.shots, actors: f.runtime.actors, revision: f.runtime.revision };
+  const errors = [
+    new RangeError(),
+    ...[null, undefined, false, 0].map((message) => Object.assign(new RangeError(), { message })),
+  ];
+  const unreadable = new RangeError();
+  Object.defineProperty(unreadable, "message", { get() { throw new Error("unreadable message"); } });
+  errors.push(unreadable);
+  for (const error of errors) {
+    const batch = f.runtime.begin();
+    const launch = batch.launch(f.shotSpec());
+    assert.equal(launch.ok, true);
+    const refused = batch.advanceClocks(0.1, { validate() { throw error; } });
+    assert.deepEqual(refused, { ok: false, reason: "preparation-reader-failed" });
+    assert.equal(batch.launch(f.shotSpec()).ok, false);
+    assert.deepEqual(batch.finalize(), refused);
+    assert.equal(f.runtime.shot(launch.ticket), null);
+    assert.deepEqual(
+      { shots: f.runtime.shots, actors: f.runtime.actors, revision: f.runtime.revision }, before
+    );
+  }
+  assert.notEqual(f.runtime.shot(f.launch()), null, "only the failed batch is poisoned");
+});
+
+test("empty finalization errors retain a nonempty reason and leave the batch closed", (t) => {
+  const f = combatRuntimeFixture(t), batch = f.runtime.begin();
+  assert.equal(batch.launch(f.shotSpec()).ok, true);
+  const refusal = batch.finalize({
+    participants: [{ get owner() { throw new RangeError(); } }],
+  });
+  assert.deepEqual(refusal, { ok: false, reason: "invalid-finalization" });
+  assert.deepEqual(batch.finalize(), refusal);
+  assert.equal(batch.launch(f.shotSpec()).ok, false);
+  assert.equal(f.runtime.shots.length, 0);
+  assert.notEqual(f.runtime.shot(f.launch()), null);
+});
+
+test("fatal guard and error-metadata invariants propagate after poisoning the batch", (t) => {
+  const f = combatRuntimeFixture(t);
+  const fatal = new TransactionInvariantError("test invariant");
+  const metadata = new RangeError();
+  Object.defineProperty(metadata, "message", { get() { throw fatal; } });
+  for (const error of [fatal, metadata]) {
+    const batch = f.runtime.begin();
+    assert.equal(batch.launch(f.shotSpec()).ok, true);
+    assert.throws(() => batch.advanceClocks(0.1, { validate() { throw error; } }),
+      (caught) => caught === fatal);
+    assert.equal(batch.finalize().ok, false);
+    assert.equal(batch.launch(f.shotSpec()).ok, false);
+    assert.equal(f.runtime.shots.length, 0);
+  }
 });
 
 test("copied tickets, copied participants, conflicting plans and replay reject", (t) => {

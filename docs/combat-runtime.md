@@ -19,6 +19,11 @@ cancellation, blast admission and victim advancement, hit quotations and
 bounded derived contacts. Refused/conflicting contributions poison the batch;
 there is no salvage of a success-looking partial result.
 
+Failure is installed before inspecting thrown error metadata. Empty, non-string
+or unreadable error messages retain a nonempty refusal reason, so they cannot
+make an earlier contribution publishable. Fatal transaction invariants still
+propagate after poisoning the batch.
+
 `finalize({participants, notify})` produces one runtime participant for all
 changing operations. Every exact required owner participant must be present,
 and the peer list must already contain unique owners. Commit the complete

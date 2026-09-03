@@ -39,6 +39,21 @@ export class CombatRuntimeBatch {
     this.#draft = cloneRuntimeState(state);
   }
 
+  #poisonException(error, fallback) {
+    // Install failure before inspecting error metadata, which may itself throw.
+    this.#failed = fallback;
+    if (error instanceof TransactionInvariantError) throw error;
+    if (error instanceof RangeError) {
+      try {
+        const reason = error.message;
+        if (typeof reason === "string" && reason.length > 0) this.#failed = reason;
+      } catch (metadataError) {
+        if (metadataError instanceof TransactionInvariantError) throw metadataError;
+      }
+    }
+    return runtimeRefusal(this.#failed);
+  }
+
   #run(edit) {
     if (this.#closed || this.#failed) return runtimeRefusal(this.#failed ?? "closed-batch");
     if (this.#busy) {
@@ -58,9 +73,7 @@ export class CombatRuntimeBatch {
       this.#draft = next;
       return result;
     } catch (error) {
-      this.#failed = error instanceof RangeError ? error.message : "preparation-reader-failed";
-      if (error instanceof TransactionInvariantError) throw error;
-      return runtimeRefusal(this.#failed);
+      return this.#poisonException(error, "preparation-reader-failed");
     } finally {
       if (entered) this.#scope.leave();
       this.#busy = false;
@@ -573,9 +586,7 @@ export class CombatRuntimeBatch {
         receipt,
       });
     } catch (error) {
-      this.#failed = error instanceof RangeError ? error.message : "invalid-finalization";
-      if (error instanceof TransactionInvariantError) throw error;
-      return runtimeRefusal(this.#failed);
+      return this.#poisonException(error, "invalid-finalization");
     } finally {
       if (entered) this.#scope.leave();
     }
