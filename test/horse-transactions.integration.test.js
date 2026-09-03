@@ -18,11 +18,12 @@ test("natural-existing Wildlife horse gains only a sidecar, not another identity
   }
   assert.ok(horse, "actual natural Wildlife population must expose a horse");
   assert.equal(horse.id.includes(":local:"), false);
-  f.actor.position = { x: horse.position.x, y: horse.position.y, z: horse.position.z + 3 };
+  // Approach this seed's natural horse from the loaded side of the +Z frontier.
+  f.actor.position = { x: horse.position.x, y: horse.position.y, z: horse.position.z - 3 };
   assert.equal(f.wildlife.damage(horse, 4).hit, true);
   f.hold("WHEAT");
   const result = f.horses.feed(horse.id);
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, result.reason);
   assert.equal(result.handCostCommitted, true);
   assert.equal(horse.health, 22);
   assert.equal(f.gameplay.getHandStack(), null);
