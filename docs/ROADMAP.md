@@ -50,6 +50,11 @@ loading, and has relevant regression tests and real browser verification.
   by habitats and separate caps; difficulty controls hostile danger and the
   Peaceful rules, not an indiscriminate multiplier on all spawning. Changes
   must not grant loot/XP or lose owned creatures and equipment.
+- [ ] **Responsive mob combat and friendly fire.** Make attack timing, hitboxes,
+  hurt/knockback and feedback satisfying. Stray projectiles and explosions can
+  hit other mobs, with appropriate retaliation or fleeing against the actual
+  attacker. Respect walls, closest hits, difficulty and owned-entity safety;
+  keep kill/loot/XP attribution single and correct.
 - [ ] **Steadier first-person hands.** Smooth walking, mining and held-use
   transitions, including eating, bows and shields. Keep physical aiming,
   cooldowns and inventory transactions unchanged.
