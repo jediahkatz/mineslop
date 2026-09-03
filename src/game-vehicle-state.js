@@ -1,5 +1,8 @@
 import { normalizeBoatSnapshot } from "./boat-save.js";
+import { boatSeat } from "./boat-definitions.js";
 import { normalizeFishingSnapshot } from "./fishing-save.js";
+import { horseSeat } from "./horse-definitions.js";
+import { emptyHorseSnapshot, normalizeHorseSnapshot } from "./horse-save.js";
 import { createWorldContext, DIMENSIONS, getWorldSpec } from "./world-spec.js";
 
 export const vehicleRecord = (value) =>
@@ -11,7 +14,7 @@ export const vehicleContextMatches = (context, world) =>
   context?.seed === world.seed &&
   context?.generatorVersion === world.generatorVersion;
 
-function dataOnly(value) {
+export function vehicleDataOnly(value) {
   let remaining = 65536;
   const visit = (entry, depth = 0) => {
     if (--remaining < 0 || depth > 12) return false;
@@ -97,20 +100,28 @@ export function normalizeVehicleServicesSnapshot(saved, context) {
     if (saved === undefined || saved === null) saved = {};
     if (!vehicleRecord(saved)) return null;
     const values = {};
-    for (const name of ["boats", "fishing"]) {
+    for (const name of ["boats", "fishing", "horses"]) {
       const field = Object.getOwnPropertyDescriptor(saved, name);
       if (!field) continue;
       if (
         !field.enumerable ||
         !Object.hasOwn(field, "value") ||
-        !dataOnly(field.value)
+        !vehicleDataOnly(field.value)
       )
         return null;
       values[name] = field.value;
     }
     const boats = normalizeBoatSnapshot(values.boats, cleanContext);
     const fishing = normalizeFishingSnapshot(values.fishing, cleanContext);
-    return boats && fishing ? { boats, fishing } : null;
+    const horses = normalizeHorseSnapshot(
+      Object.hasOwn(values, "horses") ? values.horses : emptyHorseSnapshot(cleanContext),
+      cleanContext
+    );
+    if (!boats || !fishing || !horses) return null;
+    const riders = boats.boats.reduce(
+      (count, boat) => count + Number(boat.passengers.includes("player")), 0
+    ) + horses.entries.filter((entry) => entry.alive && entry.rider === "player").length;
+    return riders <= 1 ? { boats, fishing, horses } : null;
   } catch {
     return null;
   }
@@ -125,6 +136,26 @@ export function vehicleHostBindable(game, name, value) {
           slot.value === value ||
           slot.value._disposed === true)
     : Object.isExtensible(game);
+}
+
+/** Pure saved-seat agreement; loaded horse/Player clearance is checked in stage. */
+export function vehicleArchiveRiderValid(vehicles, mobs, player, dimension, dead = false) {
+  const horse = vehicles.horses.entries.find((entry) => entry.alive && entry.rider === "player");
+  const boat = vehicles.boats.boats.find((entry) => entry.passengers.includes("player"));
+  const mount = horse ?? boat;
+  if (!mount) return true;
+  if (horse && boat) return false;
+  // Historical boat saves can retain an inactive-dimension passenger until
+  // rebindPlayer(). Horses require a visible, current-dimension base at load.
+  if (mount.dimension !== dimension) return !horse;
+  // Death archives retain no playable seat; activation atomically releases it.
+  if (dead) return true;
+  const base = horse && mobs.mobStates[dimension]?.entities.find((mob) => mob.id === horse.id);
+  const seat = horse ? base && horseSeat(base.position)
+    : boatSeat(boat, boat.passengers.indexOf("player"));
+  return !!seat && !!player && [player.x, player.y, player.z].every(Number.isFinite) &&
+    Math.hypot(player.x - seat.x, player.y - seat.y, player.z - seat.z) <= 0.125 &&
+    player.flying !== true;
 }
 
 /** A palette rod must never rebind to an equal finite Survival rod on reload. */

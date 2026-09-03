@@ -254,6 +254,7 @@ test("Ecology and Horses borrow Wildlife registration independently; only Wildli
   const ecology = new GameEcologyServices({
     world: f.world, context: f.context, coordinator: f.coordinator, gameplay: f.gameplay,
     overflow: f.overflow, experienceOrbs: f.experience,
+    readHorses: () => f.horses.serialize(),
   });
   assert.equal(ecology.restoreWildlife(f.wildlife), true);
   assert.equal(ecology.activate(f.wildlife), true);

@@ -30,9 +30,11 @@ import {
   ExpansionEcology,
 } from "./expansion-ecology.js";
 import { readGeometryCell } from "./geometry-world.js";
+import { horseDataRecord, normalizeHorseSnapshot, sameHorseBase } from "./horse-save.js";
+import { Horses } from "./horses.js";
 import { getItem, ITEM } from "./items.js";
 import { finitePosition } from "./mob-navigation.js";
-import { MAX_HOSTILES, MIN_HOSTILE_SPAWN_DISTANCE } from "./mob-species.js";
+import { MAX_HOSTILES, MAX_MOBS, MIN_HOSTILE_SPAWN_DISTANCE } from "./mob-species.js";
 import {
   captureVillagerTrade,
   villagerAssignmentFromMarkers,
@@ -40,7 +42,8 @@ import {
   villagerJobsiteUsable,
 } from "./npc-ai.js";
 import { TransactionCoordinator, TransactionInvariantError } from "./transactions.js";
-import { createWorldContext } from "./world-spec.js";
+import { Wildlife } from "./wildlife.js";
+import { createWorldContext, DIMENSIONS } from "./world-spec.js";
 
 export { ECOLOGY_HOST_LIMITS } from "./ecology-population.js";
 const record = (value) => !!value && typeof value === "object" && !Array.isArray(value);
@@ -64,6 +67,34 @@ const invoke = (callback, ...args) => {
     if (error instanceof TransactionInvariantError) throw error;
     return null;
   }
+};
+const readHorseOptions = (hook, context) => {
+  if (hook === undefined) return {};
+  const horses = normalizeHorseSnapshot(invoke(hook), context);
+  return horses ? { horses } : null;
+};
+// Only normalized data reaches these comparisons. Record/array ordering is not
+// ownership; every field, including saddle metadata and base RNG, still is.
+const sameData = (a, b) => a === b || (record(a) && record(b) &&
+  Object.keys(a).length === Object.keys(b).length &&
+  Object.keys(a).every((key) => Object.hasOwn(b, key) && sameData(a[key], b[key]))) ||
+  (Array.isArray(a) && Array.isArray(b) && a.length === b.length &&
+    a.every((value, index) => sameData(value, b[index])));
+const sameHorses = (a, b) => {
+  if (!a || !b || a.seed !== b.seed || a.generatorVersion !== b.generatorVersion ||
+    a.entries.length !== b.entries.length) return false;
+  const entries = new Map(a.entries.map((entry) => [entry.id, entry]));
+  return b.entries.every((entry) => sameData(entries.get(entry.id), entry));
+};
+const sameBase = (a, b) => {
+  if (a.version !== b.version || a.seed !== b.seed || a.dimension !== b.dimension ||
+    a.randomState !== b.randomState || a.nextId !== b.nextId ||
+    a.killed.length !== b.killed.length || a.entities.length !== b.entities.length) return false;
+  const killed = new Set(a.killed), entities = new Map(a.entities.map((mob) => [mob.id, mob]));
+  return b.killed.every((id) => killed.has(id)) && b.entities.every((mob) => {
+    const other = entities.get(mob.id);
+    return !!other && sameHorseBase(other, mob) && other.absorbedBlock === mob.absorbedBlock;
+  });
 };
 
 /**
@@ -138,7 +169,8 @@ const invoke = (callback, ...args) => {
  * changes and return ONE World participant. It must not commit or publish.
  */
 
-/** Detached staging -> restoreWildlife(candidate) -> activate(candidate).
+/** Detached staging -> bindRestoredWildlife(candidate) -> activate(candidate).
+ * Legacy standalone callers may use restoreWildlife() for its single base load.
  * Parent owns Game installation, archive plumbing, input, Player modifiers and
  * trade UI. No Game/global mutation or eager RNG, admission, registration or GPU
  * work occurs here. Keep this owner through dimension travel; suspend BEFORE
@@ -159,20 +191,22 @@ export class GameEcologyServices {
     world, gameplay, overflow, experienceOrbs, exploration, trading, markers,
     context = world && createWorldContext(world), saved,
     coordinator = world?.coordinator, allowOverBudget = false,
-    readPlayer, readHabitat, prepareDrops, prepareExperience, prepareVillagerDeath,
+    readPlayer, readHabitat, readHorses, prepareDrops, prepareExperience, prepareVillagerDeath,
     getVillagerAssignment, jobsitePresent, isTrading, npcWaypoint,
     onVillagerIntent, onEffectsChanged, onChange,
   } = {}) {
-    const normalized = normalizeEcologyServicesSnapshot(saved, context);
     const callbacks = {
-      readPlayer, readHabitat, prepareDrops, prepareExperience, prepareVillagerDeath,
+      readPlayer, readHabitat, readHorses, prepareDrops, prepareExperience, prepareVillagerDeath,
       getVillagerAssignment, jobsitePresent, isTrading, npcWaypoint,
       onVillagerIntent, onEffectsChanged, onChange,
     };
+    if (Object.values(callbacks).some((fn) => fn !== undefined && !synchronousEcologyHook(fn)))
+      throw new RangeError("Invalid staged ecology hooks");
+    const horseOptions = readHorseOptions(readHorses, context);
+    const normalized = horseOptions && normalizeEcologyServicesSnapshot(saved, context, horseOptions);
     if (!normalized || !world || !matchesEntityContext(world, context) ||
       !(coordinator instanceof TransactionCoordinator) || world.coordinator !== coordinator ||
       typeof allowOverBudget !== "boolean" ||
-      Object.values(callbacks).some((fn) => fn !== undefined && !synchronousEcologyHook(fn)) ||
       (markers && markerMethods.some((name) => !synchronousEcologyHook(markers[name]))) ||
       [gameplay, overflow, experienceOrbs, exploration, trading]
         .some((owner) => owner && (owner._disposed || owner.coordinator !== coordinator ||
@@ -183,11 +217,13 @@ export class GameEcologyServices {
     Object.assign(this, { world, gameplay, overflow, experienceOrbs, exploration, trading, markers,
       context, coordinator, allowOverBudget, hooks: Object.freeze(callbacks) });
     this._bindings = Object.freeze({ world, gameplay, overflow, experienceOrbs, exploration, trading, markers,
-      context, coordinator });
+      context, coordinator, hooks: this.hooks });
     this._ownerContexts = ownerKeys.map((key) => this[key]?.context);
     this._markerMethods = markerMethods.map((name) => markers?.[name]);
     this._stagedCurrent = captureEntityContext(world, context);
     this._candidate = null;
+    this._wildlifeContexts = new WeakMap();
+    this._horseBorrower = null;
     this._everActivated = false;
     this._revision = 0;
     this.observerErrors = [];
@@ -195,6 +231,8 @@ export class GameEcologyServices {
     this.ecology = new ExpansionEcology({
       context, coordinator, snapshot: normalized.ecology, onChange: () => { this._dirty = true; },
     });
+    this._ecologyOwner = this.ecology;
+    this._ecologyContext = this.ecology.context;
     this._savedMobs = normalized.mobsByDimension;
     this.wildlife = null;
     this.effects = new EcologyEffects({ sourceActive: (id, effect) => this._effectSource(id, effect) });
@@ -210,6 +248,8 @@ export class GameEcologyServices {
     return !this._disposed &&
       Object.entries(this._bindings).every(([key, value]) => this[key] === value) &&
       this.world.coordinator === this.coordinator && matchesEntityContext(this.world, this.context) &&
+      this.ecology === this._ecologyOwner && !this.ecology._disposed &&
+      this.ecology.coordinator === this.coordinator && this.ecology.context === this._ecologyContext &&
       this.coordinator.usage(this.world) !== undefined &&
       ownerKeys.every((key, i) => !this[key] || (!this[key]._disposed &&
         this[key].coordinator === this.coordinator && this.coordinator.usage(this[key]) !== undefined &&
@@ -223,6 +263,7 @@ export class GameEcologyServices {
       this.wildlife.ecologyServices === this && this.wildlife.world === this.world &&
       this.wildlife.dimension === this.world.dimension && this._activationEpoch === this.world.epoch &&
       this.coordinator.usage(this.ecology) === this.ecology.reservedBytes &&
+      this.wildlife.coordinator === this.coordinator && this.wildlife._ownsRegistration &&
       this.coordinator.usage(this.wildlife) === 0;
   }
   get reservedBytes() { return this.ecology.reservedBytes; }
@@ -231,41 +272,147 @@ export class GameEcologyServices {
   /** @returns {EcologyRuntimeContext|null} */
   readRuntimeContext() { return this.active ? this._readContext() : null; }
 
-  restoreWildlife(wildlife) {
+  _wildlifeReady(wildlife) {
     if (this.wildlife || !this._ownersCurrent() || (!this._everActivated && !this._stagedCurrent()) ||
-      wildlife?.disposed || wildlife?.ecologyServices ||
-      wildlife?.world !== this.world || wildlife.dimension !== this.world.dimension) return false;
-    const current = captureEntityContext(this.world, this.context);
-    const saved = this._savedMobs[wildlife.dimension];
-    const restored = saved ? wildlife.load(saved, { context: this.context, ecology: this.ecology }) :
-      wildlife.byId.size === 0;
-    this._candidate = restored && current() ? { wildlife, current } : null;
-    return this._candidate !== null;
+      !(wildlife instanceof Wildlife) || wildlife.disposed || wildlife.ecologyServices ||
+      (this._wildlifeContexts.has(wildlife) && !this._wildlifeContexts.get(wildlife)()) ||
+      wildlife.world !== this.world || wildlife.dimension !== this.world.dimension ||
+      wildlife.coordinator !== this.coordinator || !wildlife._ownsRegistration ||
+      this.coordinator.usage(wildlife) !== 0 ||
+      wildlife.context.world !== this.world || wildlife.context.worldContext !== wildlife.worldContext ||
+      wildlife.worldContext.seed !== this.context.seed ||
+      wildlife.worldContext.generatorVersion !== this.context.generatorVersion) return false;
+    return DIMENSIONS.every((dimension) => sameData(
+      wildlife.worldContext.specForDimension(dimension), this.context.specForDimension(dimension)
+    ));
+  }
+
+  _horseBorrowerCurrent(wildlife, options) {
+    const retained = (options.horses?.entries ?? [])
+      .filter((entry) => entry.alive && entry.dimension === wildlife.dimension);
+    if (!(wildlife._retainedHorseIds instanceof Set) ||
+      retained.length !== wildlife._retainedHorseIds.size ||
+      retained.some((entry) => !wildlife._retainedHorseIds.has(entry.id))) return false;
+    const borrower = wildlife.horseServices;
+    if (!borrower) return true; // The normal Game stage binds Horses after adoption.
+    if ((this._horseBorrower && borrower !== this._horseBorrower) ||
+      !(borrower instanceof Horses) || !borrower.active ||
+      borrower._preparing || borrower._reading || borrower._updating ||
+      borrower.wildlife !== wildlife || borrower.world !== this.world ||
+      borrower.coordinator !== this.coordinator ||
+      ["gameplay", "overflow", "experienceOrbs"].some((key) =>
+        this[key] && borrower[key] && this[key] !== borrower[key])) return false;
+    const horses = normalizeHorseSnapshot(borrower.serialize(), this.context);
+    return !!horses && (options.horses
+      ? sameHorses(options.horses, horses) : horses.entries.length === 0);
+  }
+
+  _validatedWildlife(wildlife, options) {
+    if (!this._wildlifeReady(wildlife) || !this._horseBorrowerCurrent(wildlife, options) ||
+      !Number.isInteger(wildlife.maxEntities) || wildlife.maxEntities < 1 ||
+      wildlife.maxEntities > MAX_MOBS || wildlife.entities.length > wildlife.maxEntities) return false;
+    const residents = [...wildlife.entities, ...wildlife.dormantEcology.values(),
+      ...wildlife.dormantHorses.values()];
+    if (residents.length !== wildlife.byId.size || new Set(residents).size !== residents.length ||
+      residents.some((mob) => mob.dead || wildlife.byId.get(mob.id) !== mob) ||
+      [...wildlife.dormantEcology].some(([id, mob]) => id !== mob.id || !mob.dormant || !mob.spec.ecology) ||
+      [...wildlife.dormantHorses].some(([id, mob]) =>
+        id !== mob.id || !mob.dormant || !wildlife._retainedHorseIds.has(id))) return false;
+    const snapshot = normalizeEcologyServicesSnapshot({
+      version: 1, ecology: this.ecology.serialize(),
+      mobsByDimension: { ...this._savedMobs, [wildlife.dimension]: wildlife.serialize() },
+    }, this.context, options);
+    if (!snapshot || (snapshot.ecology.elders.length && (!this.exploration ||
+      !ecologyCompletionLinksValid(snapshot.ecology, this.exploration.serialize())))) return false;
+    const actual = snapshot.mobsByDimension[wildlife.dimension], expected = this._savedMobs[wildlife.dimension];
+    // An absent dimension is a fresh empty base, not permission to adopt an
+    // arbitrary pre-populated owner. Existing canonical records compare fully.
+    return expected ? sameBase(expected, actual)
+      : actual.entities.length === 0 && actual.killed.length === 0 && actual.nextId === 0;
+  }
+
+  _adoptRestoredWildlife(wildlife, options) {
+    if (!this._wildlifeReady(wildlife)) return false;
+    const worldContext = wildlife.worldContext, runtime = wildlife.context, byId = wildlife.byId;
+    const revision = wildlife._ecologyRevision, borrower = wildlife.horseServices;
+    const hostCurrent = captureEntityContext(this.world, this.context);
+    const baseCurrent = captureEntityContext(this.world, worldContext);
+    const contextCurrent = () => hostCurrent() && baseCurrent();
+    const current = () => contextCurrent() &&
+      wildlife.worldContext === worldContext && wildlife.context === runtime &&
+      wildlife.byId === byId && wildlife._ecologyRevision === revision &&
+      (!borrower || wildlife.horseServices === borrower);
+    if (!this._validatedWildlife(wildlife, options) || !current()) return false;
+    // Remember only lifetime guards, never another base projection. A previously
+    // borrowed renderer cannot be recycled after a same-dimension epoch change.
+    // Refusal preserves even an earlier valid candidate and all owner state.
+    this._wildlifeContexts.set(wildlife, contextCurrent);
+    this._candidate = { wildlife, current };
+    return true;
+  }
+
+  /** Adopt ONE already-loaded base. A supplied sidecar is a proof of the current
+   * readHorses value, not a cached replacement for that live hook. Horse-owning
+   * hosts need the hook; legacy hosts can omit both it and the options entirely.
+   */
+  bindRestoredWildlife(wildlife, options = {}) {
+    try {
+      if (!horseDataRecord(options, ["horses"], []) || !this._wildlifeReady(wildlife)) return false;
+      const supplied = Object.hasOwn(options, "horses")
+        ? normalizeHorseSnapshot(options.horses, this.context) : null;
+      if (Object.hasOwn(options, "horses") && !supplied) return false;
+      const current = readHorseOptions(this.hooks.readHorses, this.context);
+      if (!current || (supplied && (current.horses
+        ? !sameHorses(supplied, current.horses) : supplied.entries.length !== 0))) return false;
+      return this._adoptRestoredWildlife(wildlife, current);
+    } catch (error) {
+      if (error instanceof TransactionInvariantError) throw error;
+      return false;
+    }
+  }
+
+  /** Standalone compatibility entry point: at most one horse-aware base load.
+   * It never reloads a bound borrower and shares adoption's exact validation.
+   */
+  restoreWildlife(wildlife) {
+    try {
+      if (!this._wildlifeReady(wildlife) || wildlife.horseServices) return false;
+      const options = readHorseOptions(this.hooks.readHorses, this.context);
+      const snapshot = options && normalizeEcologyServicesSnapshot({
+        version: 1, ecology: this.ecology.serialize(), mobsByDimension: this._savedMobs,
+      }, this.context, options);
+      if (!snapshot) return false;
+      const current = captureEntityContext(this.world, this.context);
+      const saved = snapshot.mobsByDimension[wildlife.dimension];
+      const restored = saved ? wildlife.load(saved, {
+        context: this.context, ecology: this.ecology, ...options,
+      }) : wildlife.byId.size === 0;
+      return restored && current() && this._adoptRestoredWildlife(wildlife, options);
+    } catch (error) {
+      if (error instanceof TransactionInvariantError) throw error;
+      return false;
+    }
   }
 
   activate(wildlife) {
-    if (!this._ownersCurrent() || this.wildlife || !wildlife || wildlife.disposed ||
-      wildlife.ecologyServices || wildlife.world !== this.world ||
-      wildlife.dimension !== this.world.dimension ||
-      this._candidate?.wildlife !== wildlife || !this._candidate.current())
+    if (!this._candidate || this._candidate.wildlife !== wildlife || !this._candidate.current())
       return false;
-    const saved = {
-      version: 1, ecology: this.ecology.serialize(),
-      mobsByDimension: { ...this._savedMobs, [wildlife.dimension]: wildlife.serialize() },
-    };
-    if (!normalizeEcologyServicesSnapshot(saved, this.context) ||
-      (saved.ecology.elders.length && (!this.exploration ||
-        !ecologyCompletionLinksValid(saved.ecology, this.exploration.serialize())))) return false;
+    try {
+      const options = readHorseOptions(this.hooks.readHorses, this.context);
+      if (!options || !this._validatedWildlife(wildlife, options) || !this._candidate.current()) return false;
+    } catch (error) {
+      if (error instanceof TransactionInvariantError) throw error;
+      return false;
+    }
     // Wildlife owns its base-record registration. Ecology and horse services
     // only borrow it, so suspending one host cannot invalidate the other.
-    if (wildlife.coordinator !== this.coordinator ||
-        this.coordinator.usage(wildlife) !== 0) return false;
     const before = this.coordinator.usage(this.ecology);
     if (before !== undefined && before !== this.ecology.reservedBytes) return false;
     if (before === undefined && !this.coordinator.register(this.ecology, this.ecology.reservedBytes,
       { allowOverBudget: this.allowOverBudget })) return false;
     this.wildlife = wildlife;
     wildlife.ecologyServices = this;
+    this._horseBorrower ??= wildlife.horseServices;
     this._activationEpoch = this.world.epoch;
     this._everActivated = true;
     this._candidate = null;
@@ -902,26 +1049,35 @@ export class GameEcologyServices {
 
   serialize() {
     if (!this._ownersCurrent()) throw new Error("Cannot serialize stale ecology services");
-    const mobsByDimension = { ...this._savedMobs };
-    if (this.wildlife && !this.wildlife.disposed)
-      mobsByDimension[this.wildlife.dimension] = this.wildlife.serialize();
-    return normalizeEcologyServicesSnapshot({
-      version: 1, ecology: this.ecology.serialize(), mobsByDimension,
-    }, this.context);
+    try {
+      const options = readHorseOptions(this.hooks.readHorses, this.context);
+      if (!options || (this.wildlife &&
+        (!this.active || !this._horseBorrowerCurrent(this.wildlife, options)))) return null;
+      const mobsByDimension = { ...this._savedMobs };
+      if (this.wildlife) mobsByDimension[this.wildlife.dimension] = this.wildlife.serialize();
+      return normalizeEcologyServicesSnapshot({
+        version: 1, ecology: this.ecology.serialize(), mobsByDimension,
+      }, this.context, options);
+    } catch (error) {
+      if (error instanceof TransactionInvariantError) throw error;
+      return null;
+    }
   }
 
   suspend() {
     if (!this.wildlife) return true;
     const wildlife = this.wildlife;
-    const snapshot = wildlife.serialize();
-    if (wildlife.coordinator !== this.coordinator ||
+    if (wildlife.ecologyServices !== this || !wildlife._ownsRegistration ||
+        wildlife.coordinator !== this.coordinator ||
         this.coordinator.usage(wildlife) !== 0) return false;
+    const snapshot = wildlife.serialize();
     this._savedMobs[wildlife.dimension] = snapshot;
     for (const mob of wildlife.byId.values())
       if (mob.spec.ecology) this.clearIntent(mob);
     this.effects.clear();
     this.attacks.dispose();
     this.attacks = null;
+    this._horseBorrower ??= wildlife.horseServices;
     wildlife.ecologyServices = null;
     this.wildlife = null;
     this._candidate = null;
@@ -937,6 +1093,8 @@ export class GameEcologyServices {
     if (this._disposed) return true;
     if (!this.suspend() || !this.ecology.dispose()) return false;
     this.effects.dispose();
+    this._candidate = null;
+    this._horseBorrower = null;
     this._disposed = true;
     this._revision++;
     return true;

@@ -23,9 +23,10 @@ export function readVehicleOwner(service, ownerId, hand = "main") {
     return null;
   const player = game.player,
     gameplay = service.gameplay;
-  const mounted = service.boats.riderPose(ownerId);
+  const mounted = service.boats.riderPose(ownerId) ?? service.horses?.riderPose(ownerId);
+  const exit = service.horses?.poseForArchive(ownerId) ?? service._exitPose;
   const position =
-    mounted?.position ?? service._exitPose?.position ?? player.position;
+    mounted?.position ?? exit?.position ?? player.position;
   const direction = player.forward;
   if (
     !finitePoint(position) ||
@@ -36,7 +37,7 @@ export function readVehicleOwner(service, ownerId, hand = "main") {
   )
     return null;
   const eye =
-    mounted || service._exitPose
+    mounted || exit
       ? { x: position.x, y: position.y + player.eyeHeight, z: position.z }
       : player.eyePosition;
   if (!finitePoint(eye)) return null;
@@ -53,6 +54,7 @@ export function readVehicleOwner(service, ownerId, hand = "main") {
     },
     dimension: service.world.dimension,
     dead: gameplay.dead === true,
+    targetKey: `${game.projectiles?.ownerId ?? "player"}:${game.projectiles?.life ?? 0}`,
     poseRevision: player.poseRevision,
     stack: gameplay.getHandStack(hand),
     handRevision: gameplay.getHandRevision(hand),
@@ -60,11 +62,12 @@ export function readVehicleOwner(service, ownerId, hand = "main") {
   };
 }
 
-function preparedOwner(service, owner, method, args) {
-  if (!service._actionAvailable() || !vehicleSynchronous(owner?.[method]))
+function preparedOwner(service, owner, method, args, resource = false) {
+  if (!(resource ? service._resourceAvailable() : service._actionAvailable()) ||
+      !vehicleSynchronous(owner?.[method]))
     return null;
   const prepare = owner[method],
-    guard = service._captureGuard();
+    guard = service._captureGuard(resource ? "resource" : true, !resource);
   let participant;
   try {
     participant = Reflect.apply(prepare, owner, args);
@@ -89,7 +92,7 @@ function preparedOwner(service, owner, method, args) {
   });
 }
 
-export function prepareVehicleHandCost(service, request) {
+export function prepareVehicleHandCost(service, request, { horse = false } = {}) {
   const {
     ownerId,
     hand,
@@ -106,7 +109,9 @@ export function prepareVehicleHandCost(service, request) {
     !((count === 1 && wear === 0) || (count === 0 && wear === 1)) ||
     !isValidStack(stack, service.context) ||
     handRevision !== gameplay.getHandRevision(hand) ||
-    (slotKey !== undefined && slotKey !== vehicleHandSlot(gameplay, hand))
+    (slotKey !== undefined && slotKey !== vehicleHandSlot(gameplay, hand) &&
+      !(horse && hand === "main" && gameplay.mode === "creative" &&
+        slotKey === `inventory:${gameplay.selected}`))
   )
     return null;
   const current = gameplay.getHandStack(hand);
@@ -153,15 +158,16 @@ export function prepareVehicleHandCost(service, request) {
   ]);
 }
 
-export function prepareVehicleDrops(service, request) {
+export function prepareVehicleDrops(service, request, { horse = false } = {}) {
   const { stacks, position, dimension, velocity, pickupDelay } = request ?? {};
   if (
     dimension !== service.world.dimension ||
     !finitePoint(position) ||
     !finitePoint(velocity) ||
     !Array.isArray(stacks) ||
-    stacks.length !== 1 ||
-    !isValidStack(stacks[0], service.context) ||
+    stacks.length < 1 ||
+    stacks.length > 2 ||
+    stacks.some((stack) => !isValidStack(stack, service.context)) ||
     !Number.isFinite(pickupDelay)
   )
     return null;
@@ -170,10 +176,10 @@ export function prepareVehicleDrops(service, request) {
     point(position),
     dimension,
     { velocity: point(velocity), pickupDelay },
-  ]);
+  ], horse);
 }
 
-export function prepareVehicleExperience(service, request) {
+export function prepareVehicleExperience(service, request, { horse = false } = {}) {
   const { amount, position, dimension, velocity, pickupDelay } = request ?? {};
   if (
     !Number.isInteger(amount) ||
@@ -189,5 +195,5 @@ export function prepareVehicleExperience(service, request) {
     amount,
     { ...point(position), dimension },
     { velocity: point(velocity), pickupDelay },
-  ]);
+  ], horse);
 }

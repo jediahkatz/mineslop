@@ -348,6 +348,7 @@ export async function vehiclePearlFixture(t, { saved = null } = {}) {
     vehicles,
     boats: vehicles.boats,
     fishing: vehicles.fishing,
+    horses: vehicles.horses,
     projectiles,
     pearls: projectiles.projectiles,
   };
@@ -363,6 +364,7 @@ export async function vehiclePearlFixture(t, { saved = null } = {}) {
     vehicles,
     boats: vehicles.boats,
     fishing: vehicles.fishing,
+    horses: vehicles.horses,
     projectiles,
     pearls: projectiles.projectiles,
     overflow: game.overflow,

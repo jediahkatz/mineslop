@@ -436,6 +436,7 @@ test("real Game frames suppress overlay input, freeze paused owners, and resume 
   for (const owner of [
     "boats",
     "fishing",
+    "horses",
     "pearls",
     "gameplay",
     "survivalClock",

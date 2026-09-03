@@ -9,7 +9,6 @@ import {
 } from "./control-preferences.js";
 import { DropOverflow } from "./drop-overflow.js";
 import { Effects } from "./effects.js";
-import { ExperienceOrbs } from "./experience-orbs.js";
 import { playerKillExperience } from "./experience-rewards.js";
 import { Fuses } from "./fuses.js";
 import { FrameRate } from "./frame-rate.js";
@@ -18,7 +17,8 @@ import { GameBuildingServices } from "./game-building-services.js";
 import { bindGameControls } from "./game-controls.js";
 import { GameExplorationServices } from "./game-exploration-services.js";
 import { GameFluidServices } from "./game-fluid-services.js";
-import { GameHarvestActions } from "./game-harvest-actions.js";
+import { GameMobActions, GameMobHarvestActions } from "./game-mob-actions.js";
+import { GameMobIntegration } from "./game-mob-integration.js";
 import { GameInventoryActions } from "./game-inventory-actions.js";
 import { stageProgressionServices } from "./game-progression-integration.js";
 import { GameProjectileServices } from "./game-projectile-services.js";
@@ -31,9 +31,11 @@ import {
 import { bindWorldServiceEvents } from "./game-world-events.js";
 import { stageWorld } from "./game-world-stage.js";
 import { Gameplay } from "./gameplay.js";
+import { hasExpandedTerrain } from "./generator-version.js";
 import { HurtFeedback } from "./hurt-feedback.js";
 import { getItem, ITEM } from "./items.js";
 import { raycastMelee } from "./melee-targeting.js";
+import { normalizeDifficulty } from "./mob-difficulty.js";
 import { Pickups } from "./pickups.js";
 import { Player } from "./player.js";
 import { PlayerVisual } from "./player-visual.js";
@@ -94,8 +96,9 @@ export class VoxelGame {
     this.renderDirection = new THREE.Vector3();
     this.playerEnvironment = {};
     this.useActions = new GameUseActions(this);
+    this.mobActions = new GameMobActions(this);
     this.inventoryActions = new GameInventoryActions(this);
-    this.harvestActions = new GameHarvestActions(this);
+    this.harvestActions = new GameMobHarvestActions(this);
     this.browserCapture = new BrowserCapture(document.documentElement, {
       onChange: (state) => this.ui?.update(state),
       onMessage: (message) => this.ui?.toast(message),
@@ -202,7 +205,11 @@ export class VoxelGame {
       },
       onDeath: () => {
         if (this.gameplay !== gameplay) return;
-        this.vehicleServices?.onDeath();
+        const departure = this.vehicleServices?.onDeath();
+        if (departure?.ok && this.player?.seated) {
+          this.player.setPosition(this.player.position);
+          this.player.flying = false;
+        }
         this.projectileServices?.cancel("death", { advanceLife: true });
         this.progressionIntegration?.onDeath();
         this.resetActions();
@@ -333,17 +340,8 @@ export class VoxelGame {
         allowOverBudget: saved != null,
       });
       owners.push(progressionIntegration);
-      const vehicleServices = await stageVehicleServices({
-        world: staged.world,
-        gameplay,
-        overflow,
-        context,
-        saved,
-        position: staged.pose.position,
-      });
-      owners.push(vehicleServices);
       const explorationServices =
-        staged.world.generatorVersion === 4 ||
+        hasExpandedTerrain(staged.world.generatorVersion) ||
         (saved != null && Object.hasOwn(saved, "exploration"))
           ? new GameExplorationServices({
               world: staged.world,
@@ -356,6 +354,17 @@ export class VoxelGame {
             })
           : null;
       if (explorationServices) owners.push(explorationServices);
+      const mobIntegration = new GameMobIntegration({
+        world: staged.world, gameplay, overflow, context, saved,
+        progressionIntegration, explorationServices,
+      });
+      owners.push(mobIntegration);
+      const vehicleServices = await stageVehicleServices({
+        world: staged.world, gameplay, overflow, context, saved,
+        experienceOrbs: mobIntegration.experienceOrbs,
+        mobIntegration, position: staged.pose.position,
+      });
+      owners.push(vehicleServices);
       return {
         ...staged,
         context,
@@ -369,6 +378,7 @@ export class VoxelGame {
         progressionIntegration,
         vehicleServices,
         explorationServices,
+        mobIntegration,
       };
     } catch (error) {
       for (const owner of owners.reverse()) {
@@ -419,10 +429,12 @@ export class VoxelGame {
     // Required terrain and a collision-checked pose exist before live teardown.
     this.unbindWorldEvents?.();
     this.unbindWorldEvents = null;
+    this.vehicleServices?.dispose();
+    this.vehicleServices = this.boats = this.fishing = this.horses = null;
+    this.mobIntegration?.dispose();
+    this.mobIntegration = this.ecologyServices = null;
     this.progressionIntegration?.dispose();
     this.progressionIntegration = this.progressionServices = null;
-    this.vehicleServices?.dispose();
-    this.vehicleServices = this.boats = this.fishing = null;
     this.explorationServices?.dispose();
     this.explorationServices = null;
     this.exploration = null;
@@ -514,24 +526,9 @@ export class VoxelGame {
       })
     )
       throw new Error("The saved item pickups are invalid");
-    this.experienceOrbs = new ExperienceOrbs(this.graphics.scene, this.world, {
-      context: this.worldContext,
-      coordinator: this.coordinator,
-      prepareCollect: (amount) =>
-        this.progressionIntegration?.prepareExperience(amount) ?? null,
-      onCollect: () => {
-        this.scheduleSave();
-        return true;
-      },
-    });
-    if (
-      !this.experienceOrbs.load(saved?.experienceOrbs, {
-        context: this.worldContext,
-        allowOverBudget: true,
-      })
-    )
-      throw new Error("The saved experience orbs are invalid");
-    const vehicles = staged.vehicleServices.activate(this);
+    if (!staged.mobIntegration.install(this, staged.vehicleServices))
+      throw new Error("The staged mob owners could not be installed");
+    const vehicles = staged.vehicleServices.activate(this, { root: document.querySelector("#ui") });
     if (!vehicles.ok) {
       staged.vehicleServices.dispose();
       throw new Error(
@@ -540,9 +537,6 @@ export class VoxelGame {
     }
     this.applyVehiclePose();
     this.mobStates = saved?.mobStates ?? {};
-    this.createWildlife(this.mobStates[this.world.dimension] ?? saved?.mobs, {
-      safeSpawn: true,
-    });
     if (!staged.buildingServices.activate(this).ok) {
       staged.buildingServices.dispose();
       throw new Error("The staged building services could not be activated");
@@ -569,6 +563,8 @@ export class VoxelGame {
       staged.explorationServices.dispose();
       throw new Error("The staged exploration services could not be activated");
     }
+    if (!staged.mobIntegration.activate({ safeSpawn: true }))
+      throw new Error("The staged ecology services could not be activated");
     this.bindWorldServiceEvents();
     if (!this.applyVehiclePose()) this.player.update(0);
     const closed = this.gameplay.inventoryAction(
@@ -604,6 +600,8 @@ export class VoxelGame {
   }
 
   createWildlife(saved, { safeSpawn = false } = {}) {
+    if (this.mobIntegration)
+      return this.mobIntegration.restore(saved, { safeSpawn });
     this.wildlife = new Wildlife(this.graphics.scene, this.world, {
       context: this.worldContext,
       onDamage: (amount, cause, source, attack) =>
@@ -788,6 +786,8 @@ export class VoxelGame {
     this.closingScreens = true;
     this.screenClose = (async () => {
       try {
+        if (this.vehicleServices?.horseInventory?.closeCurrent("screen-change")?.ok === false)
+          return false;
         if (this.progressionIntegration?.close("screen-change")?.ok === false)
           return false;
         if (this.containerUI?.isOpen && this.containerUI.close() === false)
@@ -963,6 +963,16 @@ export class VoxelGame {
     return applyVehiclePose(this);
   }
 
+  /** Parent settings/combat adapters consume this normalized value + revision.
+   * No difficulty switch UI or alternate persisted occupancy/state is invented.
+   */
+  readWorldDifficulty() {
+    const revision = this.worldDifficulty?.revision ?? 0;
+    if (!Number.isSafeInteger(revision) || revision < 0)
+      throw new RangeError("Invalid world difficulty revision");
+    return Object.freeze({ value: normalizeDifficulty(this.worldDifficulty?.value), revision });
+  }
+
   updateTarget() {
     const creative = this.gameplay.mode === "creative";
     const eye = physicalEye(this);
@@ -1036,9 +1046,14 @@ export class VoxelGame {
         return;
       this.lastAction = this.elapsed;
       // A bow is charged/released with use; hitting with it is an ordinary melee hit.
-      const amount =
-        this.gameplay.selectedItem?.tool === "bow" ? 1 : this.gameplay.attack();
-      if (amount) this.hitMob(this.meleeTarget.entity, amount);
+      this.mobActions ??= new GameMobActions(this);
+      const entity = this.meleeTarget.entity;
+      if (this.mobActions.owns(entity)) {
+        this.mobActions.melee(entity);
+      } else {
+        const amount = this.gameplay.selectedItem?.tool === "bow" ? 1 : this.gameplay.attack();
+        if (amount) this.hitMob(entity, amount);
+      }
       this.effects.sound("mine", 2);
       this.effects.swing = 1;
       this.scheduleSave();
@@ -1068,12 +1083,13 @@ export class VoxelGame {
       this.elapsed - this.lastAction < 0.2
     )
       return;
-    const duration = this.gameplay.miningDuration(this.target.id);
+    const duration = this.gameplay.miningDuration(this.target.id) /
+      (this.ecologyServices?.modifiers().miningSpeedMultiplier ?? 1);
     this.miningProgress += dt / Math.max(0.05, duration);
     this.effects.swing = Math.max(this.effects.swing, 0.25);
     if (this.miningProgress < 1) return;
     const hit = this.target;
-    this.harvestActions ??= new GameHarvestActions(this);
+    this.harvestActions ??= new GameMobHarvestActions(this);
     if (this.harvestActions.break(hit).ok) {
       this.effects.burst(hit);
       this.effects.sound("mine", hit.id);
@@ -1088,6 +1104,8 @@ export class VoxelGame {
   }
 
   hitMob(entity, amount) {
+    this.mobActions ??= new GameMobActions(this);
+    if (this.mobActions.owns(entity)) return this.mobActions.hit(entity, amount);
     this.wildlife.endSpawnProtection?.();
     const result = this.wildlife.damage(entity, amount, this.player.forward);
     this.awardExperience(
@@ -1119,7 +1137,7 @@ export class VoxelGame {
 
   releaseContainer(hit, position) {
     if (![BLOCK.CHEST, BLOCK.FURNACE].includes(hit?.id)) return false;
-    this.harvestActions ??= new GameHarvestActions(this);
+    this.harvestActions ??= new GameMobHarvestActions(this);
     return this.harvestActions.break(hit, { position }).ok;
   }
 
@@ -1166,7 +1184,7 @@ export class VoxelGame {
   }
 
   explode(position, radius = 3, damagePlayer = true) {
-    this.harvestActions ??= new GameHarvestActions(this);
+    this.harvestActions ??= new GameMobHarvestActions(this);
     const changed = this.harvestActions.explode(position, radius);
     for (const hit of changed.slice(0, 8)) this.effects.burst(hit);
     const distance = this.player.position.distanceTo(
@@ -1294,6 +1312,8 @@ export class VoxelGame {
       return;
     }
     this.elapsed += dt;
+    const vehicleFrame = (this.vehicleFrame = (this.vehicleFrame ?? 0) + 1);
+    this.vehicleServices?.beginFrame(vehicleFrame);
     this.portalCooldown -= dt;
     if (this.stationOverride && !this.inventoryActions.stationValid()) {
       this.ui.closeInventory();
@@ -1303,6 +1323,7 @@ export class VoxelGame {
     this.vehicleServices?.frame(dt, {
       simulating: this.simulating,
       keys: this.active ? this.player.vehicleKeys : null,
+      frameId: vehicleFrame,
     });
     const riderPose = this.vehicleServices?.riderPose();
     const exitPose = this.vehicleServices?.takeExitPose();
@@ -1384,7 +1405,11 @@ export class VoxelGame {
     );
     this.graphics.update(0, this.elapsed, this.player.position);
     this.graphics.camera.getWorldDirection(this.renderDirection);
-    this.wildlife.update(
+    const difficulty = this.readWorldDifficulty();
+    this.wildlife.context && Object.assign(this.wildlife.context, {
+      difficulty: difficulty.value, difficultyRevision: difficulty.revision,
+    });
+    const wildlifeFrame = () => this.wildlife.update(
       this.simulating ? dt : 0,
       this.elapsed,
       this.player.position,
@@ -1399,6 +1424,13 @@ export class VoxelGame {
         health: this.gameplay.health,
       }
     );
+    if (this.vehicleServices) this.vehicleServices.runWildlifeFrame(wildlifeFrame);
+    else wildlifeFrame();
+    // Late Wildlife damage/bucking may publish an exit after the first Player
+    // consumer. Consume only that pending handoff, never a second walking tick.
+    const lateExit = this.vehicleServices?.takeExitPose();
+    if (lateExit && !this.gameplay.dead)
+      this.player.update(0, { recoverFromVoid: false, exitPose: lateExit });
     this.pickups.update(
       this.simulating ? dt : 0,
       this.elapsed,
@@ -1427,6 +1459,10 @@ export class VoxelGame {
         sprinting: this.player.sprinting,
         crouching: this.player.sneaking,
         seated: this.player.seated === true,
+        vehicleType: this.player.vehicleType,
+        hullYaw: this.player.hullHeading,
+        horseView: this.player.vehicleType === "horse"
+          ? this.wildlife.byId.get(this.horses?.mountFor()?.id)?.horseView ?? null : null,
         bodyHeight: this.player.height,
         eyeHeight: this.player.eyeHeight,
         velocityY: this.player.velocity.y,

@@ -4,12 +4,16 @@ import { normalizeExplorationServicesSnapshot } from "./exploration-host-state.j
 import { normalizeFuseSnapshot } from "./fuses.js";
 import { normalizeBuildingServicesSnapshot } from "./game-building-services.js";
 import { normalizeFluidServicesSnapshot } from "./game-fluid-state.js";
+import { normalizeGameMobArchive } from "./game-mob-state.js";
 import { normalizeProgressionArchive } from "./game-progression-state.js";
 import { normalizeProjectileServicesSnapshot } from "./game-projectile-state.js";
-import { normalizeVehicleServicesSnapshot } from "./game-vehicle-state.js";
+import {
+  normalizeVehicleServicesSnapshot,
+  vehicleArchiveRiderValid,
+} from "./game-vehicle-state.js";
 import { Gameplay } from "./gameplay.js";
-import { isLoosePosition, isLooseRecord } from "./loose-entity.js";
-import { normalizeMobSnapshot } from "./mob-save.js";
+import { hasExpandedTerrain } from "./generator-version.js";
+import { isLoosePosition } from "./loose-entity.js";
 import { normalizePickupSnapshot } from "./pickups.js";
 import { Settlement } from "./settlement.js";
 import { GENERATOR_VERSION } from "./terrain.js";
@@ -79,30 +83,6 @@ function validatePositions(name, data, context) {
   }
 }
 
-function normalizeMobs(input, context, dimension) {
-  const result = {};
-  // Both copies must validate even when mobStates takes precedence at activation.
-  if (input.mobs !== undefined) {
-    const mobs = normalizeMobSnapshot(input.mobs, context, dimension);
-    if (!mobs) throw new Error("Invalid saved mobs");
-    result.mobs = mobs;
-  }
-  if (input.mobStates !== undefined) {
-    if (!isLooseRecord(input.mobStates))
-      throw new Error("Invalid saved mob states");
-    const states = {};
-    for (const [key, data] of Object.entries(input.mobStates)) {
-      if (!isDimension(key))
-        throw new Error("Invalid saved mob state dimension");
-      const mobs = normalizeMobSnapshot(data, context, key);
-      if (!mobs) throw new Error(`Invalid saved mobs in ${key}`);
-      states[key] = mobs;
-    }
-    result.mobStates = states;
-  }
-  return result;
-}
-
 /**
  * Detached, validated snapshots for the components this preflight owns. Every
  * coordinate-bearing component receives the same all-dimension context, never
@@ -125,6 +105,11 @@ export function normalizeWorldComponents(saved, { normalizers = {} } = {}) {
   delete descriptors.progression;
   delete descriptors.boats;
   delete descriptors.fishing;
+  delete descriptors.horses;
+  delete descriptors.ecology;
+  delete descriptors.mobs;
+  delete descriptors.mobStates;
+  delete descriptors.mobsByDimension;
   const input = structuredClone(Object.defineProperties({}, descriptors));
   const world =
     input.world === undefined ? undefined : normalizeWorldSave(input.world);
@@ -132,7 +117,7 @@ export function normalizeWorldComponents(saved, { normalizers = {} } = {}) {
     world ?? { seed: "", generatorVersion: GENERATOR_VERSION }
   );
   const normalized = { context, ...(world === undefined ? {} : { world }) };
-  if (context.generatorVersion === 4 || Object.hasOwn(saved, "exploration")) {
+  if (hasExpandedTerrain(context.generatorVersion) || Object.hasOwn(saved, "exploration")) {
     const exploration = normalizeExplorationServicesSnapshot(saved, context);
     if (!exploration) throw new Error("Invalid saved exploration claims");
     Object.assign(normalized, exploration);
@@ -150,7 +135,7 @@ export function normalizeWorldComponents(saved, { normalizers = {} } = {}) {
   if (!progression) throw new Error("Invalid saved progression data");
   Object.assign(normalized, progression);
   const vehicles = normalizeVehicleServicesSnapshot(saved, context);
-  if (!vehicles) throw new Error("Invalid saved boats or fishing");
+  if (!vehicles) throw new Error("Invalid saved boats or fishing or horses");
   Object.assign(normalized, vehicles);
   if (input.player !== undefined) {
     if (
@@ -162,7 +147,9 @@ export function normalizeWorldComponents(saved, { normalizers = {} } = {}) {
   }
   Object.assign(
     normalized,
-    normalizeMobs(input, context, world?.dimension ?? "overworld")
+    normalizeGameMobArchive(saved, context, world?.dimension ?? "overworld", {
+      horses: vehicles.horses, exploration: normalized.exploration,
+    })
   );
   for (const [name, fallback] of Object.entries(defaults)) {
     const data = input[name];
@@ -183,13 +170,18 @@ export function normalizeWorldComponents(saved, { normalizers = {} } = {}) {
     )
       throw new Error(
         `Invalid saved ${labels[name]}${
-          context.generatorVersion === 4
+          hasExpandedTerrain(context.generatorVersion)
             ? "; expanded records require a context-aware component normalizer"
             : ""
         }`
       );
     normalized[name] = structuredClone(component);
   }
+  if (!vehicleArchiveRiderValid(
+    vehicles, normalized, normalized.player, world?.dimension ?? "overworld",
+    normalized.gameplay?.dead === true
+  ))
+    throw new Error("Invalid saved vehicle rider position or dimension");
   return normalized;
 }
 

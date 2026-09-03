@@ -1,16 +1,17 @@
 import { getBiomeById } from "./biomes.js";
-import { isSafeRespawnPosition } from "./bed-spawn.js";
-import { BED_STATE_VERSION, normalizeBedSnapshot } from "./bed-system.js";
+import {
+  installTravelLanding, installTravelPortal, stageTravelDestination,
+} from "./game-travel-stage.js";
 import { TransactionInvariantError } from "./transactions.js";
-import { createReturnPortal, findSafeLanding } from "./world-interactions.js";
-import { createWorldContext } from "./world-spec.js";
 
-export const RESPAWN_LOAD_RADIUS = 1;
+export { RESPAWN_LOAD_RADIUS } from "./game-travel-stage.js";
+const point = ({ x, y, z }) => ({ x, y, z });
 
 /** All world-changing operations share the game's pre-await transition gate. */
 export class GameTravel {
-  constructor(game) {
+  constructor(game, { worldFactory } = {}) {
     this.game = game;
+    this.worldFactory = worldFactory;
   }
 
   teleport(destination) {
@@ -35,13 +36,22 @@ export class GameTravel {
             : "plains";
       const result = await this.findAndMove(id, { allowSurvival: portal });
       if (result?.ok && portal && game.world.dimension === dimension) {
-        createReturnPortal(
-          game.world,
-          game.player.position,
-          from === "end" || dimension === "end"
-        );
-        game.graphics.rebuildDirty(8);
-        await game.save();
+        try {
+          const placed = installTravelPortal(
+            game.world,
+            game.player.position,
+            from === "end" || dimension === "end"
+          );
+          result.returnPortal = placed.ok;
+          result.observerErrors.push(...(placed.observerErrors ?? []));
+          if (!placed.ok)
+            game.ui.toast("Arrived safely; the return portal site is obstructed.");
+          else game.graphics.rebuildDirty(8);
+          await game.save();
+        } catch (error) {
+          if (error instanceof TransactionInvariantError) throw error;
+          result.observerErrors.push(error);
+        }
       }
       return result;
     });
@@ -53,54 +63,6 @@ export class GameTravel {
       game.paused = true;
       return this.move(null, { respawn: true });
     });
-  }
-
-  /** Inspect one bed footprint, then World's bounded spawn fallback if needed. */
-  async _respawnLanding(world) {
-    const game = this.game;
-    if (game.world !== world || world._disposed)
-      throw new Error("World changed before respawn inspection");
-    const beds = game.beds ?? game.buildingActions?.beds;
-    const { seed, generatorVersion } = world;
-    const saved = normalizeBedSnapshot(
-      {
-        version: BED_STATE_VERSION,
-        spawn: beds?.getRespawn?.() ?? null,
-      },
-      createWorldContext(world)
-    );
-    world.setDimension("overworld");
-    const epoch = world.epoch ?? world._epoch;
-    const ensure = async (position) => {
-      await world.ensureArea(position, RESPAWN_LOAD_RADIUS);
-      if (
-        game.world !== world ||
-        world._disposed ||
-        world.seed !== seed ||
-        world.generatorVersion !== generatorVersion ||
-        world.dimension !== "overworld" ||
-        (world.epoch ?? world._epoch) !== epoch
-      )
-        throw new Error("World changed during respawn inspection");
-    };
-    if (saved?.spawn) {
-      await ensure(saved.spawn);
-      const landing = beds.findRespawn(world);
-      if (landing && isSafeRespawnPosition(world, landing))
-        return { ...landing, fromBed: true };
-    }
-    // World.getSpawn already searches geometry without modifying terrain.
-    // Do not use findSafeLanding's portal-platform fallback for a respawn.
-    const spawn = world.getSpawn();
-    await ensure(spawn);
-    if (!isSafeRespawnPosition(world, spawn))
-      throw new Error("No unobstructed standing space at the world spawn");
-    return {
-      ...spawn,
-      dimension: "overworld",
-      fromBed: false,
-      missingBed: !!saved?.spawn,
-    };
   }
 
   generate(seed) {
@@ -162,17 +124,35 @@ export class GameTravel {
 
   async move(destination, { respawn = false } = {}) {
     const game = this.game;
-    if ((!destination && !respawn) || game.building) return false;
+    if ((!destination && !respawn) || game.building || !game.world || !game.player)
+      return false;
+    const vehiclePose = game.vehicleServices?.poseForArchive();
     const previous = {
       world: game.world,
       player: game.player,
       gameplay: game.gameplay,
+      vehicles: game.vehicleServices,
+      mobs: game.mobIntegration,
+      wildlife: game.wildlife,
+      progression: game.progressionIntegration,
+      projectiles: game.projectileServices,
       dimension: game.world.dimension,
-      position: game.player.position.clone(),
+      epoch: game.world.epoch,
+      position: point(vehiclePose?.position ?? game.player.position),
+      velocity: point(vehiclePose?.velocity ?? game.player.velocity ?? { x: 0, y: 0, z: 0 }),
+      grounded: vehiclePose?.grounded ?? game.player.grounded === true,
       yaw: game.player.yaw,
       pitch: game.player.pitch,
-      flying: game.player.flying,
+      flying: !vehiclePose && game.player.flying,
     };
+    // Wildlife changes only through this integration during restore, so it is
+    // deliberately absent here. The preparation stage pins the original base.
+    const ownersCurrent = () => game.world === previous.world &&
+      game.player === previous.player && game.gameplay === previous.gameplay &&
+      game.vehicleServices === previous.vehicles && game.mobIntegration === previous.mobs &&
+      game.progressionIntegration === previous.progression &&
+      game.projectileServices === previous.projectiles &&
+      game.player.world === previous.world && !previous.world._disposed;
     game.paused = true;
     game.resetActions?.();
     game.heldAction = null;
@@ -188,71 +168,97 @@ export class GameTravel {
       game.ui.closeAtlas?.();
       game.containerUI.close();
     }
-    if (
-      respawn &&
-      (game.world !== previous.world ||
-        game.player !== previous.player ||
-        game.gameplay !== previous.gameplay)
-    )
-      return {
-        ok: false,
-        message: "Respawn owners were replaced before inspection",
-      };
-    const progression = game.progressionIntegration?.beforeTravel();
-    if (progression && !progression.ok) {
-      if (!game.gameplay.dead) game.ui.showMenu?.("pause");
-      return { ok: false, message: "Could not safely preserve progression before travel." };
-    }
-    game.projectileServices?.cancel("travel");
+    if (!ownersCurrent())
+      return { ok: false, message: "Travel owners were replaced before inspection" };
     game.building = true;
     game.overlayOpen = false;
     game.player.unlock();
     game.ui.setLoading(0.3, "Discovering new terrain");
-    let playerMoved = false;
+    let stage, sourceSnapshot;
+    let departed = false, suspended = false, restored = false, arrived = false;
     let respawnCommitted = false;
-    let safe;
     const observerErrors = [];
     const observe = (work) => {
       try {
         return work();
       } catch (error) {
-        if (!respawnCommitted || error instanceof TransactionInvariantError)
-          throw error;
+        if (error instanceof TransactionInvariantError) throw error;
         observerErrors.push(error);
       }
     };
     try {
-      game.mobStates[game.world.dimension] = game.wildlife.serialize?.();
-      if (respawn) {
-        safe = await this._respawnLanding(previous.world);
-        if (
-          game.world !== previous.world ||
-          game.player !== previous.player ||
-          game.gameplay !== previous.gameplay
-        )
-          throw new Error("Respawn owners were replaced during inspection");
-      } else {
-        if (
-          destination.dimension &&
-          destination.dimension !== game.world.dimension
-        )
-          game.world.setDimension(destination.dimension);
-        await game.world.ensureArea(
-          destination,
-          game.graphics.renderRadius + 1
-        );
-        safe = findSafeLanding(game.world, destination, {
-          allowFlying: game.gameplay.mode === "creative",
-        });
-      }
-      if (!safe) throw new Error("No safe destination was found");
-      const departure = game.vehicleServices?.detachForTravel();
+      stage = await stageTravelDestination(game, destination, {
+        respawn, worldFactory: this.worldFactory,
+      });
+      if (!stage.current() || !ownersCurrent())
+        throw new Error("Travel owners were replaced during inspection");
+      // No live source epoch, base owner, cast or progression lifecycle was
+      // invalidated by the destination inspection. Begin departure only now.
+      const recovery = previous.vehicles?.poseForArchive();
+      previous.position = point(recovery?.position ?? game.player.position);
+      previous.velocity = point(recovery?.velocity ?? game.player.velocity ?? { x: 0, y: 0, z: 0 });
+      previous.grounded = recovery?.grounded ?? game.player.grounded === true;
+      previous.flying = !recovery && game.player.flying;
+      previous.yaw = game.player.yaw;
+      previous.pitch = game.player.pitch;
+      const departure = previous.vehicles?.detachForTravel({
+        validate: () => stage.current() && ownersCurrent(),
+      });
       if (departure && !departure.ok)
-        throw new Error(
-          `Could not safely leave the vehicle: ${departure.reason}`
-        );
+        throw new Error(`Could not safely leave the vehicle: ${departure.reason}`);
+      departed = true;
+      observerErrors.push(...(departure?.observerErrors ?? []));
+      if (!ownersCurrent()) throw new Error("Travel owners changed at departure");
+      // A refused rider/cast departure must not retire unrelated live pearl or
+      // potion state. Failures from here recover the source explicitly unseated.
+      const progression = previous.progression?.beforeTravel();
+      if (progression && !progression.ok)
+        throw new Error("Could not safely preserve progression before travel");
+      if (previous.projectiles?.cancel("travel") === false)
+        throw new Error("Could not safely retire pending projectiles");
+      if (previous.mobs) {
+        // capture() happens inside suspend(), AFTER the source rider release.
+        if (!previous.mobs.suspend()) throw new Error("Could not suspend source mob borrowers");
+        suspended = true;
+        sourceSnapshot = game.mobStates[previous.dimension];
+      } else {
+        // Historical host/fixture compatibility; the real Game always installs
+        // GameMobIntegration and never restores an owned actor this way.
+        game.mobStates ??= {};
+        sourceSnapshot = previous.wildlife.serialize();
+        game.mobStates[previous.dimension] = sourceSnapshot;
+        if (previous.vehicles && !previous.vehicles.suspendWildlife())
+          throw new Error("Could not suspend source horse borrower");
+        suspended = true;
+      }
+      const world = previous.world;
+      world.setDimension(stage.dimension);
+      const epoch = world.epoch;
+      await world.ensureArea(stage.position, stage.radius);
+      if (!ownersCurrent() || world.epoch !== epoch || world.dimension !== stage.dimension)
+        throw new Error("Destination owners changed during admission");
+      if (!installTravelLanding(world, stage))
+        throw new Error("The prepared destination is no longer safe");
+      const safe = stage.position;
       game.player.setPosition(safe);
-      playerMoved = true;
+      game.player.flying = safe.flying === true && !respawn;
+      game.player.pitch = -0.12;
+      if (previous.mobs) previous.mobs.restore();
+      else {
+        if (previous.wildlife.dispose() === false)
+          throw new Error("Could not release the source Wildlife");
+        game.createWildlife(game.mobStates[stage.dimension]);
+        if (previous.vehicles && !previous.vehicles.bindWildlife(game.wildlife))
+          throw new Error("Could not bind destination horse borrower");
+      }
+      restored = true;
+      // A dead owner has no rider/cast after departure; the normal rebind gate
+      // deliberately stays closed until Gameplay's single respawn publishes.
+      if (!game.gameplay.dead) {
+        const rebound = previous.vehicles?.rebindPlayer();
+        if (rebound && !rebound.ok)
+          throw new Error(`Could not rebind destination vehicles: ${rebound.reason}`);
+      }
       if (respawn) {
         let accepted;
         try {
@@ -281,31 +287,22 @@ export class GameTravel {
           if (error instanceof TransactionInvariantError) throw error;
         observerErrors.push(...(closed?.observerErrors ?? []));
         game.player.flying = false;
+        game.wildlife.protectSpawn(game.player.position);
+        if (previous.mobs) previous.mobs.capture();
+        else game.mobStates[world.dimension] = game.wildlife.serialize();
       }
-      if (safe.flying) game.player.flying = true;
-      game.player.pitch = -0.12;
-      observe(() =>
-        game.player.update(respawn ? 0 : 0.001, {
-          recoverFromVoid: game.gameplay.mode === "creative",
-        })
-      );
-      observe(() => game.graphics.rebuildDirty(Infinity));
-      observe(() => game.wildlife.dispose());
-      observe(() =>
-        game.createWildlife(game.mobStates[game.world.dimension], {
-          safeSpawn: respawn,
-        })
-      );
+      arrived = true;
       game.portalCooldown = 4;
       game.building = false;
+      observe(() => game.player.update(0, { recoverFromVoid: false }));
+      observe(() => game.graphics.rebuildDirty(Infinity));
       observe(() => game.ui.ready());
       observe(() => game.ui.showMenu("pause"));
       observe(() => game.refreshHud());
       try {
         await game.save();
       } catch (error) {
-        if (!respawnCommitted || error instanceof TransactionInvariantError)
-          throw error;
+        if (error instanceof TransactionInvariantError) throw error;
         observerErrors.push(error);
       }
       observe(() =>
@@ -321,42 +318,76 @@ export class GameTravel {
       );
       return {
         ok: true,
-        ...(respawn ? { fromBed: safe.fromBed, observerErrors } : {}),
+        observerErrors,
+        ...(respawn ? { fromBed: safe.fromBed } : {}),
       };
     } catch (error) {
-      if (respawn && error instanceof TransactionInvariantError) throw error;
-      if (
-        respawn &&
-        (game.world !== previous.world ||
-          game.player !== previous.player ||
-          game.gameplay !== previous.gameplay)
-      )
-        return {
-          ok: false,
-          message: "Respawn owners were replaced during inspection",
-        };
-      if (respawnCommitted) {
-        // A save/render observer cannot send a now-living player back into the
-        // old dimension or make the completed respawn look retryable.
+      if (error instanceof TransactionInvariantError) throw error;
+      if (!ownersCurrent())
+        return { ok: false, message: "Travel owners were replaced during inspection" };
+      if (arrived || respawnCommitted) {
+        // A completed arrival/respawn never becomes a retryable movement due
+        // to a save/render observer, and never restores an old rider link.
         game.building = false;
         observerErrors.push(error);
-        return { ok: true, fromBed: safe?.fromBed, observerErrors };
+        return { ok: true, ...(respawn ? { fromBed: stage?.position.fromBed } : {}), observerErrors };
       }
-      game.world.setDimension(previous.dimension);
-      if (!respawn || playerMoved) game.player.setPosition(previous.position);
-      game.player.yaw = previous.yaw;
-      game.player.pitch = previous.pitch;
-      game.player.flying = previous.flying;
-      if (!respawn || playerMoved)
-        game.player.update(respawn ? 0 : 0.001, {
-          recoverFromVoid: game.gameplay.mode === "creative",
-        });
-      game.world.updateStreaming(previous.position, game.graphics.renderRadius);
+      if (departed) {
+        try {
+          if (previous.mobs && suspended && previous.mobs.ecologyServices.wildlife &&
+              !previous.mobs.suspend())
+            throw new Error("Could not suspend failed destination");
+          if (!previous.mobs && previous.vehicles?.horses.wildlife &&
+              !previous.vehicles.suspendWildlife())
+            throw new Error("Could not suspend failed destination horse borrower");
+          const world = previous.world;
+          const needsRestore = suspended || restored || world.epoch !== previous.epoch;
+          world.setDimension(previous.dimension);
+          if (needsRestore) {
+            const epoch = world.epoch;
+            await world.ensureArea(previous.position, game.graphics.renderRadius + 1);
+            if (!ownersCurrent() || world.epoch !== epoch || world.dimension !== previous.dimension)
+              throw new Error("Source owners changed during recovery");
+          }
+          // This is deliberately an UNSEATED recovery. A committed departure
+          // is not rolled back to the archived rider, even at the same feet.
+          game.player.setPosition(previous.position);
+          game.player.yaw = previous.yaw;
+          game.player.pitch = previous.pitch;
+          game.player.flying = previous.flying;
+          game.player.velocity?.copy(previous.velocity);
+          game.player.grounded = previous.grounded;
+          if (needsRestore) {
+            if (previous.mobs) previous.mobs.restore(sourceSnapshot);
+            else {
+              game.wildlife.dispose();
+              game.createWildlife(sourceSnapshot);
+              if (previous.vehicles && !previous.vehicles.bindWildlife(game.wildlife))
+                throw new Error("Could not bind recovered source horse borrower");
+            }
+          }
+          const rebound = previous.vehicles?.rebindPlayer();
+          if (rebound && !rebound.ok && !game.gameplay.dead)
+            throw new Error(`Could not rebind source vehicles: ${rebound.reason}`);
+          game.player._syncCamera?.(0);
+          world.updateStreaming(previous.position, game.graphics.renderRadius);
+        } catch (recoveryError) {
+          if (recoveryError instanceof TransactionInvariantError) throw recoveryError;
+          if (!ownersCurrent())
+            return { ok: false, message: "Travel owners changed during recovery" };
+          game.building = false;
+          game.failed = true;
+          return { ok: false, rollbackFailed: true,
+            message: `${error.message}; source recovery failed: ${recoveryError.message}` };
+        }
+      }
       game.building = false;
-      game.ui.ready();
-      game.ui.showMenu("pause");
-      game.ui.toast(`Travel failed: ${error.message}`);
-      return { ok: false, message: error.message };
+      observe(() => game.ui.ready());
+      observe(() => game.ui.showMenu("pause"));
+      observe(() => game.ui.toast(`Travel failed: ${error.message}`));
+      return { ok: false, message: error.message, observerErrors };
+    } finally {
+      stage?.dispose();
     }
   }
 }

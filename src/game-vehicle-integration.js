@@ -15,6 +15,9 @@ export async function stageVehicleServices({
   world,
   gameplay,
   overflow,
+  experienceOrbs = null,
+  wildlife = null,
+  mobIntegration = null,
   context,
   saved,
   position,
@@ -23,6 +26,8 @@ export async function stageVehicleServices({
     world,
     gameplay,
     overflow,
+    experienceOrbs,
+    wildlife,
     context,
     saved,
     lootTables,
@@ -30,6 +35,7 @@ export async function stageVehicleServices({
     allowOverBudget: saved != null,
   });
   try {
+    if (mobIntegration) mobIntegration.stageWildlife(services);
     const footprints = services.requiredFootprints();
     if (footprints.length > 2)
       throw new Error("Too many saved vehicle footprints");
@@ -54,6 +60,5 @@ export function applyVehiclePose(game) {
   const riderPose = game.vehicleServices?.riderPose();
   const exitPose = game.vehicleServices?.takeExitPose();
   if (!riderPose && !exitPose) return false;
-  game.player.update(0, { recoverFromVoid: false, riderPose, exitPose });
-  return true;
+  return game.player.update(0, { recoverFromVoid: false, riderPose, exitPose }) === true;
 }

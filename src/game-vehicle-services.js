@@ -5,6 +5,7 @@ import { bodyBox, boxCollides, sweepCameraDistance } from "./collision.js";
 import { Fishing } from "./fishing.js";
 import { fishingRodStats } from "./fishing-loot.js";
 import { createFluidSample, sampleFluidAtPoint } from "./fluid-sampling.js";
+import { GameHorseInventory } from "./game-horse-inventory.js";
 import {
   prepareVehicleDrops,
   prepareVehicleExperience,
@@ -21,6 +22,9 @@ import {
   vehicleSynchronous,
 } from "./game-vehicle-state.js";
 import { getItem } from "./items.js";
+import { horseBounds, horseClear, horseEnvironment } from "./horse-collision.js";
+import { horseHeading, horseInput, horseSeat } from "./horse-definitions.js";
+import { Horses } from "./horses.js";
 import {
   TransactionCoordinator,
   TransactionInvariantError,
@@ -39,11 +43,11 @@ const position = ({ x, y, z }) => ({ x, y, z });
 const samePoint = (a, b) => a?.x === b?.x && a?.y === b?.y && a?.z === b?.z;
 const distanceSquared = (a, b) =>
   (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
-const bindingNames = ["vehicleServices", "boats", "fishing"];
+const bindingNames = ["vehicleServices", "boats", "fishing", "horses"];
 
 /**
  * Detached stage/load -> activate(game) -> frame/render/serialize -> dispose.
- * Owns only Boats/Fishing and their bounded render adapters, not its input
+ * Owns Boats/Fishing/Horses and their bounded render/session adapters, not its input
  * World/Gameplay/DropOverflow/ExperienceOrbs/Player. XP may be supplied at stage
  * time or bound to the REAL game.experienceOrbs at activation.
  *
@@ -64,6 +68,7 @@ export class GameVehicleServices {
     saved = null,
     allowOverBudget = false,
     scene = null,
+    wildlife = null,
     lootTables,
   } = {}) {
     const cleanContext = normalizeVehicleServiceContext(context);
@@ -124,9 +129,14 @@ export class GameVehicleServices {
     this._useLatched = this._frameChanged = false;
     this._saveIn = 0;
     this._exitPose = null;
+    this._stagedWildlife = wildlife;
+    this._horseLifecycle = this._wildlifeFrameBusy = false;
+    this._frameSequence = 0;
+    this._frameId = null;
     this._plans = new WeakSet();
     this._observerErrors = [];
     this._controls = { player: { forward: 0, turn: 0, dismount: false } };
+    this._horseControls = { player: {} };
     const sample = createFluidSample();
     this._hooks = Object.freeze({
       coordinator,
@@ -140,6 +150,32 @@ export class GameVehicleServices {
       sampleFluid: (source, point) => sampleFluidAtPoint(source, point, sample),
       onChange: () => this._changed(),
     });
+    this._boatCanMount = (ownerId, id, { loading = false } = {}) =>
+      this.horses?.mountFor(ownerId) == null &&
+      (!loading || (this._loading && this._staged()) ||
+        this.boats?.mountFor(ownerId)?.id === id);
+    this._boatMountGuard = ({ ownerId }) => {
+      const horses = this.horses, revision = horses.revision;
+      const bytes = this.coordinator.usage(horses);
+      if (!this._leafAvailable() || horses.mountFor(ownerId) || bytes === undefined)
+        return null;
+      return Object.freeze({
+        owner: horses, beforeBytes: bytes, afterBytes: bytes,
+        validate: () => this._leafAvailable() && this.horses === horses &&
+          horses.revision === revision && horses.mountFor(ownerId) === null,
+        publish() {},
+      });
+    };
+    this._horseHooks = Object.freeze({
+      ...this._hooks,
+      available: () => this._horseAvailable(),
+      canMount: (ownerId) => this.boats?.mountFor(ownerId) == null &&
+        (!!this.horses?.wildlife || this._loading),
+      prepareHandCost: (request) => prepareVehicleHandCost(this, request, { horse: true }),
+      prepareDrops: (request) => prepareVehicleDrops(this, request, { horse: true }),
+      prepareExperience: (request) => prepareVehicleExperience(this, request, { horse: true }),
+      onEvent: (event) => this._horseEvent(event),
+    });
     if (experienceOrbs !== null && !this._validExperience(experienceOrbs))
       throw new RangeError("Invalid staged vehicle experience owner");
     if (!coordinator.register(this, 0, { allowOverBudget }))
@@ -147,6 +183,8 @@ export class GameVehicleServices {
     try {
       this.boats = new Boats(null, world, {
         ...this._hooks,
+        canMount: this._boatCanMount,
+        prepareMountGuard: this._boatMountGuard,
         onEvent: (event) => this._boatEvent(event),
       });
       this.fishing = new Fishing(null, world, {
@@ -154,8 +192,14 @@ export class GameVehicleServices {
         lootTables,
         onEvent: (event) => this._fishingEvent(event),
       });
+      this.horses = new Horses(null, world, {
+        ...this._horseHooks, gameplay, overflow,
+        ...(experienceOrbs ? { experienceOrbs } : {}),
+      });
       this._boatOwner = this.boats;
       this._fishingOwner = this.fishing;
+      this._horseOwner = this.horses;
+      this.horseInventory = new GameHorseInventory(this);
       if (!this.load(snapshot, { allowOverBudget }))
         throw new RangeError("Cannot restore staged vehicles");
     } catch (error) {
@@ -206,10 +250,19 @@ export class GameVehicleServices {
       this.world.generatorVersion === this._generatorVersion &&
       this.boats === this._boatOwner &&
       this.fishing === this._fishingOwner &&
+      this.horses === this._horseOwner &&
       !!this.boats &&
       !!this.fishing &&
       !this.boats._disposed &&
       !this.fishing._disposed &&
+      !!this.horses &&
+      !this.horses._disposed &&
+      this.horses.world === this.world &&
+      this.horses.gameplay === this.gameplay &&
+      this.horses.context === this.context &&
+      this.horses.coordinator === this.coordinator &&
+      this.horses.hooks.available === this._horseHooks.available &&
+      this.horses.hooks.canMount === this._horseHooks.canMount &&
       this.boats.world === this.world &&
       this.fishing.world === this.world &&
       this.boats.context === this.context &&
@@ -217,6 +270,8 @@ export class GameVehicleServices {
       this.boats.coordinator === this.coordinator &&
       this.fishing.coordinator === this.coordinator &&
       this.boats.available === this._hooks.available &&
+      this.boats.canMount === this._boatCanMount &&
+      this.boats.prepareMountGuard === this._boatMountGuard &&
       this.fishing.available === this._hooks.available &&
       this.boats.readOwner === this._hooks.readOwner &&
       this.fishing.readOwner === this._hooks.readOwner &&
@@ -228,7 +283,8 @@ export class GameVehicleServices {
       this.boats.sampleFluid === this._hooks.sampleFluid &&
       this.fishing.sampleFluid === this._hooks.sampleFluid &&
       this.coordinator.usage(this.boats) === this.boats.reservedBytes &&
-      this.coordinator.usage(this.fishing) === this.fishing.reservedBytes
+      this.coordinator.usage(this.fishing) === this.fishing.reservedBytes &&
+      this.coordinator.usage(this.horses) === this.horses.reservedBytes
     );
   }
 
@@ -252,6 +308,9 @@ export class GameVehicleServices {
       game.vehicleServices === this &&
       game.boats === this.boats &&
       game.fishing === this.fishing &&
+      game.horses === this.horses &&
+      (!this.horses.wildlife || (this.horses.active &&
+        game.wildlife === this.horses.wildlife)) &&
       game.player === this._player &&
       game.player.world === this.world &&
       game.experienceOrbs === this.experienceOrbs &&
@@ -268,6 +327,32 @@ export class GameVehicleServices {
     return this._candidateGame
       ? this._staged()
       : this.active && (!this._frameBusy || this._running());
+  }
+
+  _horseAvailable() {
+    if (this._candidateGame) return this._staged();
+    return this.active && (this._horseLifecycle || this._actionAvailable() ||
+      this.horseInventory?.overlayGate ||
+      ((this._frameBusy || this._wildlifeFrameBusy) && this._running()));
+  }
+
+  _withHorseLifecycle(work) {
+    const previous = this._horseLifecycle;
+    this._horseLifecycle = true;
+    try { return work(); }
+    finally { this._horseLifecycle = previous; }
+  }
+
+  /** Real late Wildlife damage uses frame ownership, not the walking/UI gate. */
+  runWildlifeFrame(work) {
+    if (this._wildlifeFrameBusy) return false;
+    this._wildlifeFrameBusy = true;
+    try { return work(); }
+    finally { this._wildlifeFrameBusy = false; }
+  }
+
+  _resourceAvailable() {
+    return this._horseAvailable() && this._running() && !this._loading;
   }
 
   _running() {
@@ -305,7 +390,8 @@ export class GameVehicleServices {
       yaw = player?.yaw,
       pitch = player?.pitch;
     return () =>
-      (action ? this._actionAvailable() : this.active) &&
+      (action === "resource" ? this._resourceAvailable() :
+        action ? this._actionAvailable() : this.active) &&
       this._game === game &&
       this._player === player &&
       this._revision === revision &&
@@ -319,7 +405,7 @@ export class GameVehicleServices {
           player.pitch === pitch));
   }
 
-  /** Call while detached; both normalized leaves install together or not at all. */
+  /** Call while detached; all normalized leaves install together or not at all. */
   load(saved, { allowOverBudget = false } = {}) {
     if (
       !this._staged() ||
@@ -330,15 +416,18 @@ export class GameVehicleServices {
       return false;
     const snapshot = normalizeVehicleServicesSnapshot(saved, this.context);
     if (!snapshot) return false;
-    const boats = this.boats.prepareLoad(snapshot.boats);
-    const fishing = this.fishing.prepareLoad(snapshot.fishing);
-    if (!boats || !fishing) return false;
     this._loading = true;
     try {
+      // Only this detached, cross-normalized load may introduce saved riders.
+      // Raw leaf loads cannot compose two independently validated rider writes.
+      const boats = this.boats.prepareLoad(snapshot.boats);
+      const fishing = this.fishing.prepareLoad(snapshot.fishing);
+      const horses = this.horses.prepareLoad(snapshot.horses);
+      if (!boats || !fishing || !horses) return false;
       if (
         !commitVehicleSnapshots(
           this.coordinator,
-          [boats, fishing],
+          [boats, fishing, horses],
           allowOverBudget
         )
       )
@@ -354,10 +443,21 @@ export class GameVehicleServices {
    * Optional staging hints, at most two radius-one neighborhoods. Parent owns
    * any admission BEFORE activation, never calls ensureArea in the frame loop.
    */
+  stageWildlife(wildlife) {
+    if (!this._staged() || this._stagedWildlife || this._candidateGame ||
+        wildlife?.disposed || wildlife?.world !== this.world ||
+        wildlife.dimension !== this.world.dimension ||
+        wildlife.coordinator !== this.coordinator ||
+        this.coordinator.usage(wildlife) !== 0 || wildlife.horseServices)
+      return false;
+    this._stagedWildlife = wildlife;
+    return true;
+  }
+
   requiredFootprints() {
     if (!this._staged()) return [];
     const result = [];
-    const rider = this.boats.riderPose();
+    const rider = this.boats.riderPose() ?? this._stagedHorsePose();
     if (rider)
       result.push({
         ...position(rider.position),
@@ -406,13 +506,34 @@ export class GameVehicleServices {
   }
 
   _checkRiderPose(savedPosition) {
-    const rider = this.boats.riderPose();
+    const horseMount = this.horses.mountFor();
+    const boatMount = this.boats.mountFor();
+    if ((horseMount && boatMount) ||
+        (horseMount && horseMount.dimension !== this.world.dimension))
+      return refused("saved-rider-dimension");
+    const rider = this.boats.riderPose() ?? this.horses.riderPose() ?? this._stagedHorsePose();
+    if (horseMount && !rider) return refused("missing-rider-base");
     if (!rider || this.gameplay.dead) return { ok: true, riderPose: null };
     if (
       !finitePoint(savedPosition) ||
       distanceSquared(savedPosition, rider.position) > 0.125 ** 2
     )
       return refused("saved-rider-pose-mismatch");
+    if (rider.vehicleType === "horse") {
+      const wildlife = this.horses.wildlife ?? this._stagedWildlife;
+      const mob = wildlife?.byId.get(rider.id);
+      if (!mob || wildlife.disposed || wildlife.world !== this.world ||
+          wildlife.dimension !== this.world.dimension || mob.dead || mob.dormant ||
+          !wildlife.entities.includes(mob))
+        return refused("inactive-horse-rider");
+      if (!loadedAquaticArea(this.world, horseBounds(mob.position)))
+        return refused("rider-frontier");
+      const environment = horseEnvironment(this.world, mob.position, this._hooks.sampleFluid);
+      if (!horseClear(this.world, mob.position, true) || !environment ||
+          environment.hazardous || environment.water === "deep")
+        return refused("rider-obstructed");
+      return { ok: true, riderPose: rider };
+    }
     const boat = this.boats.getBoat(rider.id);
     if (!loadedAquaticArea(this.world, boatBox(boat, true)))
       return refused("rider-frontier");
@@ -424,7 +545,20 @@ export class GameVehicleServices {
     return { ok: true, riderPose: rider };
   }
 
-  activate(game) {
+  _stagedHorsePose() {
+    const mount = this.horses.mountFor();
+    if (!mount || mount.dimension !== this.world.dimension) return null;
+    const mob = this._stagedWildlife?.byId.get(mount.id);
+    const state = this.horses.state(mount.id);
+    return mob?.kind === "horse" && !mob.dead && state?.motion ? {
+      ...mount, position: horseSeat(mob.position),
+      velocity: { x: state.motion.vx, y: state.motion.vy, z: state.motion.vz },
+      hullYaw: horseHeading(mob.root.rotation.y - Math.PI),
+      seated: true, grounded: false,
+    } : null;
+  }
+
+  activate(game, { root = null, headless = false } = {}) {
     if (this._game)
       return this._game === game && this.active
         ? { ok: true }
@@ -453,7 +587,9 @@ export class GameVehicleServices {
     const scene = game.graphics?.scene;
     if (scene != null && scene.isScene !== true)
       return refused("invalid-vehicle-scene");
-    const bindings = [this, this.boats, this.fishing];
+    if (this._stagedWildlife && game.wildlife !== this._stagedWildlife)
+      return refused("stale-horse-base");
+    const bindings = [this, this.boats, this.fishing, this.horses];
     if (
       !bindingNames.every((name, index) =>
         vehicleHostBindable(game, name, bindings[index])
@@ -474,6 +610,7 @@ export class GameVehicleServices {
     const gameplayRevision = this.gameplay.revision;
     const boatRevision = this.boats.revision,
       fishingRevision = this.fishing.revision;
+    let horseRevision = this.horses.revision;
     // Scene.add dispatches public Three.js events. Revalidate the staged
     // owners/pose after renderer construction, before ANY binding publication.
     const current = () =>
@@ -493,6 +630,8 @@ export class GameVehicleServices {
       this.gameplay.revision === gameplayRevision &&
       this.boats.revision === boatRevision &&
       this.fishing.revision === fishingRevision &&
+      this.horses.revision === horseRevision &&
+      (!this._stagedWildlife || game.wildlife === this._stagedWildlife) &&
       samePoint(player.position, at) &&
       samePoint(player.eyePosition, eye) &&
       player.poseRevision === poseRevision &&
@@ -530,6 +669,18 @@ export class GameVehicleServices {
       )
         return refused("vehicle-render-binding-rejected");
       if (!current()) return refused("stale-vehicle-activation");
+      if (game.wildlife) {
+        if (!this.horses.bindWildlife(game.wildlife))
+          return refused("horse-base-binding-rejected");
+        horseRevision = this.horses.revision;
+        if (this.gameplay.dead && this.horses.needsDeparture()) {
+          const release = this.horses.preparePassengerRelease();
+          if (!release.ok) return release;
+          participants.push(...release.participants);
+        }
+      } else if (this.horses.livingSize) return refused("missing-horse-base");
+      if (!this.horseInventory.bind(game, { root, headless }) || !current())
+        return refused("vehicle-inventory-binding-rejected");
       const result = participants.length
         ? this.coordinator.commit(
             participants.map((participant) => ({
@@ -559,12 +710,21 @@ export class GameVehicleServices {
       if (error instanceof TransactionInvariantError) throw error;
       return refused("vehicle-activation-rejected");
     } finally {
-      this._candidateGame = null;
-      if (!installed)
+      if (!installed) {
+        // A failed candidate is never installed. Relinquish its saved rider
+        // under the candidate lifecycle gate before releasing the borrowed base.
+        if (this.horses.wildlife) {
+          if (this.horses.needsDeparture())
+            this.horses.releasePassenger("player", { travelling: true });
+          this.horses.suspend();
+        }
+        this.horseInventory.dispose();
         for (const leaf of [this.boats, this.fishing]) {
           leaf.renderer?.dispose();
           leaf.renderer = null;
         }
+      }
+      this._candidateGame = null;
     }
   }
 
@@ -644,8 +804,58 @@ export class GameVehicleServices {
     return this.commit(plan);
   }
 
-  resetInput() {
+  resetUse() {
     this._useLatched = false;
+  }
+
+  resetInput() {
+    this.resetUse();
+    this.horses?.resetInput();
+  }
+
+  /** Called at Game frame entry, before use/combat can create a late claim. */
+  beginFrame(frameId = ++this._frameSequence) {
+    this._frameId = frameId;
+    this.horses.beginFrame(frameId);
+  }
+
+  prepareHorseInteraction(id, options = {}) {
+    return this._prepareAction(() => this.horses.prepareInteraction(id, options));
+  }
+
+  interactHorse(id, { held = false, ...options } = {}) {
+    if (typeof held !== "boolean") return refused("invalid-use-gesture");
+    if (held && this._useLatched) return HELD;
+    const plan = this.prepareHorseInteraction(id, options);
+    if (held) this._useLatched = true;
+    if (plan?.ok && plan.action === "inventory")
+      return this.horseInventory.open(id, { validate: options.validate });
+    return this.commit(plan);
+  }
+
+  openHorseInventory() {
+    const mount = this.horses.mountFor();
+    if (!mount) return null;
+    const guard = this._captureGuard();
+    return this.horseInventory.open(mount.id, {
+      validate: () => guard() && this.horses.mountFor()?.id === mount.id,
+    });
+  }
+
+  prepareHorseHit(id, amount, direction, options) {
+    return this._prepareAction(() => this.horses.prepareHit(id, amount, direction, options));
+  }
+
+  /** Departure must already have committed. Neither borrower releases Wildlife. */
+  suspendWildlife() {
+    if (this.horseInventory.closeCurrent("travel").ok === false) return false;
+    return this.horses.suspend();
+  }
+
+  bindWildlife(wildlife) {
+    if (!this.active || this.horses.wildlife || this._game.wildlife !== wildlife)
+      return false;
+    return this.horses.bindWildlife(wildlife);
   }
 
   /** Pass the nearer solid-block/mob distance; physical geometry also clips it. */
@@ -715,18 +925,23 @@ export class GameVehicleServices {
   }
 
   dismount() {
-    return this.commit(this._prepareAction(() => this.boats.prepareDismount()));
+    return this.commit(this._prepareAction(() => this.horses.mountFor()
+      ? this.horses.prepareDismount() : this.boats.prepareDismount()));
   }
 
   riderPose() {
-    return this.active && !this.gameplay.dead ? this.boats.riderPose() : null;
+    return this.active && !this.gameplay.dead
+      ? this.horses.riderPose() ?? this.boats.riderPose() : null;
   }
 
   /** Save can run before Player consumes this frame's committed seat/exit. */
   poseForArchive() {
     const rider = this.riderPose();
     if (rider) return rider;
-    if (!this.active || this.gameplay.dead || !this._exitPose) return null;
+    if (!this.active || this.gameplay.dead) return null;
+    const horse = this.horses.poseForArchive();
+    if (horse) return horse;
+    if (!this._exitPose) return null;
     return {
       ...this._exitPose,
       position: position(this._exitPose.position),
@@ -736,9 +951,17 @@ export class GameVehicleServices {
 
   takeExitPose() {
     if (!this.active) return null;
+    // A later mount supersedes any earlier unconsumed exit from the other leaf.
+    // Each leaf still owns its own publication; no third occupancy ledger exists.
+    if (this.riderPose()) {
+      this.horses.takeExitPose();
+      this._exitPose = null;
+      return null;
+    }
+    const horse = this.horses.takeExitPose();
     const exit = this._exitPose;
     this._exitPose = null;
-    return exit;
+    return horse ?? exit;
   }
 
   /** On return to an inactive saved dimension, after admitting Player's pose. */
@@ -767,16 +990,33 @@ export class GameVehicleServices {
    * before changing/reviving Player. Cancels the cast and detaches the passenger
    * together; never calls dismount or invents a destination in the old world.
    */
-  prepareDeparture(reason = "travel") {
+  prepareDeparture(reason = "travel", { validate = () => true } = {}) {
     if (
       !this.active ||
       this._actionBusy ||
       this._frameBusy ||
+      this.horseInventory?._gate ||
+      !vehicleSynchronous(validate) ||
+      validate() !== true ||
       !["travel", "death"].includes(reason) ||
       (reason === "death" && !this.gameplay.dead)
     )
       return refused("vehicle-departure-unavailable");
     const participants = [];
+    const horseDeparture = this.horses.needsDeparture();
+    if (horseDeparture) {
+      const release = this._withHorseLifecycle(() =>
+        this.horses.preparePassengerRelease("player", {
+          travelling: reason === "travel",
+        }));
+      if (!release.ok) return release;
+      participants.push(...release.participants.map((participant) => ({
+        ...participant,
+        // Pearl commits these peers directly. Scope this permission to the
+        // captured lifecycle plan, never to the general input/UI gate.
+        validate: () => this._withHorseLifecycle(() => participant.validate()),
+      })));
+    }
     if (this.boats.mountFor()) {
       const release = this.boats.preparePassengerRelease("player", {
         travelling: reason === "travel",
@@ -794,7 +1034,9 @@ export class GameVehicleServices {
     }
     const revision = this._revision;
     const boatRevision = this.boats.revision,
-      fishingRevision = this.fishing.revision;
+      fishingRevision = this.fishing.revision,
+      horseRevision = this.horses.revision;
+    const keys = this._player?._keys;
     let used = false,
       notified = false;
     participants.push({
@@ -803,21 +1045,27 @@ export class GameVehicleServices {
       afterBytes: 0,
       validate: () =>
         !used &&
+        !this.horseInventory?._gate &&
+        validate() === true &&
         this._revision === revision &&
         this.boats.revision === boatRevision &&
         this.fishing.revision === fishingRevision &&
+        this.horses.revision === horseRevision &&
+        this._player?._keys === keys &&
         (reason !== "death" || this.gameplay.dead === true),
       publish: () => {
         used = true;
         this._revision++;
         this._exitPose = null;
         this._useLatched = false;
+        if (horseDeparture && keys instanceof Set) keys.clear();
       },
       notify: () => {
         if (!used || notified) return;
         notified = true;
         const errors = [];
         for (const clear of [
+          () => this.horseInventory.closeCurrent(reason),
           () => this.boats.renderer?.render([], null),
           () => this.fishing.renderer?.clearFeedback(),
           () => this.fishing.renderer?.render([], null, null),
@@ -841,12 +1089,12 @@ export class GameVehicleServices {
     );
   }
 
-  _depart(reason) {
-    return this.commit(this.prepareDeparture(reason));
+  _depart(reason, options) {
+    return this.commit(this.prepareDeparture(reason, options));
   }
 
-  detachForTravel() {
-    return this._depart("travel");
+  detachForTravel(options) {
+    return this._depart("travel", options);
   }
   onDeath() {
     return this._depart("death");
@@ -878,6 +1126,7 @@ export class GameVehicleServices {
     {
       simulating = this._game?.simulating === true,
       keys = null,
+      frameId,
     } = NO_FRAME_OPTIONS
   ) {
     if (
@@ -890,8 +1139,11 @@ export class GameVehicleServices {
       typeof simulating !== "boolean"
     )
       return refused("vehicle-frame-unavailable");
+    if (frameId !== undefined) this.beginFrame(frameId);
+    else this.beginFrame();
+    this.horseInventory.frame(dt);
     if (this.gameplay.dead) {
-      if (this.boats.mountFor() || this.fishing.hasCast())
+      if (this.boats.mountFor() || this.horses.needsDeparture() || this.fishing.hasCast())
         return this.onDeath();
       return IDLE;
     }
@@ -899,13 +1151,21 @@ export class GameVehicleServices {
       !simulating ||
       !this._running() ||
       dt === 0 ||
-      (!this.boats.activeSize && !this.fishing.activeSize)
+      (!this.boats.activeSize && !this.fishing.activeSize && !this.horses.activeSize)
     )
       return IDLE;
     this._frameBusy = true;
     this._frameChanged = false;
     try {
       boatInput(this._actionAvailable() ? keys : null, this._controls.player);
+      horseInput(this._actionAvailable() ? keys : null, this._player.yaw,
+        this._horseControls.player);
+      const horses = this.horses.activeSize
+        ? this.horses.update(dt, {
+            viewer: this._player.position, controls: this._horseControls,
+            frameId: this._frameId,
+          })
+        : null;
       const boats = this.boats.activeSize
         ? this.boats.update(dt, {
             viewer: this._player.position,
@@ -923,9 +1183,10 @@ export class GameVehicleServices {
       }
       return {
         ok: true,
-        advanced: !!(boats?.moved || fishing?.ticks),
+        advanced: !!(boats?.moved || fishing?.ticks || horses?.steps),
         boats,
         fishing,
+        horses,
       };
     } finally {
       this._frameBusy = false;
@@ -980,6 +1241,24 @@ export class GameVehicleServices {
       this._observe(() => this._game.effects?.sound?.(event.type, event.id));
   }
 
+  _horseEvent(event) {
+    if (!this.active) return;
+    // Horses publishes its own seat/exit and mob.horseView before observers.
+    // Never mirror those records into this host or mutate Player aim here.
+    if (event.type === "mount") {
+      this._exitPose = null;
+      this._observe(() => this._game.ui?.toast?.(event.tamed && event.saddled
+        ? "WASD to ride · Hold/release Space to jump · Shift to dismount · E for saddle"
+        : "Bareback riding · Feed to build trust · Shift to dismount"));
+    }
+    if (event.type === "tamed")
+      this._observe(() => this._game.ui?.toast?.("Horse tamed · E opens the saddle slot"));
+    if (event.type === "horse-step")
+      this._observe(() => this._game.effects?.sound?.("horse-step", event.blockId, {
+        position: event.position,
+      }));
+  }
+
   _fishingEvent(event) {
     if (!this.active) return;
     const text =
@@ -1002,7 +1281,10 @@ export class GameVehicleServices {
   serialize() {
     if (!(this._game ? this.active : this._staged()))
       throw new Error("Cannot serialize stale vehicle services");
-    return { boats: this.boats.serialize(), fishing: this.fishing.serialize() };
+    return {
+      boats: this.boats.serialize(), fishing: this.fishing.serialize(),
+      horses: this.horses.serialize(),
+    };
   }
 
   diagnostics() {
@@ -1011,7 +1293,8 @@ export class GameVehicleServices {
       disposed: this._disposed,
       boats: this.boats?.diagnostics() ?? null,
       fishing: this.fishing?.diagnostics() ?? null,
-      mounted: this.active ? this.boats.mountFor() : null,
+      horses: this.horses?.diagnostics() ?? null,
+      mounted: this.active ? this.horses.mountFor() ?? this.boats.mountFor() : null,
       observerErrors: this._observerErrors.slice(),
     };
   }
@@ -1023,18 +1306,25 @@ export class GameVehicleServices {
       this._actionBusy ||
       this._loading ||
       this._candidateGame ||
+      this.horseInventory?._gate ||
       this.boats?._preparing ||
       this.fishing?._preparing ||
+      this.horses?._preparing ||
+      this.horses?._updating ||
       this.boats?._updating ||
-      this.fishing?._updating ||
-      !this.coordinator.release(this)
+      this.fishing?._updating
     )
+      return false;
+    if (this.active && this.horses.needsDeparture() &&
+        !this.detachForTravel().ok) return false;
+    if (this.horses?.dispose() === false ||
+        this.horseInventory?.dispose() === false || !this.coordinator.release(this))
       return false;
     this._disposed = true;
     this._revision++;
     this.boats?.dispose();
     this.fishing?.dispose();
-    const bindings = [this, this.boats, this.fishing];
+    const bindings = [this, this.boats, this.fishing, this.horses];
     for (let index = 0; index < bindingNames.length; index++) {
       const slot =
         this._game &&
@@ -1047,7 +1337,7 @@ export class GameVehicleServices {
       )
         Object.defineProperty(this._game, bindingNames[index], { value: null });
     }
-    this._game = this._player = this._exitPose = null;
+    this._game = this._player = this._exitPose = this._stagedWildlife = null;
     this._observerErrors.length = 0;
     return true;
   }

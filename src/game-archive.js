@@ -1,4 +1,5 @@
 import { preflightWorldComponents } from "./save-preflight.js";
+import { snapshotGameMobs } from "./game-mob-state.js";
 import { MAX_ARCHIVE_BYTES } from "./save-budget.js";
 import { exportWorldFile, parseWorldFile, WorldStorage } from "./storage.js";
 
@@ -12,7 +13,6 @@ export class GameArchive {
   snapshot() {
     const game = this.game;
     if (!game.world || !game.player) return null;
-    const mobs = game.wildlife.serialize?.();
     const vehiclePose = game.vehicleServices?.poseForArchive();
     const position = vehiclePose?.position ?? game.player.position;
     return {
@@ -27,8 +27,7 @@ export class GameArchive {
         flying: vehiclePose ? false : game.player.flying,
       },
       gameplay: game.gameplay.serialize(),
-      mobs,
-      mobStates: { ...game.mobStates, [game.world.dimension]: mobs },
+      ...snapshotGameMobs(game),
       pickups: game.pickups.serialize(),
       experienceOrbs: game.experienceOrbs?.serialize() ?? {
         version: 1,

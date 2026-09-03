@@ -3,26 +3,33 @@ import {
   ecologyMobLinksValid,
   normalizeEcologySnapshot,
 } from "./expansion-ecology.js";
+import {
+  horseDataRecord,
+  horseMobLinksValid,
+  normalizeHorseSnapshot,
+} from "./horse-save.js";
 import { normalizeMobSnapshot, validMobPosition } from "./mob-save.js";
 import { DIMENSIONS } from "./world-spec.js";
-
-const record = (value) =>
-  !!value && typeof value === "object" && !Array.isArray(value);
 
 /** Cross-owner preflight; these are the existing v1 Wildlife projections, not
  * a second collection of corpses. Inactive dimensions retain every base pose.
  * Undefined is a legacy archive with no ecology. Explicit malformed data fails.
+ * Omitted horse options preserve standalone ecology callers; a supplied horse
+ * sidecar is data-only and applies to every dimension, including dead IDs.
  */
-export function normalizeEcologyServicesSnapshot(value, context) {
+export function normalizeEcologyServicesSnapshot(value, context, options = {}) {
   try {
+    if (!horseDataRecord(options, ["horses"], [])) return null;
+    const horses = Object.hasOwn(options, "horses")
+      ? normalizeHorseSnapshot(options.horses, context) : null;
+    if (Object.hasOwn(options, "horses") && !horses) return null;
+    const mobOptions = horses ? { horses } : {};
     if (value === undefined) value = {
       version: 1, ecology: normalizeEcologySnapshot(undefined, context), mobsByDimension: {},
     };
-    if (!record(value) || value.version !== 1 ||
-      Object.keys(value).some((key) => !["version", "ecology", "mobsByDimension"].includes(key)) ||
-      !Object.hasOwn(value, "ecology") || value.ecology === undefined ||
-      !record(value.mobsByDimension) ||
-      Object.keys(value.mobsByDimension).some((key) => !DIMENSIONS.includes(key)))
+    if (!horseDataRecord(value, ["version", "ecology", "mobsByDimension"]) ||
+      value.version !== 1 || value.ecology === undefined ||
+      !horseDataRecord(value.mobsByDimension, DIMENSIONS, []))
       return null;
     const ecology = normalizeEcologySnapshot(value.ecology, context);
     if (!ecology) return null;
@@ -33,7 +40,7 @@ export function normalizeEcologyServicesSnapshot(value, context) {
     const mobsByDimension = {};
     for (const dimension of DIMENSIONS) {
       if (!Object.hasOwn(value.mobsByDimension, dimension)) continue;
-      const mobs = normalizeMobSnapshot(value.mobsByDimension[dimension], context, dimension);
+      const mobs = normalizeMobSnapshot(value.mobsByDimension[dimension], context, dimension, mobOptions);
       if (!mobs || mobs.killed.some((id) => reserved.has(id))) return null;
       for (const mob of mobs.entities) {
         const state = states.get(mob.id);
@@ -51,7 +58,9 @@ export function normalizeEcologyServicesSnapshot(value, context) {
     // Domain-only authored fixtures can still exercise fractional beach points.
     if (ecology.eggs.some((egg) =>
       !Object.values(egg.position).every(Number.isSafeInteger))) return null;
-    return ecologyMobLinksValid(ecology, Object.values(mobsByDimension))
+    const canonical = Object.values(mobsByDimension);
+    return ecologyMobLinksValid(ecology, canonical) &&
+      (!horses || horseMobLinksValid(horses, canonical, { ecology }))
       ? { version: 1, ecology, mobsByDimension } : null;
   } catch {
     return null;

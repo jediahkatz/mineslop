@@ -60,6 +60,7 @@ export async function vehicleFrameFixture(t) {
     exit: structuredClone(f.vehicles._exitPose),
     boats: f.boats.serialize(),
     fishing: f.fishing.serialize(),
+    horses: f.horses.serialize(),
     pearls: f.pearls.serialize(),
     gameplay: f.gameplay.serialize(),
     survivalClock: f.gameplay._changeClock,

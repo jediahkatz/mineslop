@@ -90,7 +90,8 @@ function validVehiclePose(world, pose, seated) {
     (pose.swimming !== undefined &&
       (typeof pose.swimming !== "boolean" ||
         (pose.swimming && (seated || pose.grounded)))) ||
-    (pose.hullYaw !== undefined && !Number.isFinite(pose.hullYaw))
+    (pose.hullYaw !== undefined && !Number.isFinite(pose.hullYaw)) ||
+    (pose.vehicleType !== undefined && !["boat", "horse"].includes(pose.vehicleType))
   )
     return false;
   const dimension = world.dimension ?? "overworld";
@@ -157,6 +158,7 @@ export class Player {
     this.sprinting = false;
     this.sneaking = false;
     this.seated = false;
+    this._vehicleType = this._vehicleId = this._hullHeading = null;
     this.climbing = false;
     this.onStep = null;
     this.onFlightChange = null;
@@ -198,11 +200,12 @@ export class Player {
       if (
         event.repeat ||
         this._keys.has(event.code) ||
-        (this.seated && UNSEATED_KEYS.has(event.code))
+        (this.seated && UNSEATED_KEYS.has(event.code) &&
+          !(event.code === "Space" && this.vehicleType === "horse"))
       )
         return;
       this._keys.add(event.code);
-      if (this.seated) return; // Raw paddles/Shift/arrows, no walking tap state.
+      if (this.seated) return; // Raw vehicle input only; no walking/flight tap state.
       const at = Number.isFinite(event.timeStamp)
         ? event.timeStamp
         : performance.now();
@@ -343,6 +346,9 @@ export class Player {
     return this._poseRevision;
   }
 
+  get vehicleType() { return this.seated ? this._vehicleType : null; }
+  get hullHeading() { return this.seated ? this._hullHeading : null; }
+
   get eyeHeight() {
     return this.sneaking && !this.seated ? SNEAK_EYE_HEIGHT : EYE_HEIGHT;
   }
@@ -450,7 +456,9 @@ export class Player {
   setPosition({ x, y, z }) {
     this._poseRevision++;
     this.position.set(x, y, z);
+    if (this.vehicleType === "horse") this._keys.clear();
     this.seated = false;
+    this._vehicleType = this._vehicleId = this._hullHeading = null;
     this._resetMovement();
     this._updateStance();
     this._syncCamera(0);
@@ -698,11 +706,21 @@ export class Player {
         !validVehiclePose(this.world, pose, seated)
       )
         return false;
+      const wasHorse = this.vehicleType === "horse";
+      const sameHorse = wasHorse && seated && pose.vehicleType === "horse" &&
+        pose.id === this._vehicleId;
       this.seated = seated;
+      this._vehicleType = seated ? pose.vehicleType ?? null : null;
+      this._vehicleId = seated ? pose.id ?? null : null;
+      this._hullHeading = seated ? pose.hullYaw ?? null : null;
       this.flying = false;
       this.sneaking = false;
       this._resetMovement();
-      for (const code of UNSEATED_KEYS) this._keys.delete(code);
+      for (const code of UNSEATED_KEYS)
+        if (code !== "Space" || !sameHorse) this._keys.delete(code);
+      if (wasHorse && !sameHorse)
+        for (const code of ["KeyW", "KeyA", "KeyS", "KeyD", "ShiftLeft", "ShiftRight"])
+          this._keys.delete(code);
       this.position.copy(pose.position);
       this.velocity.copy(pose.velocity);
       this.grounded = pose.grounded;

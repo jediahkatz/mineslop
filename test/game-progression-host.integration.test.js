@@ -23,15 +23,23 @@ test("real Game preparation stages progression beside its still-detached pearl o
     shell, "progression-host-stage", null, { generatorVersion: 3 }
   );
   const owners = [
+    staged.vehicleServices, staged.mobIntegration,
     staged.progressionIntegration, staged.explorationServices,
-    staged.vehicleServices, staged.projectileServices, staged.fluidServices,
+    staged.projectileServices, staged.fluidServices,
     staged.buildingServices, staged.fuses, staged.overflow, staged.settlement,
     staged.gameplay, staged.world,
   ].filter(Boolean);
-  t.after(() => owners.forEach((owner) => owner.dispose?.()));
+  t.after(() => {
+    for (const owner of owners) assert.notEqual(owner.dispose?.(), false);
+    assert.equal(staged.mobIntegration.wildlife.disposed, true);
+    assert.equal(staged.world.coordinator.usage(staged.mobIntegration.wildlife), undefined);
+    assert.equal(staged.world.coordinator.usage(staged.mobIntegration.experienceOrbs), undefined);
+  });
   assert.equal(staged.progressionIntegration.world, staged.world);
   assert.equal(staged.progressionIntegration.gameplay, staged.gameplay);
   assert.equal(staged.progressionIntegration.projectileServices, staged.projectileServices);
+  assert.equal(staged.mobIntegration.ecologyServices.trading, staged.progressionIntegration.services.trading);
+  assert.equal(staged.vehicleServices._stagedWildlife, staged.mobIntegration.wildlife);
   assert.equal(staged.projectileServices.projectiles.staged, true);
   assert.equal(staged.progressionIntegration.active, false);
   assert.equal(staged.progressionIntegration.serialize().progression.version, 1);

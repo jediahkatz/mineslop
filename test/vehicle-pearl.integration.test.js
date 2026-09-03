@@ -292,6 +292,7 @@ test(
     const saved = await f.game.storage.load();
     assert.deepEqual(saved.boats, f.boats.serialize());
     assert.deepEqual(saved.fishing, f.fishing.serialize());
+    assert.deepEqual(saved.horses, f.vehicles.horses.serialize());
     assert.deepEqual(saved.playerProjectiles, f.pearls.serialize());
     assert.equal(saved.boats.boats.length, 1);
     assert.equal(saved.boats.boats[0].id, boatId);
@@ -305,6 +306,7 @@ test(
     assert.deepEqual(restored.vehicles.serialize(), {
       boats: saved.boats,
       fishing: saved.fishing,
+      horses: saved.horses,
     });
     assert.deepEqual(restored.pearls.serialize(), saved.playerProjectiles);
     assert.deepEqual(point(restored.player.position), point(saved.player));

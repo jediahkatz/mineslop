@@ -3,6 +3,7 @@ const serviceSlots = [
   "fluidServices",
   "vehicleServices",
   "explorationServices",
+  "ecologyServices",
 ];
 
 /** Queue each current consumer independently after World publication. */

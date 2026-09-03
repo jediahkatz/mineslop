@@ -3,10 +3,12 @@ import { BLOCK, BLOCKS } from "./blocks.js";
 import { FLUID, isSourceWater, normalizeCell } from "./block-state.js";
 import { isBuildingBlock } from "./building-placement.js";
 import { placeFluidBlock } from "./game-fluid-block-actions.js";
+import { GameMobActions } from "./game-mob-actions.js";
 import { canShieldBlock, ItemUse, itemUseKind } from "./item-use.js";
 import { stackIdentity } from "./item-stack-data.js";
 import { getItem, ITEM } from "./items.js";
 import { progressionStationKind } from "./progression-station-state.js";
+import { TransactionInvariantError } from "./transactions.js";
 import { raycast } from "./world.js";
 import {
   bucketPourChange,
@@ -31,6 +33,9 @@ const finiteVector = (value) =>
   value && [value.x, value.y, value.z].every(Number.isFinite);
 
 export function physicalEye(game) {
+  const pose = game.vehicleServices?.poseForArchive();
+  if (pose)
+    return { ...pose.position, y: pose.position.y + game.player.eyeHeight };
   return game.player.eyePosition ?? game.graphics.camera.position;
 }
 
@@ -43,6 +48,7 @@ export class GameUseActions {
     this.source = null;
     this.lastUse = -Infinity;
     this.shotEnd = new THREE.Vector3();
+    this.observerErrors = [];
   }
 
   reset() {
@@ -64,7 +70,7 @@ export class GameUseActions {
     if (source !== this.source) return false;
     this.held = false;
     this.source = null;
-    this.game.vehicleServices?.resetInput();
+    this.game.vehicleServices?.resetUse();
     if (cancel) {
       this.use.cancel();
       return false;
@@ -141,6 +147,9 @@ export class GameUseActions {
 
     // Entity interactions take priority over eating the same food.
     if (game.mobTarget) {
+      const actions = (game.mobActions ??= new GameMobActions(game));
+      const owned = actions.interact(game.mobTarget.entity, { held });
+      if (owned !== null) return this.finishVehicleAction(owned);
       for (const hand of hands) {
         const stack = game.gameplay.getHandStack(hand);
         if (!stack || stack.count < 1) continue;
@@ -172,12 +181,27 @@ export class GameUseActions {
   }
 
   finishVehicleAction(result) {
-    if (result?.ok && result.action !== "held-vehicle-use") {
-      this.game.applyVehiclePose();
-      this.game.updateTarget();
-      this.game.refreshHud();
+    // Ownership has already published. A failed presentation refresh must not
+    // turn a paid feed, mount or slot-open into a retryable use failure.
+    return this._observeCommitted(result, result?.action === "held-vehicle-use" ? [] : [
+      () => this.game.applyVehiclePose(),
+      () => this.game.updateTarget(),
+      () => this.game.refreshHud(),
+    ]);
+  }
+
+  _observeCommitted(result, observers) {
+    this.observerErrors = (result?.observerErrors ?? []).slice(-16);
+    if (result?.ok !== true) return false;
+    for (const observe of observers) {
+      try { observe(); }
+      catch (error) {
+        if (error instanceof TransactionInvariantError) throw error;
+        this.observerErrors.push(error);
+        if (this.observerErrors.length > 16) this.observerErrors.shift();
+      }
     }
-    return result?.ok === true;
+    return true;
   }
 
   useHand(hand, stack, held) {
@@ -454,34 +478,40 @@ export class GameUseActions {
     )
       return false;
     const cost = gameplay.prepareBowShot(shot);
-    if (
-      !cost ||
-      !gameplay.coordinator.commit([
-        {
-          ...cost,
-          validate: () =>
-            game.world === world &&
-            game.gameplay === gameplay &&
-            game.player === player &&
-            cost.validate(),
-        },
-      ]).ok
-    )
-      return false;
+    if (!cost) return false;
     const range = 32 * (0.35 + 0.65 * strength);
     const block = raycast(game.world, eye, game.player.forward, range);
     const mob = game.wildlife.raycast?.(eye, game.player.forward, range);
     const hit = mob && (!block || mob.distance < block.distance) ? mob : null;
+    const paid = {
+      ...cost,
+      validate: () => game.active && game.world === world &&
+        game.gameplay === gameplay && game.player === player && cost.validate(),
+    };
+    const actions = (game.mobActions ??= new GameMobActions(game));
+    const owned = hit && actions.owns(hit.entity);
+    const amount = Math.max(1, Math.round((item.damage ?? 6) * strength));
+    const result = owned
+      ? actions.commit(actions.prepareHit(hit.entity, amount, {
+          reach: range, participants: [paid],
+        }))
+      : gameplay.coordinator.commit([paid]);
+    // In particular, an owned target's XP/drop veto cannot consume an arrow.
+    if (!result?.ok) return false;
     const distance = hit?.distance ?? block?.distance ?? range;
     this.shotEnd.copy(eye).addScaledVector(game.player.forward, distance);
+    // The owned hit already paid its arrow/wear and retained every reward.
+    // Sound/shot/HUD observers cannot make that same release retryable.
+    if (owned) return this._observeCommitted(result, [
+      () => game.effects.shoot(eye, this.shotEnd),
+      () => game.effects.sound("shoot", 5),
+      () => game.scheduleSave(),
+      () => game.refreshHud(),
+    ]);
     game.effects.shoot(eye, this.shotEnd);
     game.effects.sound("shoot", 5);
     game.wildlife.endSpawnProtection?.();
-    if (hit)
-      game.hitMob(
-        hit.entity,
-        Math.max(1, Math.round((item.damage ?? 6) * strength))
-      );
+    if (hit && !owned) game.hitMob(hit.entity, amount);
     game.scheduleSave();
     game.refreshHud();
     return true;

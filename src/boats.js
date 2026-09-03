@@ -104,6 +104,8 @@ export class Boats {
       coordinator = world?.coordinator,
       context = world,
       readOwner,
+      canMount,
+      prepareMountGuard,
       prepareHandCost,
       prepareDrops,
       sampleFluid,
@@ -117,6 +119,8 @@ export class Boats {
       throw new TypeError("Boats requires the World's shared coordinator");
     for (const callback of [
       readOwner,
+      canMount,
+      prepareMountGuard,
       prepareHandCost,
       prepareDrops,
       sampleFluid,
@@ -134,6 +138,8 @@ export class Boats {
       throw new RangeError("Boat context belongs to another world");
     this.coordinator = coordinator;
     this.readOwner = readOwner;
+    this.canMount = canMount;
+    this.prepareMountGuard = prepareMountGuard;
     this.prepareHandCost = prepareHandCost;
     this.prepareDrops = prepareDrops;
     this.sampleFluid = sampleFluid;
@@ -475,7 +481,21 @@ export class Boats {
       actor = this._actor(ownerId);
     if (!boat || boat.dimension !== this.world.dimension || !actor)
       return failed("inactive-boat");
-    if (this.mountFor(ownerId)) return failed("already-mounted");
+    const canMount = this.canMount;
+    const crossMountAllowed = () => this.canMount === canMount &&
+      (canMount === undefined || canMount(ownerId, id) === true);
+    if (this.mountFor(ownerId) || !crossMountAllowed()) return failed("already-mounted");
+    // The host may borrow the other mount owner's reservation as a read-only
+    // peer. Two independently prepared raw mounts then collide on that owner
+    // if composed into ONE transaction, before either seat can publish.
+    const prepareMountGuard = this.prepareMountGuard;
+    const peer = prepareMountGuard ? this._callback("prepareMountGuard", { ownerId, id }) : null;
+    if (prepareMountGuard && (!peer || peer.owner === this ||
+        this.coordinator.usage(peer.owner) !== peer.beforeBytes ||
+        peer.afterBytes !== peer.beforeBytes ||
+        !synchronousAquaticCallback(peer.validate) ||
+        !synchronousAquaticCallback(peer.publish)))
+      return failed("cross-mount-guard-rejected");
     if (boat.submergedTime >= BOAT_SUBMERGE_SECONDS) return failed("submerged");
     const slot = boat.passengers.indexOf(null);
     if (slot < 0) return failed("full");
@@ -500,6 +520,8 @@ export class Boats {
       prerequisite: () =>
         worldGuard() &&
         actorGuard() &&
+        crossMountAllowed() &&
+        this.prepareMountGuard === prepareMountGuard &&
         this._reachable(actor, { ...boat, y: boat.y + BOAT_HEIGHT }) &&
         boatRiderPathClear(this.world, actor.position, position),
       events: [{ type: "mount", id, ownerId, slot, position }],
@@ -511,7 +533,7 @@ export class Boats {
           id,
           slot,
           position: { ...position },
-          participants: [own],
+          participants: peer ? [own, peer] : [own],
         }
       : failed("invalid-mount");
   }
@@ -877,10 +899,16 @@ export class Boats {
     if (!matchesEntityContext(this.world, nextContext)) return null;
     const parsed = normalizeBoatSnapshot(data, nextContext);
     if (!parsed) return null;
+    const canMount = this.canMount;
+    const crossMountAllowed = () => this.canMount === canMount &&
+      (canMount === undefined ||
+        parsed.boats.every((boat) => boat.passengers.every((rider) =>
+          rider === null || canMount(rider, boat.id, { loading: true }) === true)));
+    if (!crossMountAllowed()) return null;
     const bytes =
       BOAT_HEADER_RESERVED_BYTES +
       parsed.boats.length * BOAT_RECORD_RESERVED_BYTES;
-    return prepareVehicleSnapshot(
+    const participant = prepareVehicleSnapshot(
       this,
       {
         _boats: new Map(parsed.boats.map((boat) => [boat.id, boat])),
@@ -890,6 +918,10 @@ export class Boats {
       },
       bytes
     );
+    return participant && {
+      ...participant,
+      validate: () => crossMountAllowed() && participant.validate(),
+    };
   }
 
   load(data, { context = this.context, allowOverBudget = false } = {}) {

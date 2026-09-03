@@ -21,9 +21,12 @@ test("legacy absent sidecars, including World's empty-string seed, migrate witho
     );
     assert.equal(normalized.boats.seed, "");
     assert.equal(normalized.fishing.seed, "");
+    assert.equal(normalized.horses.seed, "");
     assert.equal(normalized.boats.generatorVersion, generatorVersion);
+    assert.equal(normalized.horses.generatorVersion, generatorVersion);
     assert.deepEqual(normalized.boats.boats, []);
     assert.deepEqual(normalized.fishing.casts, []);
+    assert.deepEqual(normalized.horses.entries, []);
   }
   const f = vehicleHostFixture(t, { seed: "", generatorVersion: 3 });
   assert.equal(f.service.active, true);
@@ -44,6 +47,9 @@ test("preflight is pure and rejects malformed-present fields instead of silently
     { fishing: undefined },
     { fishing: null },
     { fishing: { ...before.fishing, version: 2 } },
+    { horses: undefined },
+    { horses: null },
+    { horses: { ...before.horses, version: 2 } },
     { boats: { ...before.boats, seed: "wrong" } },
     { fishing: { ...before.fishing, generatorVersion: 3 } },
   ])
@@ -88,6 +94,7 @@ test("staging performs no rendering, admission, input, or callbacks; activation 
   assert.equal(f.service.activate(f.game).ok, true);
   assert.equal(f.game.boats, f.service.boats);
   assert.equal(f.game.fishing, f.service.fishing);
+  assert.equal(f.game.horses, f.service.horses);
   assert.equal(f.game.graphics.scene.children.length, children + 3);
   assert.equal(f.world.onMutation, mutationObserver);
   const bytes = f.coordinator.budget.totalBytes;
@@ -131,12 +138,11 @@ test("stale epoch, occupied alias and wrong XP owner cannot attach a staged host
     false
   );
   assert.equal(f.game.vehicleServices, undefined);
-  const occupied = { ...f.game, boats: { _disposed: false } };
-  assert.equal(
-    f.service.activate(occupied).reason,
-    "vehicle-host-already-owned"
-  );
-  assert.equal(occupied.vehicleServices, undefined);
+  for (const key of ["boats", "fishing", "horses"]) {
+    const occupied = { ...f.game, [key]: { _disposed: false } };
+    assert.equal(f.service.activate(occupied).reason, "vehicle-host-already-owned");
+    assert.equal(occupied.vehicleServices, undefined);
+  }
   f.world.setDimension("end");
   assert.equal(f.service.activate(f.game).ok, false);
   assert.equal(f.game.graphics.scene.children.length, children);
@@ -529,6 +535,7 @@ test("disposing a host releases only its ownership and stales every outstanding 
   assert.equal(f.game.vehicleServices, null);
   assert.equal(f.game.boats, null);
   assert.equal(f.game.fishing, null);
+  assert.equal(f.game.horses, null);
   assert.equal(f.game.graphics.scene.children.length, children - 3);
   assert.deepEqual(f.gameplay.serialize(), before);
   for (const owner of [f.world, f.gameplay, f.overflow, f.experienceOrbs])
