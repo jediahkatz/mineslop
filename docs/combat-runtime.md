@@ -85,6 +85,12 @@ Tests use real World/coordinator and actual prepared
 Gameplay/gear health edits while explicitly withholding any claim of mob-owner
 or live-Game authorization.
 
+The subsequent [resident-owner composition](resident-edit-batches.md) also
+tests real Horse/Ecology preparations, source cooldowns and mounted-horse
+death/resources together with runtime metadata. All 148 combined checks pass,
+including individual peer vetoes and replay. The adapter uses actual finalized
+owner results; it still does not prove live AI/contact authorization.
+
 The future bridge must supply complete fresh canonical actors/geometry,
 difficulty value and revision guards, source eligibility, actual owner results
 and all uniquely composed resource participants. Stable player identity/life

@@ -6,9 +6,11 @@ adds composable base-owner edits and an inactive runtime; normal Game callers
 remain on their existing paths until the complete cutover gate passes.
 
 The [inactive runtime checkpoint](combat-runtime.md) is now implemented and
-passes its isolated tests and baseline comparison. The separate base-owner
-batch delivery and combined owner/runtime integration still require execution
-and review. No normal Game activation follows from this runtime-only result.
+passes its isolated tests and baseline comparison. The
+[resident-owner batches](resident-edit-batches.md) now pass 97 focused checks;
+148 combined runtime/resident checks also pass. Broader regression verification
+and scoped review remain separate. Normal Game keeps its compatibility callers;
+these results do not activate the new source-aware combat paths.
 
 ## Next checkpoint: independent work boundaries
 
