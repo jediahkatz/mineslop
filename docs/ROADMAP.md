@@ -56,9 +56,11 @@ loading, and has relevant regression tests and real browser verification.
   hit other mobs, with appropriate retaliation or fleeing against the actual
   attacker. Respect walls, closest hits, difficulty and owned-entity safety;
   keep kill/loot/XP attribution single and correct.
-- [ ] **Steadier first-person hands.** Smooth walking, mining and held-use
+- [x] **Steadier first-person hands.** Smooth walking, mining and held-use
   transitions, including eating, bows and shields. Keep physical aiming,
-  cooldowns and inventory transactions unchanged.
+  cooldowns and inventory transactions unchanged. Verified locally with 13
+  trusted-input browser gestures; see [hand-motion verification](hand-motion.md)
+  for evidence and scope. Deployment is separate from local verification.
 - [ ] **Reliable water exits.** Fix jumping out of water and climbing ordinary
   shores while respecting ledge/headroom collisions and unloaded boundaries.
 - [ ] **Better boat controls.** Diagnose and improve steering, acceleration and

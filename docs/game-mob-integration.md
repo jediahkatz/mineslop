@@ -74,15 +74,17 @@ The combined run exposed four older Effects fixtures that lacked the new
 per-view state. `6ec060b` initializes that real state without weakening rendering
 assertions; all **62/62** Effects/hand/use/input checks then pass.
 
-The complete combined run at `6ec060b` finishes **3,522 tests: 3,504 pass and
+The complete combined run at `8de4382` finishes **3,523 tests: 3,505 pass and
 18 fail**. Comparison with the previously published reference baseline finds
 **zero new failures**, with identical names and assertions for all 18 inherited
 failures. The combined production build and both Pages-path WebGL/worker/
 save-reload checks also pass.
 
-Real-input browser acceptance remains separate. Manual riding/Survival and
-final hand/art visual acceptance are still open; these results alone do not
-constitute complete gameplay or visual release clearance.
+The independent hand-motion change now also passes all 13 trusted-input browser
+gestures and the manual shield walkthroughs documented in
+`docs/hand-motion.md`. Manual riding/Survival and final art acceptance remain
+separate gates; hand verification does not constitute complete horse/ecology
+gameplay or visual release clearance.
 
 ## Completed ecology owner contract
 
