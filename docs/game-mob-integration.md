@@ -17,11 +17,10 @@ The initial checkpoint ran in an isolated worktree with the unchanged lockfile:
 - Existing horse/ecology/Wildlife suites: **245/250 pass**. The five failures
   are the already-failing native ecology fixtures (`World loading was
   cancelled`), also present before this integration.
-- New Game host suites: **36 pass, three failures**. Egg mining returns no
+- Initial new Game host suites: **36 pass, three failures**. Egg mining returns no
   prepared plan; the owned-bow observer/replay case throws; the archive suite
   completes six cases before its saved-rider restoration test process reaches
-  the heap limit. The latter is not yet evidence of a production save failure:
-  its test instrumentation and assertions also need investigation.
+  the heap limit. The archive test failure is resolved below.
 - Production build succeeds. Both Pages-path checks pass, including real
   WebGL2, the terrain worker, IndexedDB save/reload, camera and control settings.
 
@@ -32,8 +31,30 @@ without weakening the Trading validator. The new ordinary-mining regression
 passes, and **all five native Game cases pass** after the fix: ocean admission,
 finite villager trading/jobsite removal, villager death and V4/V5 marker reads.
 
-The remaining Game-host failures, full-suite comparison and manual riding/
-Survival acceptance are still open. Do not publish this batch as verified.
+Checkpoint `8d1c3bef6533025f02afc5ab386e01d50a0687f3` fixes the archive test's
+spy lifetime. Scalar instrumentation showed successful single-load restoration,
+correct borrower/Trading identities and the rider before the test deliberately
+attempted a forbidden bound reload. The detached-only spy was still installed,
+so its assertion failed and formatting the complete owner graph exhausted the
+heap. Restoring the spy first exercises the actual refusal without weakening
+the assertions. **All 11 archive cases pass**, including unchanged owners after
+the refusal; the temporary instrumentation is removed. No production restore
+bug was evidenced.
+
+The full suite at that checkpoint completes **3,451 tests: 3,423 pass, 28 fail**.
+The 18 pre-existing failures have identical names and assertions. The ten new
+failures are egg harvesting, bow observer/replay, seven lifecycle cases across
+exploration travel, projectile persistence and respawn safety, and a legacy
+sidecar-absence fixture.
+
+Checkpoint `a2376500c36699c0e1dd7158f07d5ffed13e4c0b` corrects that last fixture:
+legacy absence omits mob properties rather than supplying explicit `undefined`.
+The canonical malformed-data guard remains strict. **All 14 archive/preflight
+checks pass** together after this correction. This is targeted verification,
+not a rerun of the full suite.
+
+The egg/bow and remaining lifecycle failures plus manual riding/Survival
+acceptance are still open. Do not publish this batch as verified.
 
 ## Completed ecology owner contract
 
