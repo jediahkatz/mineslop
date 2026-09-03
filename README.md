@@ -3,6 +3,9 @@
 An original Minecraft-inspired survival and creative sandbox running entirely in
 a desktop browser. No account, backend, remote assets, or API keys are required.
 
+See the [development roadmap](docs/ROADMAP.md) for the current gameplay,
+world, sound and visual-quality checklist.
+
 ## Play locally
 
 From this directory, run `npm ci`, then `npm run dev`, and open
