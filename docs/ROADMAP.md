@@ -55,7 +55,9 @@ loading, and has relevant regression tests and real browser verification.
   hurt/knockback and feedback satisfying. Stray projectiles and explosions can
   hit other mobs, with appropriate retaliation or fleeing against the actual
   attacker. Respect walls, closest hits, difficulty and owned-entity safety;
-  keep kill/loot/XP attribution single and correct.
+  keep kill/loot/XP attribution single and correct. The
+  [pure combat foundations](combat-foundations.md) pass their checks but are
+  not wired into gameplay; live friendly fire remains unchecked.
 - [x] **Steadier first-person hands.** Smooth walking, mining and held-use
   transitions, including eating, bows and shields. Keep physical aiming,
   cooldowns and inventory transactions unchanged. Verified locally with 13
