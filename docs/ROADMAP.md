@@ -50,6 +50,11 @@ loading, and has relevant regression tests and real browser verification.
 - [ ] **Steadier first-person hands.** Smooth walking, mining and held-use
   transitions, including eating, bows and shields. Keep physical aiming,
   cooldowns and inventory transactions unchanged.
+- [ ] **Reliable water exits.** Fix jumping out of water and climbing ordinary
+  shores while respecting ledge/headroom collisions and unloaded boundaries.
+- [ ] **Better boat controls.** Diagnose and improve steering, acceleration and
+  camera/rider behavior, preserving Minecraft-style input, safe dismounting,
+  collision and save/pearl/travel ownership.
 - [ ] **XP and levels.** A complete earn/collect/progress/level-up loop with clear
   feedback and meaningful level spending through usable progression stations.
   Loading a save or spending levels must not trigger a false level-up.
