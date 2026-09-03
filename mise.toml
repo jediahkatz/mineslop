@@ -44,6 +44,10 @@ run = "npm run test:native-v4"
 description = "Verify Fullbright cave illumination and browser-only preferences"
 run = "npm run test:inspection"
 
+[tasks."test:lighting"]
+description = "Verify real GPU daylight shaders across quality and inspection changes"
+run = "npm run test:lighting"
+
 [tasks."test:ui"]
 description = "Verify classic menus and real inventory/container interactions in a browser"
 run = "npm run test:ui"

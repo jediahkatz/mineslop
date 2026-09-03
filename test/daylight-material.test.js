@@ -106,8 +106,8 @@ test("Lambert hooks preserve torch/emissive/ambient paths and compose with exist
   g.daylightMaterial.install(material);
   const shader = {
     uniforms: {},
-    vertexShader: THREE.ShaderLib.lambert.vertex,
-    fragmentShader: THREE.ShaderLib.lambert.fragment,
+    vertexShader: THREE.ShaderLib.lambert.vertexShader,
+    fragmentShader: THREE.ShaderLib.lambert.fragmentShader,
   };
   material.onBeforeCompile(shader, null);
   assert.equal(waterHookCalls, 1);
@@ -123,8 +123,8 @@ test("Lambert hooks preserve torch/emissive/ambient paths and compose with exist
   assert.equal(shader.uniforms.uSkyCeilings.value, g.skyColumns.texture);
   const distantShader = {
     uniforms: {},
-    vertexShader: THREE.ShaderLib.lambert.vertex,
-    fragmentShader: THREE.ShaderLib.lambert.fragment,
+    vertexShader: THREE.ShaderLib.lambert.vertexShader,
+    fragmentShader: THREE.ShaderLib.lambert.fragmentShader,
   };
   g.distant._terrainMaterial.onBeforeCompile(distantShader, null);
   assert.match(distantShader.fragmentShader, /#define MINESLOP_EXTERIOR_DAYLIGHT/);
