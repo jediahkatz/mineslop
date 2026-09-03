@@ -4,6 +4,7 @@ import { BLOCK } from "../src/blocks.js";
 import { BLOCK_STATE as S, FLUID } from "../src/block-state.js";
 import { DropOverflow } from "../src/drop-overflow.js";
 import { createFurnace } from "../src/furnace.js";
+import { harvestDrops } from "../src/gameplay-harvest.js";
 import { getItem, ITEM } from "../src/items.js";
 import { MAX_RESERVED_BYTES } from "../src/save-budget.js";
 import { CROP_GROW_SECONDS } from "../src/settlement.js";
@@ -134,6 +135,103 @@ test("prepared mining is read-only; World, wear, metadata, loot and XP publish b
   assert.equal(game.harvestActions.commit(plan).ok, false);
   assert.equal(countDrops(drops, ITEM.DIAMOND), 1);
   assert.equal(experience.length, 1);
+});
+
+test("explicit no-drop proposals never contain Air and preserve the egg's Silk Touch override", () => {
+  const stack = tool();
+  for (const id of [BLOCK.TURTLE_EGG, BLOCK.SPAWNER]) {
+    assert.deepEqual(harvestDrops(id, { stack }), []);
+    assert.deepEqual(harvestDrops(id, { stack, explosion: true }), []);
+    assert.deepEqual(harvestDrops(id, { stack, mode: "creative" }), []);
+  }
+  for (const id of [BLOCK.DIRT, BLOCK.STONE])
+    assert.deepEqual(harvestDrops(id, { stack, dropId: BLOCK.AIR }), []);
+  assert.deepEqual(harvestDrops(BLOCK.STONE, { stack }), [
+    { id: BLOCK.COBBLESTONE, count: 1 },
+  ]);
+  const silk = {
+    ...stack,
+    data: { ...stack.data, enchantments: { silk_touch: 1 } },
+  };
+  assert.deepEqual(harvestDrops(BLOCK.TURTLE_EGG, { stack: silk }), [
+    { id: BLOCK.TURTLE_EGG, count: 1 },
+  ]);
+  assert.deepEqual(
+    harvestDrops(BLOCK.TURTLE_EGG, { stack: silk, explosion: true }),
+    []
+  );
+});
+
+for (const id of [BLOCK.TURTLE_EGG, BLOCK.SPAWNER]) {
+  test(`no-drop block ${id} keeps World and tool costs atomic without any loot sink`, (t) => {
+    for (const durability of [30, 1]) {
+      const held = tool(ITEM.IRON_PICKAXE, durability);
+      const { game, drops, experience, messages } = miningGame(id, held);
+      game.gameplay.exhaustion = 3.99;
+      game.gameplay.saturation = 1;
+      const loot = t.mock.method(game, "prepareDropItems", () => null);
+      const xp = t.mock.method(game.experienceOrbs, "prepareSpawn", () => null);
+      const before = interactionSnapshot(game);
+      const handRevision = game.gameplay.getHandRevision();
+      const plan = game.harvestActions.prepareBreak(game.target);
+      assert.ok(plan);
+      assert.deepEqual(plan.result.drops, []);
+      assert.equal(plan.result.experience, 0);
+      assert.equal(plan.participants.length, 2);
+      assert.deepEqual(new Set(plan.participants.map((part) => part.owner)),
+        new Set([game.world, game.gameplay]));
+      assert.deepEqual(interactionSnapshot(game), before);
+      for (const owner of [game.world, game.gameplay]) {
+        assert.equal(game.coordinator.commit(plan.participants.map((part) =>
+          part.owner === owner ? { ...part, validate: () => false } : part)).ok, false);
+        assert.deepEqual(interactionSnapshot(game), before);
+        assert.equal(game.gameplay.getHandRevision(), handRevision);
+      }
+      const expected = durability === 1 ? null : { ...held, durability: durability - 1 };
+      const observations = [];
+      game.gameplay.onChange = () => observations.push({
+        block: game.world.get(2, 9, 0),
+        held: game.gameplay.getHandStack(),
+      });
+      const result = game.harvestActions.commit(plan);
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.observerErrors, []);
+      assert.deepEqual(observations, [{ block: BLOCK.AIR, held: expected }]);
+      assert.equal(game.world.get(2, 9, 0), BLOCK.AIR);
+      assert.deepEqual(game.gameplay.getHandStack(), expected);
+      assert.ok(Math.abs(game.gameplay.exhaustion - 0.015) < 1e-12);
+      assert.equal(game.gameplay.saturation, 0);
+      assert.equal(game.gameplay.hunger, 20);
+      assert.equal(messages.filter((message) => /broke/.test(message)).length,
+        durability === 1 ? 1 : 0);
+      assert.equal(loot.mock.callCount(), 0);
+      assert.equal(xp.mock.callCount(), 0);
+      assert.deepEqual(drops, []);
+      assert.deepEqual(experience, []);
+      const paid = interactionSnapshot(game);
+      assert.equal(game.harvestActions.commit(plan).ok, false);
+      assert.deepEqual(interactionSnapshot(game), paid);
+      assert.equal(observations.length, 1);
+    }
+  });
+}
+
+test("Creative and explosion no-drop breaks do not borrow survival tool or exhaustion costs", () => {
+  for (const [mode, explosion] of [["creative", false], ["survival", true]]) {
+    const { game, drops, experience } = parityGame(mode, { generatorVersion: 4 });
+    setOwnedSlots(game, [[0, tool()]]);
+    if (mode === "creative") assert.equal(game.gameplay.assignSlot(0, ITEM.IRON_PICKAXE), true);
+    target(game, BLOCK.TURTLE_EGG);
+    const before = game.gameplay.serialize();
+    const plan = game.harvestActions.prepareBreak(game.target, { explosion });
+    assert.ok(plan);
+    assert.deepEqual(plan.result.drops, []);
+    assert.equal(game.harvestActions.commit(plan).ok, true);
+    assert.equal(game.world.get(2, 9, 0), BLOCK.AIR);
+    assert.deepEqual(game.gameplay.serialize(), before);
+    assert.deepEqual(drops, []);
+    assert.deepEqual(experience, []);
+  }
 });
 
 for (const refusal of ["overflow", "experience", "world", "budget"]) {

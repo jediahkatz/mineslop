@@ -170,6 +170,8 @@ export function harvestDrops(
     ![BLOCK.ICE, BLOCK.PACKED_ICE, BLOCK.BLUE_ICE].includes(blockId)
   ) {
     let id = dropId ?? profile.block.drop ?? blockId;
+    // Air is an explicit no-loot sentinel; the harvest still pays its costs.
+    if (id === BLOCK.AIR) return [];
     if (soil.has(blockId)) id = BLOCK.DIRT;
     if (blockId === BLOCK.STONE) id = BLOCK.COBBLESTONE;
     if (blockId === BLOCK.GRAVEL && random() < 0.1) id = ITEM.FLINT;

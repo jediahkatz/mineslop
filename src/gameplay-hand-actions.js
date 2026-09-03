@@ -85,7 +85,7 @@ export function prepareHandCost(gameplay, hand, options = {}) {
   return withBrokenToolNotice(participant, gameplay, current, broken);
 }
 
-/** One Gameplay publication pays both the chosen arrow and the exact bow. */
+/** One Gameplay publication pays the arrow/bow and retires the accepted release. */
 export function prepareBowShot(gameplay, shot, options = {}) {
   if (!record(shot) || !record(options) || !hands.has(shot.hand)) return null;
   const {
@@ -127,7 +127,11 @@ export function prepareBowShot(gameplay, shot, options = {}) {
       broken = wearDraftHand(owned, hand, selected, 1);
       return true;
     },
-    { notify: options.notify ?? true, selfUseHands: [hand, otherHand] }
+    {
+      notify: options.notify ?? true,
+      selfUseHands: [otherHand],
+      completeUseHands: [hand],
+    }
   );
   return withBrokenToolNotice(participant, gameplay, stack, broken);
 }

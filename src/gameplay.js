@@ -421,7 +421,12 @@ export class Gameplay {
   /** Internal single-owner state edit; all publication is prevalidated installs. */
   _prepareState(edit, options = {}) {
     if (!object(options)) return null;
-    const { notify = true, allowDead = false, selfUseHands = [] } = options;
+    const {
+      notify = true,
+      allowDead = false,
+      selfUseHands = [],
+      completeUseHands = [],
+    } = options;
     if (
       this._disposed ||
       this._inventoryBusy ||
@@ -477,6 +482,8 @@ export class Gameplay {
         return null;
 
       const changedHands = ["main", "offhand"].filter((hand) => {
+        // Retire accepted releases before observers, even with no Creative debit.
+        if (completeUseHands.includes(hand)) return true;
         const before =
           hand === "main"
             ? previous.owned.slots[selected]
@@ -688,7 +695,7 @@ export class Gameplay {
     return item ? splitStacks(id, item.stackSize)[0] : null;
   }
 
-  /** Slot/selection identity, separate from stack kind and self-use count/wear. */
+  /** Slot/selection/completed-use identity, separate from ongoing count/wear. */
   getHandRevision(hand = "main") {
     return this._handRevisions[handName(hand)] ?? null;
   }

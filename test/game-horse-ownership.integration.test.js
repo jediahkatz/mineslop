@@ -174,10 +174,12 @@ test("an owned bow hit pays its arrow and wear only with the horse death receipt
   const before = f.ownership();
   assert.equal(f.game.useActions.fireBow(shot), false);
   assert.deepEqual(f.ownership(), before);
+  assert.equal(f.gameplay.getHandRevision(), shot.handRevision);
   veto.mock.restore();
   assert.equal(f.game.useActions.fireBow(shot), true);
   assert.equal(f.gameplay.countPlain(ITEM.ARROW), 1);
   assert.equal(f.gameplay.getHandStack().durability, bow.durability - 1);
+  assert.equal(f.gameplay.getHandRevision(), shot.handRevision + 1);
   assert.equal(f.horses.state(mob.id).alive, false);
 });
 
@@ -194,18 +196,94 @@ test("a committed owned bow release stays successful when shot and sound observe
     stackIdentity: stackIdentity(bow, f.context), handRevision: f.gameplay.getHandRevision(),
   };
   const shotError = new Error("owned shot observer"), soundError = new Error("owned shot audio");
-  t.mock.method(f.game.effects, "shoot", () => { throw shotError; });
-  t.mock.method(f.game.effects, "sound", () => { throw soundError; });
+  const shoot = t.mock.method(f.game.effects, "shoot", () => { throw shotError; });
+  const sound = t.mock.method(f.game.effects, "sound", () => { throw soundError; });
   assert.equal(f.game.useActions.fireBow(shot), true);
   assert.deepEqual(f.game.useActions.observerErrors, [shotError, soundError]);
   assert.equal(f.gameplay.countPlain(ITEM.ARROW), 1);
   assert.equal(f.gameplay.getHandStack().durability, bow.durability - 1);
+  assert.equal(f.gameplay.getHandRevision(), shot.handRevision + 1);
   assert.equal(f.horses.state(mob.id).alive, false);
   assert.equal(f.wildlife.byId.has(mob.id), false);
   const paid = f.ownership();
   assert.equal(f.game.useActions.fireBow(shot), false, "a stale release cannot pay or reward twice");
   assert.deepEqual(f.ownership(), paid);
+  assert.equal(shoot.mock.callCount(), 1);
+  assert.equal(sound.mock.callCount(), 1);
 });
+
+for (const mode of ["survival", "creative"]) {
+  test(`an owned ${mode} bow release rejects observer reentry without invalidating the next draw`, async (t) => {
+    const f = await gameMobFixture(t), mob = f.spawn();
+    assert.equal(f.horses.hurt(mob, 23).ok, true);
+    f.hold("BOW");
+    assert.equal(f.gameplay.inventoryTransaction((draft) => {
+      draft.slots[9] = { id: ITEM.ARROW, count: 2 };
+      return true;
+    }), true);
+    if (mode === "creative") {
+      assert.equal(f.gameplay.setMode(mode), true);
+      assert.equal(f.gameplay.assignSlot(0, ITEM.BOW), true);
+    }
+    const stack = f.gameplay.getHandStack(), use = f.game.useActions.use;
+    assert.equal(use.start("bow", "main", stack, f.gameplay.getHandRevision()), true);
+    for (let index = 0; index < 4; index++) use.advance(0.25);
+    const shot = use.release();
+    assert.ok(shot);
+    Object.freeze(shot);
+    assert.equal(shot.strength, 1);
+    let notifications = 0, shots = 0;
+    let changeReplay, shootReplay, nextDrawStarted, nextRevision;
+    const onChange = f.gameplay.onChange, shoot = f.game.effects.shoot;
+    t.mock.method(f.gameplay, "onChange", function (...args) {
+      Reflect.apply(onChange, this, args);
+      if (++notifications === 1) {
+        changeReplay = f.game.useActions.fireBow(shot);
+        nextDrawStarted = f.game.beginUse();
+        nextRevision = use.handRevision;
+      }
+    });
+    t.mock.method(f.game.effects, "shoot", function (...args) {
+      if (++shots === 1)
+        shootReplay = f.game.useActions.fireBow(Object.freeze({ ...shot }));
+      return Reflect.apply(shoot, this, args);
+    });
+    assert.equal(f.game.useActions.fireBow(shot), true);
+    assert.deepEqual(f.game.useActions.observerErrors, []);
+    assert.equal(notifications, 1);
+    assert.equal(shots, 1);
+    assert.equal(changeReplay, false, "Gameplay observers see an already retired release");
+    assert.equal(shootReplay, false, "presentation observers cannot replay a copied release");
+    assert.equal(nextDrawStarted, true);
+    assert.equal(nextRevision, shot.handRevision + 1);
+    assert.equal(use.active, true);
+    assert.equal(use.matches(f.gameplay.getHandStack(), f.gameplay.getHandRevision()), true);
+    const debit = mode === "survival" ? 1 : 0;
+    assert.equal(f.gameplay.countPlain(ITEM.ARROW), 2 - debit);
+    assert.deepEqual(f.gameplay.getHandStack(), { ...stack, durability: stack.durability - debit });
+    assert.equal(f.horses.state(mob.id).alive, false);
+    assert.equal(f.wildlife.byId.has(mob.id), false);
+    const paid = f.ownership();
+    assert.equal(f.game.useActions.fireBow(shot), false);
+    assert.deepEqual(f.ownership(), paid);
+    for (let index = 0; index < 4; index++) {
+      f.game.elapsed += 0.25;
+      f.game.useActions.update(0.25);
+    }
+    assert.equal(use.progress, 1);
+    assert.equal(f.game.endUse(), true, "the draw begun during notification is not retired later");
+    assert.equal(notifications, 2);
+    assert.equal(shots, 2);
+    assert.equal(f.gameplay.getHandRevision(), shot.handRevision + 2);
+    assert.equal(f.gameplay.countPlain(ITEM.ARROW), 2 - 2 * debit);
+    assert.deepEqual(f.gameplay.getHandStack(), { ...stack, durability: stack.durability - 2 * debit });
+    assert.deepEqual(f.horses.serialize(), paid.archive.horses);
+    assert.deepEqual(f.overflow.serialize(), paid.archive.overflow);
+    assert.deepEqual(f.game.experienceOrbs.serialize(), paid.archive.experienceOrbs);
+    assert.equal(use.active, false);
+    assert.equal(f.game.endUse(), false);
+  });
+}
 
 test("late Wildlife death publishes and consumes one airborne exit with no second player tick", async (t) => {
   const source = await gameMobFixture(t), originalMob = source.spawn();

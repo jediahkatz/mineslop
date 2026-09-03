@@ -145,9 +145,84 @@ test("bow ammo and wear publish once; a specifically held decorated arrow retain
   assert.equal(game.gameplay.countPlain(ITEM.ARROW), 4);
   assert.deepEqual(
     [game.gameplay.getHandRevision(), game.gameplay.getHandRevision("offhand")],
-    revisions
+    [revisions[0] + 1, revisions[1]],
+    "the completed bow release retires only its own hand; held ammo keeps its identity"
   );
 });
+
+for (const mode of ["survival", "creative"]) {
+  for (const hand of ["main", "offhand"]) {
+    test(`${mode} ${hand} bow acceptance retires one release atomically and allows a fresh draw`, () => {
+      const { game } = parityGame(mode);
+      const held = bow("Reusable draw", 20);
+      setOwnedSlots(game,
+        [
+          ...(hand === "main" ? [[0, held]] : []),
+          [9, { id: ITEM.ARROW, count: 4 }],
+        ],
+        hand === "offhand" ? held : null);
+      if (mode === "creative")
+        assert.equal(game.gameplay.assignSlot(0, hand === "main" ? ITEM.BOW : 0), true);
+      charge(game);
+      const shot = game.useActions.use.release();
+      assert.ok(shot);
+      Object.freeze(shot);
+      assert.equal(shot.hand, hand);
+      assert.equal(shot.strength, 1);
+      const stack = game.gameplay.getHandStack(hand);
+      const otherHand = hand === "main" ? "offhand" : "main";
+      const otherRevision = game.gameplay.getHandRevision(otherHand);
+      const before = interactionSnapshot(game);
+      const revision = game.gameplay.revision;
+      let notifications = 0;
+      game.gameplay.onChange = () => notifications++;
+      const prepared = game.gameplay.prepareBowShot(shot, { notify: false });
+      const competing = game.gameplay.prepareBowShot({ ...shot }, { notify: false });
+      assert.ok(prepared);
+      assert.ok(competing);
+      assert.equal(prepared.owner, game.gameplay);
+      assert.deepEqual(interactionSnapshot(game), before);
+      assert.equal(game.gameplay.revision, revision);
+      assert.equal(game.gameplay.getHandRevision(hand), shot.handRevision);
+      assert.equal(game.coordinator.commit([{ ...prepared, validate: () => false }]).ok, false);
+      assert.deepEqual(interactionSnapshot(game), before);
+      assert.equal(game.gameplay.revision, revision);
+      assert.equal(game.gameplay.getHandRevision(hand), shot.handRevision);
+      const accepted = game.coordinator.commit([prepared]);
+      assert.equal(accepted.ok, true);
+      assert.deepEqual(accepted.observerErrors, []);
+      assert.equal(notifications, 0, "release retirement cannot depend on notification");
+      const debit = mode === "survival" ? 1 : 0;
+      assert.equal(game.gameplay.countPlain(ITEM.ARROW), 4 - debit);
+      assert.deepEqual(game.gameplay.getHandStack(hand), {
+        ...stack, durability: stack.durability - debit,
+      });
+      assert.equal(game.gameplay.revision, revision + 1);
+      assert.equal(game.gameplay.getHandRevision(hand), shot.handRevision + 1);
+      assert.equal(game.gameplay.getHandRevision(otherHand), otherRevision);
+      const paid = interactionSnapshot(game);
+      assert.equal(game.coordinator.commit([prepared]).ok, false);
+      assert.equal(game.coordinator.commit([competing]).ok, false);
+      for (const stale of [shot, Object.freeze({ ...shot })]) {
+        assert.equal(game.gameplay.prepareBowShot(stale), null);
+        assert.equal(game.useActions.fireBow(stale), false);
+      }
+      assert.deepEqual(interactionSnapshot(game), paid);
+      assert.equal(notifications, 0);
+      charge(game);
+      assert.equal(game.useActions.use.handRevision, shot.handRevision + 1);
+      assert.equal(game.useActions.use.progress, 1);
+      assert.equal(game.endUse(), true, "a genuinely new draw remains usable");
+      assert.equal(game.gameplay.getHandRevision(hand), shot.handRevision + 2);
+      assert.equal(game.gameplay.getHandRevision(otherHand), otherRevision);
+      assert.equal(game.gameplay.countPlain(ITEM.ARROW), 4 - 2 * debit);
+      assert.deepEqual(game.gameplay.getHandStack(hand), {
+        ...stack, durability: stack.durability - 2 * debit,
+      });
+      assert.equal(notifications, 1);
+    });
+  }
+}
 
 test("a generic backpack arrow search excludes decoration and a source veto spends neither cost", () => {
   const { game } = parityGame();
