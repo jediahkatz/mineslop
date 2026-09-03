@@ -91,6 +91,24 @@ test("only eligible mob-to-player full damage scales, with one fixed blaze excep
   }).difficultyAdjustedFullDamage, 6, "responsibility can change without changing the immediate cause");
 });
 
+test("Peaceful suppresses mob-owned fire without suppressing environmental fire or scaling DoT", () => {
+  for (const victimKind of ["player", "mob"]) {
+    for (const responsibleKind of ["mob", "environment"]) {
+      for (const difficulty of ["peaceful", "easy", "normal", "hard"]) {
+        const result = damage({
+          attackKind: "fire_tick", rawDamage: 1,
+          victimKind, responsibleKind, difficulty,
+        });
+        const suppressed = difficulty === "peaceful" && responsibleKind === "mob";
+        assert.equal(result.suppressed, suppressed, `${difficulty}/${responsibleKind}/${victimKind}`);
+        assert.equal(result.difficultyAdjustedFullDamage, suppressed ? 0 : 1);
+        assert.equal(result.scaling, "none", "suppression is independent of difficulty scaling");
+        assert.equal(result.rawDamage, 1, "original provenance and full damage remain intact");
+      }
+    }
+  }
+});
+
 test("ambiguous or malformed damage facts refuse instead of guessing a classification", () => {
   for (const rawDamage of [-1, NaN, Infinity, null, "8", undefined])
     assert.throws(() => damage({ rawDamage }), RangeError);

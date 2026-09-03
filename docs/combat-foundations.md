@@ -11,6 +11,11 @@ grant rewards or make friendly fire playable.
 reward credit. Every horse routes to Horses, including an untracked wild horse;
 an unavailable owner is not permission to fall back to legacy mutation.
 
+Peaceful suppresses creature-owned fire ticks for both player and mob victims.
+Environmental fire remains harmful. Ongoing fire is not difficulty-scaled in
+other modes: suppression and scaling are separate policy decisions, and fire
+does not lose its recorded provenance merely because it is ongoing.
+
 Damage follows this order:
 
 1. Classify the full raw attack and select its one difficulty adjustment.

@@ -62,9 +62,10 @@ export function classifyCombatAttack({ attackKind, responsibleKind, victimKind }
  * Raw FULL damage -> one difficulty selection -> FULL adjusted pre-armor damage.
  * Never pass a hurt-window delta here: Easy is nonlinear. Blaze small-fireball
  * impact is exactly five before defenses; conflicting raw facts reject.
- * Peaceful suppresses creature attacks (including creature-to-creature attacks)
- * without applying a difficulty multiplier to mob victims. Environmental TNT
- * and ongoing fire are not reclassified into difficulty-scaled creature hits.
+ * Peaceful suppresses creature attacks and creature-owned fire, including
+ * damage to mob victims. Environmental fire remains unaffected. Ongoing fire
+ * is never difficulty-scaled, independently of whether Peaceful suppresses it.
+ * TNT remains outside creature-attack suppression.
  * Source death is intentionally not an input.
  */
 export function adjustCombatDamage(facts = {}) {
@@ -75,8 +76,7 @@ export function adjustCombatDamage(facts = {}) {
   requireFact(classification.scaling !== "fixed-blaze" || rawDamage === BLAZE_IMPACT_DAMAGE,
     "Blaze small-fireball raw impact must be exactly five");
   const suppressed = classification.responsibleKind === "mob" &&
-    !policy.mobCombat && classification.attackKind !== "tnt_explosion" &&
-    classification.attackKind !== "fire_tick";
+    !policy.mobCombat && classification.attackKind !== "tnt_explosion";
   const difficultyAdjustedFullDamage = suppressed ? 0
     : classification.scaling === "mob-to-player"
       ? difficultyMobDamage(rawDamage, policy.id) : rawDamage;
