@@ -71,6 +71,29 @@ The isolated cubes do not establish multi-block seams or native-world distance
 transitions. Normal darkness in the shadow views is not an emission defect,
 and these screenshots do not establish exact Java held-item pose/scale parity.
 
+### Deepslate-only corrective checkpoint
+
+`31d5e165c0a7495d4064f8c31da53d6af6a00adc` replaces the advancing diagonal
+ramps with unequal plate regions, broken horizontal ledges and shorter vertical
+cuts; the plain end uses finer independent grain. The exact side/end histograms,
+texture means, display color and all unrelated pixels remain unchanged.
+Mineral masks/palettes and ore `cube_all` routing are not edited.
+
+All **70 focused checks** pass, both builds pass and the GPU suites still render
+all **270 catalog IDs** without shader/context errors. Ten new pinned-reference
+comparisons cover plain side/end and all eight ore hosts, with a fixed-orientation
+repeat panel for pattern inspection. Six new day/shadow galleries include the
+additional plain-deepslate axis states.
+
+The new render fingerprint is
+`24503460d3c26e789fce7610bc7d0d3a6e59841f38ed1e36fd0b018263c9ffc4`.
+Evidence is retained in
+`/tmp/mineslop-minecraft-references/deepslate_grain_java_26_2_03/comparisons_checkpoint_01/`
+and `/tmp/mineslop-deepslate-grain-rendered-01/manifest.json`.
+The corrected grain has a separate visual reassessment; it does not resolve
+the unchanged mineral-coverage or debris findings, nor grant final per-ID
+approval or native-world tiling/lighting parity.
+
 ## Historical recognizability checkpoint
 
 The 19 ore IDs received source-specific paired visual passes at the
