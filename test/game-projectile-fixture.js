@@ -21,7 +21,8 @@ import { World } from "../src/world.js";
 import { createWorldContext } from "../src/world-spec.js";
 
 /**
- * Real World/Player/Gameplay and archive owners in an explicitly authored room.
+ * Real World/Player/Gameplay/Wildlife and archive owners in an authored room.
+ * Wildlife restores and protects respawns normally, with natural spawning off.
  * Scene objects are real Three resources; UI/audio observers are counters, not
  * a browser, GPU rendering, natural acquisition or a visual walkthrough.
  */
@@ -112,7 +113,7 @@ export async function projectileHostFixture(
     miningProgress: 0,
     currentTime: 0.36,
     quality: "low",
-    mobStates: {},
+    mobStates: structuredClone(saved?.mobStates ?? {}),
     soundEnabled: false,
     target: null,
     mobTarget: null,
@@ -140,17 +141,9 @@ export async function projectileHostFixture(
     updateTarget() {
       observed.targets++;
     },
-    wildlife: {
-      dispose() {},
-      serialize: () => ({
-        version: 1,
-        seed: world.seed,
-        dimension: world.dimension,
-        randomState: 42,
-        nextId: 0,
-        entities: [],
-        killed: [],
-      }),
+    createWildlife(data, options) {
+      VoxelGame.prototype.createWildlife.call(this, data, options);
+      this.wildlife.autoSpawn = false;
     },
   });
   game.gameplay = game.bindGameplay(gameplay);
@@ -178,7 +171,7 @@ export async function projectileHostFixture(
     name: "pearl-host-test",
   });
   game.archive = new GameArchive(game, game.storage);
-  game.createWildlife = () => {};
+  game.createWildlife(saved?.mobStates?.[world.dimension] ?? saved?.mobs);
   const service = new GameProjectileServices({
     world,
     gameplay,
@@ -188,6 +181,7 @@ export async function projectileHostFixture(
   if (activate) assert.equal(service.activate(game).ok, true);
   t.after(() => {
     service.dispose();
+    game.wildlife.dispose();
     player.dispose();
     game.pickups.dispose();
     game.experienceOrbs.dispose();

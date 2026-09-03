@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
+import { BIOMES, getBiomeById } from "../src/biomes.js";
 import { BLOCK } from "../src/blocks.js";
 import { DropOverflow } from "../src/drop-overflow.js";
 import { ExperienceOrbs } from "../src/experience-orbs.js";
@@ -10,23 +11,54 @@ import { GameArchive } from "../src/game-archive.js";
 import { GameBuildingServices } from "../src/game-building-services.js";
 import { GameInventoryActions } from "../src/game-inventory-actions.js";
 import { GameTravel } from "../src/game-travel.js";
+import { createTravelPreviewWorld } from "../src/game-travel-stage.js";
 import { GameUseActions } from "../src/game-use-actions.js";
 import { ITEM } from "../src/items.js";
 import { Pickups } from "../src/pickups.js";
 import { collidesWithWorld, Player } from "../src/player.js";
 import { PlayerVisual } from "../src/player-visual.js";
 import { Settlement } from "../src/settlement.js";
-import { spawnStandingHeight } from "../src/spawn-support.js";
-import { TransactionCoordinator } from "../src/transactions.js";
 import { TransitionGate } from "../src/transition-gate.js";
 import { DEFAULT_VIEW_PREFERENCES } from "../src/view-preferences.js";
+import { World } from "../src/world.js";
 import { createWorldContext, getWorldSpec } from "../src/world-spec.js";
-import { flatWorld } from "./mob-fixtures.js";
 
 const noop = () => {};
 
+// Authored flat terrain only; World still owns ingestion, edits and safe spawn.
+// The same factory supplies the independent destination preview.
+function respawnWorld() {
+  let spawnHint = { x: 0.5, y: 9.01, z: 0.5 };
+  const biome = getBiomeById("plains");
+  const world = new World("ecosystem-test", {
+    generatorVersion: 2,
+    useWorker: false,
+    generatorFactory: (_seed, dimension, generatorVersion) => {
+      const spec = getWorldSpec(generatorVersion, dimension);
+      return {
+        getSpawn: () => ({ ...spawnHint }),
+        getBiome: () => biome,
+        generateChunk(cx, cz) {
+          const blocks = new Uint16Array((spec.maxY - spec.minY) * 256);
+          blocks.fill(BLOCK.STONE, 0, (8 - spec.minY) * 256);
+          blocks.fill(BLOCK.GRASS, (8 - spec.minY) * 256, (9 - spec.minY) * 256);
+          return {
+            cx, cz, minY: spec.minY, maxY: spec.maxY, blocks,
+            biomes: new Uint8Array(256).fill(BIOMES.indexOf(biome)),
+          };
+        },
+      };
+    },
+  });
+  Object.defineProperty(world, "spawnHint", {
+    get: () => ({ ...spawnHint }),
+    set: (position) => { spawnHint = { ...position }; },
+  });
+  return world.generate(2);
+}
+
 // Real player physics, gameplay, wildlife, travel, frame, and archive snapshots.
-// Only the browser/GPU, flat-world streaming, audio, and disk writes are stubbed.
+// Only authored terrain, browser/GPU, audio, and disk transports are substituted.
 function fixture(t, timeOfDay = 0) {
   const previousDocument = globalThis.document;
   const previousRaf = globalThis.requestAnimationFrame;
@@ -47,50 +79,9 @@ function fixture(t, timeOfDay = 0) {
   };
   globalThis.document = document;
   globalThis.requestAnimationFrame = () => 1;
-  const coordinator = new TransactionCoordinator();
-  const world = Object.assign(flatWorld(), {
-    coordinator,
-    generatorVersion: 2,
-    epoch: 0,
-    chunks: new Map(),
-    spawnHint: { x: 0.5, y: 9.01, z: 0.5 },
-    getSpawn() {
-      const x = Math.floor(this.spawnHint.x);
-      const z = Math.floor(this.spawnHint.z);
-      // Match World.getSpawn's resolved-standing-space contract, not its hint.
-      const y = spawnStandingHeight(this, x, z, this.spawnHint.y);
-      if (y === null) throw new Error("No safe authored spawn");
-      return { x: x + 0.5, y, z: z + 0.5 };
-    },
-    getBiome: () => ({
-      id: "plains",
-      name: "Plains",
-      dimension: world.dimension,
-    }),
-    ensureArea: async () => {},
-    updateStreaming: noop,
-    setDimension(dimension) {
-      if (this.dimension !== dimension) this.epoch++;
-      this.dimension = dimension;
-    },
-    set(x, y, z, id) {
-      this.edits.set(`${x},${y},${z}`, id);
-      return true;
-    },
-    serialize() {
-      return {
-        version: 2,
-        generatorVersion: 2,
-        seed: this.seed,
-        dimension: this.dimension,
-        edits: [],
-      };
-    },
-  });
-  Object.defineProperty(world, "spec", {
-    get: () => getWorldSpec(world.generatorVersion, world.dimension),
-  });
-  assert.equal(coordinator.register(world, 0), true);
+  const world = respawnWorld();
+  const coordinator = world.coordinator;
+  assert.equal(coordinator.usage(world), 0);
   const context = createWorldContext(world);
   const ownership = { coordinator, context };
   const camera = new THREE.PerspectiveCamera();
@@ -179,7 +170,17 @@ function fixture(t, timeOfDay = 0) {
   game.player.onFall = (distance) =>
     game.gameplay.damage(Math.ceil(distance - 3), "fall");
   game.transitionGate = new TransitionGate();
-  game.travel = new GameTravel(game);
+  const previews = [];
+  game.travel = new GameTravel(game, {
+    worldFactory(source, dimension) {
+      const preview = createTravelPreviewWorld(source, dimension);
+      assert.notEqual(preview, source);
+      assert.notEqual(preview.coordinator, source.coordinator);
+      assert.equal(game.player.world, source);
+      previews.push(preview);
+      return preview;
+    },
+  });
   game.archive = new GameArchive(game, {
     async save(data) {
       game.saved = structuredClone(data);
@@ -195,6 +196,7 @@ function fixture(t, timeOfDay = 0) {
   game.bindWorldServiceEvents();
   game.createWildlife();
   t.after(() => {
+    game.unbindWorldEvents();
     game.wildlife.dispose();
     game.pickups.dispose();
     game.experienceOrbs.dispose();
@@ -205,7 +207,11 @@ function fixture(t, timeOfDay = 0) {
     game.settlement.dispose();
     game.fuses.dispose();
     game.overflow.dispose();
-    coordinator.release(world);
+    world.dispose();
+    for (const preview of previews) {
+      assert.equal(preview._disposed, true);
+      assert.equal(preview.coordinator.budget.totalBytes, 0);
+    }
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;
     if (previousRaf === undefined) delete globalThis.requestAnimationFrame;
@@ -283,8 +289,12 @@ for (const [kind, count, timeOfDay] of [
       game.gameplay.damage(100, "test setup");
       assert.equal(game.gameplay.dead, true);
       const oldWildlife = game.wildlife;
-      assert.equal((await game.respawn()).ok, true);
+      const result = await game.respawn();
+      assert.equal(result.ok, true, result.message);
+      assert.deepEqual(result.observerErrors, []);
       assert.equal(oldWildlife.disposed, true);
+      assert.equal(game.coordinator.usage(oldWildlife), undefined);
+      assert.equal(game.coordinator.usage(game.wildlife), 0);
       assert.equal(oldWildlife.projectiles.length, 0);
       assert.equal(game.wildlife.projectiles.length, 0);
       assert.equal(game.paused, true);
@@ -300,7 +310,9 @@ for (const [kind, count, timeOfDay] of [
       assert.equal(game.wildlife.byId.get(petId).health, 12);
       assert.equal(game.wildlife.byId.get(petId).tamed, true);
       assert.deepEqual(game.saved.mobs, game.saved.mobStates.overworld);
+      assert.deepEqual(game.saved.mobsByDimension, game.saved.mobStates);
       assert.deepEqual(game.mobStates.overworld, game.saved.mobs);
+      assert.deepEqual(game.saved.world, game.world.serialize());
       assert.deepEqual(game.saved.gameplay.inventory, backpack.inventory);
       assert.deepEqual(game.saved.gameplay.durability, backpack.durability);
       assert.deepEqual(
@@ -364,7 +376,9 @@ test("respawn cleanup centers on the resolved safe landing, not the corpse or re
   game.world.spawnHint = { x: 0.5, y: 60, z: 0.5 };
   game.player.setPosition({ x: 100.5, y: 9, z: 0.5 });
   game.gameplay.damage(100);
-  assert.equal((await game.respawn()).ok, true);
+  const result = await game.respawn();
+  assert.equal(result.ok, true, result.message);
+  assert.deepEqual(result.observerErrors, []);
   assert.ok(
     game.player.position.distanceTo(new THREE.Vector3(0.5, 9.01, 0.5)) < 0.001
   );
@@ -376,11 +390,26 @@ test("failed terrain loading leaves the player dead and the existing ecosystem u
   const game = fixture(t);
   camp(game, "enderman", 2);
   const before = game.wildlife.serialize();
-  game.world.ensureArea = async () => {
-    throw new Error("terrain unavailable");
+  const worldBefore = game.world.serialize(), epoch = game.world.epoch;
+  const wildlife = game.wildlife, position = game.player.position.clone();
+  const createPreview = game.travel.worldFactory;
+  let preview;
+  game.travel.worldFactory = (source, dimension) => {
+    preview = createPreview(source, dimension);
+    t.mock.method(preview, "ensureArea", async () => {
+      throw new Error("terrain unavailable");
+    });
+    return preview;
   };
   game.gameplay.damage(100);
-  assert.equal((await game.respawn()).ok, false);
+  const result = await game.respawn();
+  assert.equal(result.ok, false);
+  assert.equal(result.message, "terrain unavailable");
+  assert.equal(preview._disposed, true);
+  assert.equal(game.world.epoch, epoch);
+  assert.deepEqual(game.world.serialize(), worldBefore);
+  assert.ok(game.player.position.equals(position));
+  assert.equal(game.wildlife, wildlife);
   assert.equal(game.gameplay.dead, true);
   assert.equal(game.gameplay.health, 0);
   assert.equal(game.wildlife.spawnGrace, 0);
@@ -427,7 +456,7 @@ test("inventory simulation consumes grace, while environmental damage is never m
   game.player.enabled = false;
   frames(game, 1);
   assert.ok(Math.abs(game.wildlife.spawnGrace - 7) < 1e-8);
-  game.world.set(0, 9, 0, BLOCK.LAVA);
+  assert.equal(game.world.set(0, 9, 0, BLOCK.LAVA), true);
   frames(game, 0.5);
   assert.equal(game.gameplay.health, 16);
   VoxelGame.prototype.refreshHud.call(game);
@@ -439,7 +468,9 @@ test("ordinary travel preserves encounters and does not grant fresh protection",
   const zombie = spawn(game, "zombie", 1.2);
   zombie.angry = 20;
   zombie.attackCooldown = 0;
-  assert.equal((await game.teleport(game.world.getSpawn())).ok, true);
+  const result = await game.teleport(game.world.getSpawn());
+  assert.equal(result.ok, true, result.message);
+  assert.deepEqual(result.observerErrors, []);
   assert.equal(game.wildlife.byId.get(zombie.id).angry, 20);
   assert.equal(game.wildlife.spawnGrace, 0);
   await game.play();
@@ -521,7 +552,9 @@ test("a preserved distant undead mob can die naturally once, without respawn dup
   const game = fixture(t, 0.5);
   const zombie = spawn(game, "zombie", 30);
   game.gameplay.damage(100);
-  assert.equal((await game.respawn()).ok, true);
+  const first = await game.respawn();
+  assert.equal(first.ok, true, first.message);
+  assert.deepEqual(first.observerErrors, []);
   assert.equal(game.wildlife.byId.get(zombie.id).health, 20);
   assert.equal(game.pickups.size, 0);
   await game.play();
@@ -536,7 +569,9 @@ test("a preserved distant undead mob can die naturally once, without respawn dup
   assert.equal(loot[0].id, ITEM.BONE);
   assert.ok(loot[0].count >= 1 && loot[0].count <= 2);
   game.gameplay.damage(100);
-  assert.equal((await game.respawn()).ok, true);
+  const second = await game.respawn();
+  assert.equal(second.ok, true, second.message);
+  assert.deepEqual(second.observerErrors, []);
   assert.equal(game.wildlife.byId.has(zombie.id), false);
   assert.deepEqual(game.saved.pickups.items, loot);
   assert.equal(game.gameplay.health, 20);

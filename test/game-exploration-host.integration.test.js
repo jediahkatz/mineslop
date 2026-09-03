@@ -1379,7 +1379,14 @@ test("real GameTravel and Game.prepareWorld preserve current/inactive claims, ex
       netherClaim
     );
     const back = { ...f.descriptor.entries[0], dimension: "overworld" };
-    assert.equal((await restored.game.teleport(back)).ok, true);
+    const returned = await restored.game.teleport(back);
+    assert.equal(returned.ok, true, JSON.stringify({
+      destination: back,
+      dimension: restored.world.dimension,
+      message: returned.message,
+      rollbackFailed: returned.rollbackFailed,
+      observerErrors: returned.observerErrors?.map((error) => error.message),
+    }));
     await admitNativeStructure(restored.world, f.descriptor);
     restored.game.paused = false;
     restored.player.enabled = true;

@@ -287,14 +287,26 @@ test("actual death and respawn hooks invalidate old flights and persist distinct
   assert.equal(f.service.projectiles.life, 1);
   assert.equal(f.player.enabled, false);
   assert.equal(f.coordinator.commit(plan.participants).ok, false);
-  assert.equal((await new GameTravel(f.game).respawn()).ok, true);
+  const before = f.game.wildlife;
+  const result = await new GameTravel(f.game).respawn();
+  assert.equal(result.ok, true, result.message);
+  assert.deepEqual(result.observerErrors, []);
+  assert.equal(before.disposed, true);
+  assert.notEqual(f.game.wildlife, before);
+  assert.equal(f.coordinator.usage(before), undefined);
+  assert.equal(f.coordinator.usage(f.game.wildlife), 0);
+  assert.equal(f.game.wildlife.spawnGrace, 8);
   assert.equal(f.gameplay.dead, false);
   assert.equal(f.gameplay.health, 20);
   assert.equal(f.service.projectiles.life, 2);
   assert.equal(f.service.projectiles.size, 0);
   assert.equal(f.game.paused, true);
   const saved = await f.game.storage.load();
+  assert.ok(saved, "the actual respawn must reach the IndexedDB archive save");
   assert.equal(saved.playerProjectiles.life, 2);
+  assert.equal(saved.playerProjectiles.projectiles.length, 0);
+  assert.deepEqual(saved.mobs, saved.mobStates.overworld);
+  assert.deepEqual(saved.mobsByDimension, saved.mobStates);
 });
 
 test("capacity and stale ownership refusals preserve the held stack and projectile RNG", async (t) => {

@@ -56,6 +56,13 @@ not a rerun of the full suite.
 The egg/bow and remaining lifecycle failures plus manual riding/Survival
 acceptance are still open. Do not publish this batch as verified.
 
+The scoped legacy-fixture follow-up below aligns the five respawn cases and
+the projectile death/respawn case. These edits are **unrun pending the parent
+checkpoint**. The exploration return-travel failure is not classified as an
+obvious fixture mismatch and remains unresolved; its assertion now records
+the actual refusal for the next frozen reproduction. No production source
+changes or new acceptance results belong to this follow-up.
+
 ## Completed ecology owner contract
 
 The previously missing owner APIs are implemented in this delivery. Game now
@@ -256,6 +263,53 @@ The previously named parent fixture gaps are aligned in this delivery:
 - `test/horse-lifecycle.integration.test.js` supplies the current `readHorses`
   hook when testing Ecology and Horses borrowing the same base.
 
+### Legacy lifecycle fixture follow-up — unverified
+
+The verification plan is to rerun the affected respawn and projectile files,
+then isolate the exploration return-travel case and rerun its whole file on a
+parent-created frozen checkpoint. Compare the subsequent full suite with the
+18 known baseline failures; do not remove or relax those cases. No tests,
+builds, git commands, installs, servers or publishing run in this follow-up.
+
+- `test/respawn-safety.integration.test.js` replaces `Object.assign(flatWorld())`
+  and successful streaming/serialization stubs with a real `World`. Its bounded
+  authored stone/grass generator retains the former floor and spawn hint;
+  actual chunk ingestion, streaming, edits and `World.getSpawn()` resolve the
+  standing position. Real detached preview Worlds have different coordinators
+  and are disposed after travel. The loading-failure case injects an explicit
+  failure into preview admission and checks unchanged source epoch, terrain,
+  player pose and Wildlife. The five previously failing cases retain repeated
+  zombie/enderman camping cleanup, 20 HP, grace duration, pet health/taming,
+  backpack/durability, pickups/overflow, resolved landing, ordinary travel
+  without new protection, and one natural undead drop across repeated respawns.
+  Added checks cover retired/live Wildlife registrations and canonical archive
+  copies. No mob or geometry limits change.
+- `test/game-projectile-fixture.js` removes the static empty-Wildlife object and
+  no-op `createWildlife`. It calls the real Game constructor/load path with
+  natural spawning disabled, preserves saved dimension snapshots, and disposes
+  the current base. The old fixture lacked `protectSpawn()`: travel could commit
+  the respawn, catch that missing-method error and return success before reaching
+  the archive save. `test/game-projectile-services.test.js` keeps life 1 on death,
+  life 2 on respawn, stale-impact refusal, restored health and no remaining
+  flights, and also checks an error-free respawn, one replacement registered
+  Wildlife, real spawn protection and a non-null coherent IndexedDB archive.
+- `test/game-exploration-host.integration.test.js` changes only the return-trip
+  assertion message. The supplied log shows `false !== true`, without the
+  `GameTravel` refusal. This fixture already uses a real source World, a Player
+  bound to it and the default detached preview. Static inspection alone does
+  not establish that the return to the native shipwreck entry is a fixture
+  mismatch rather than landing/admission behavior. The next run reports the
+  unchanged destination, current dimension, refusal message, rollback flag and
+  observer errors. No destination, native terrain, claims, exact slots, map
+  metadata, no-reroll or archive assertions are changed. Further investigation
+  requires that runtime result; this worker does not broaden the host or weaken
+  production safety.
+
+Exactly five files change in this follow-up: the four test/fixture files named
+above and this document. `test/game-exploration-host-fixture.js`, all production
+sources, archive/preflight tests, egg/bow owner cases and art/lighting remain
+untouched.
+
 ## Exact post-checkpoint commands
 
 Run against coherent checkpointed source, including the completed owner APIs
@@ -264,6 +318,23 @@ and fixture alignments. All commands use
 Use the parent's immutable-checkpoint workflow; do not run while another worker
 is modifying the same source. No dependency installation is required by this
 handoff.
+
+Scoped legacy-fixture verification (run in the parent's immutable copy of this
+checkout after the coherent checkpoint, never against concurrently edited art):
+
+```sh
+node --test --test-concurrency=1 \
+  test/respawn-safety.integration.test.js \
+  test/game-projectile-services.test.js
+node --test --test-concurrency=1 \
+  --test-name-pattern='real GameTravel and Game[.]prepareWorld preserve current/inactive claims' \
+  test/game-exploration-host.integration.test.js
+node --test --test-concurrency=1 test/game-exploration-host.integration.test.js
+```
+
+The exploration case is an unresolved reproduction, not an expected-green
+claim. Keep its refusal output if it still fails. The whole-file run also
+retains unrelated known-baseline cases.
 
 Focused ecology contract coverage:
 
