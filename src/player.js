@@ -771,10 +771,14 @@ export class Player {
       const previousY = this.position.y;
       const inWater = fluid.waterImmersion > 0;
       const waterWeight = Math.min(1, fluid.waterImmersion * 2);
+      // Held ascent lasts until the body leaves water, not just until it
+      // crosses the passive buoyancy threshold. Shallow grounded jumps stay
+      // on the ordinary jump path; all movement still uses the same sweeps.
       const swimming =
         inWater &&
         (fluid.waterImmersion >= PLAYER_FLUID_PHYSICS.swimImmersion ||
-          fluid.bubble !== null);
+          fluid.bubble !== null ||
+          (keys.has("Space") && !this.grounded));
       const ladder =
         !this.flying &&
         climbContact(this.world, this.position, HALF_WIDTH, this.height);

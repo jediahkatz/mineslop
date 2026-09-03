@@ -176,6 +176,59 @@ test("a resolved lateral gradient accelerates an idle swimmer and ordinary contr
   );
 });
 
+test("held Space ascends below passive swim immersion, and releasing it restores gravity", (t) => {
+  const f = playerFixture(t, column(F.WATER_SOURCE), {
+    x: 0.5,
+    y: 5.4,
+    z: 0.5,
+  });
+  assert.ok(f.player.fluidState.waterImmersion > 0);
+  assert.ok(
+    f.player.fluidState.waterImmersion < PLAYER_FLUID_PHYSICS.swimImmersion
+  );
+  assert.equal(f.player.grounded, false);
+  f.player.onJump = () => assert.fail("swimming cannot fabricate a ground jump");
+  press(f, "Space");
+  f.player.update(1 / 120, { recoverFromVoid: false });
+  const ascent = f.player.velocity.y;
+  assert.ok(ascent > 0);
+  assert.ok(f.player.position.y > 5.4);
+  dispatch(f.document, "keyup", { code: "Space" });
+  f.player.update(1 / 120, { recoverFromVoid: false });
+  close(f.player.velocity.y, ascent - 23 / 120);
+  assert.ok(f.player.velocity.y < 0);
+});
+
+test("a shallow-water ground jump retains its ordinary impulse and callback", (t) => {
+  const f = playerFixture(t, [
+    ...floor(),
+    [0, 1, 0, BLOCK.WATER, 0, F.WATER_7],
+  ]);
+  f.player.update(1 / 120, { recoverFromVoid: false });
+  assert.equal(f.player.grounded, true);
+  assert.ok(f.player.fluidState.waterImmersion > 0);
+  assert.ok(
+    f.player.fluidState.waterImmersion < PLAYER_FLUID_PHYSICS.swimImmersion
+  );
+  let jumps = 0;
+  f.player.onJump = () => jumps++;
+  press(f, "Space");
+  f.player.update(1 / 120, { recoverFromVoid: false });
+  close(f.player.velocity.y, 8 - 23 / 120);
+  assert.equal(jumps, 1);
+  assert.equal(f.player.grounded, false);
+});
+
+test("held Space in dry midair cannot supply swim ascent or a ground jump", (t) => {
+  const f = playerFixture(t, floor(), { x: 0.5, y: 2.5, z: 0.5 });
+  assert.equal(f.player.fluidState.waterImmersion, 0);
+  f.player.onJump = () => assert.fail("dry midair has no jump support");
+  press(f, "Space");
+  f.player.update(1 / 120, { recoverFromVoid: false });
+  close(f.player.velocity.y, -23 / 120);
+  assert.equal(f.player.grounded, false);
+});
+
 for (const [fluid, direction] of [
   [F.BUBBLE_UP, 1],
   [F.BUBBLE_DOWN, -1],
