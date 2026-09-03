@@ -31,7 +31,7 @@ test("an untracked wild horse contributes through Horses, never legacy base dama
   assert.equal(f.horses.identityReserved(f.horse.id), false);
   const before = residentState(f), revision = w._ecologyRevision;
   t.mock.method(w, "damage", () => assert.fail("Every new-path horse hit belongs to Horses"));
-  t.mock.method(w, "random", () => assert.fail("No RNG mutation during hit preparation"));
+  const random = t.mock.method(w, "random", () => assert.fail("No RNG mutation during hit preparation"));
   const { batch, source, victim } = contributeHorse(f);
   assert.equal(victim.complete, false);
   assert.equal(f.horses.commit(victim).reason, "incomplete-resident-contribution");
@@ -55,6 +55,7 @@ test("an untracked wild horse contributes through Horses, never legacy base dama
   assert.equal(f.horses._entries, identities.entries);
   assert.equal(f.coordinator.commit(plan.participants).ok, false);
 
+  random.mock.restore(); // Creating a separate fixture mob legitimately uses appearance RNG.
   const another = f.spawn("resident-batch:another-wild-horse");
   const denied = w.beginResidentEditBatch();
   const first = w.contributeSourceEdit(denied, f.source, { attackCooldown: 0.25 });
