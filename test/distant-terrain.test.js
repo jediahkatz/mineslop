@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
-import { DistantTerrain } from "../src/distant-terrain.js";
+import { DISTANT_GRID_LIMITS, DISTANT_QUALITY } from "../src/distant-grid.js";
+import {
+  DistantTerrain,
+  DISTANT_TERRAIN_LIMITS,
+} from "../src/distant-terrain.js";
 import {
   CHUNK_SIZE,
   createGenerator,
@@ -166,7 +170,7 @@ test("the old LOD remains visible with a newly cut exact hole while its replacem
   lod.dispose();
 });
 
-test("quality increases horizon coverage with only two meshes and a few thousand vertices", () => {
+test("quality increases horizon coverage with two meshes and bounded indexed buffers", (t) => {
   let previousDistance = 0;
   for (const [quality, radius] of [
     ["low", 2],
@@ -176,18 +180,29 @@ test("quality increases horizon coverage with only two meshes and a few thousand
     const { lod } = fixture(() => 18);
     finish(lod, position, { ...settings, quality, radius });
     assert.ok(lod.fogDistance > previousDistance);
+    assert.equal(lod.fogDistance, DISTANT_QUALITY[quality].horizon);
     previousDistance = lod.fogDistance;
     let vertices = 0,
       triangles = 0,
-      meshes = 0;
+      meshes = 0,
+      bytes = 0;
     lod.group.traverse((object) => {
       if (!object.isMesh) return;
       meshes++;
       vertices += object.geometry.getAttribute("position").count;
       triangles += object.geometry.drawRange.count / 3;
+      bytes += object.geometry.index.array.byteLength;
+      assert.ok(object.geometry.index.array instanceof Uint16Array);
+      assert.ok(object.geometry.index.count <= DISTANT_GRID_LIMITS.indices);
+      for (const attribute of Object.values(object.geometry.attributes))
+        bytes += attribute.array.byteLength;
       assert.equal(object.castShadow, false);
       assert.equal(object.receiveShadow, false);
       const points = object.geometry.getAttribute("position");
+      assert.ok(points.count <= DISTANT_GRID_LIMITS.vertices);
+      assert.ok(
+        [...object.geometry.index.array].every((index) => index < points.count)
+      );
       const point = new THREE.Vector3();
       for (let i = 0; i < points.count; i++) {
         point.fromBufferAttribute(points, i);
@@ -199,8 +214,21 @@ test("quality increases horizon coverage with only two meshes and a few thousand
       }
     });
     assert.equal(meshes, 2);
-    assert.ok(vertices <= 8000);
-    assert.ok(triangles < 16000);
+    assert.ok(vertices <= DISTANT_GRID_LIMITS.vertices * 2);
+    assert.ok(triangles <= (DISTANT_GRID_LIMITS.indices * 2) / 3);
+    assert.ok(
+      bytes <= 851968,
+      "both terrain/water GPU buffers fit within 832 KiB"
+    );
+    t.diagnostic(
+      JSON.stringify({
+        quality,
+        horizon: lod.fogDistance,
+        vertices,
+        triangles,
+        bytes,
+      })
+    );
     assertCutout(lod, position, radius);
     lod.dispose();
   }
@@ -275,6 +303,8 @@ test("an explicit zero budget defers terrain sampling and a stalled clock cannot
   t.mock.method(performance, "now", () => 0);
   lod.update(position, { ...settings, quality: "high", budgetMs: 1000 });
   assert.ok(calls.heights > 0 && calls.heights <= 128);
+  assert.ok(lod.lastWork.units <= DISTANT_TERRAIN_LIMITS.workPerUpdate);
+  assert.equal(lod.lastWork.samples, calls.heights);
   assert.equal(lod.ready, false);
   lod.dispose();
 });
@@ -723,15 +753,14 @@ test("native canopies share live cutouts and survive independent ground and fore
   geometry.addEventListener("dispose", () => disposed++);
   const ground = lod._active;
   const next = { ...position, x: 40 };
-  finish(lod, next, options, () => lod._active !== ground);
-  assert.equal(
-    lod._vegetation,
-    original,
-    "new ground does not clear the existing forest"
-  );
-  assert.equal(lod.ready, true);
-  assert.equal(disposed, 0);
-  finish(lod, next, options, () => lod._vegetation !== original);
+  // Warm hull caches can now finish before ground; cold forests can finish
+  // after it. Neither publication order may clear the other active layer.
+  finish(lod, next, options, () => {
+    assert.equal(lod.ready, true);
+    assert.equal(lod._vegetation.layer.group.parent, lod.group);
+    assert.equal(disposed, lod._vegetation === original ? 0 : 1);
+    return lod._active !== ground && lod._vegetation !== original;
+  });
   assert.equal(disposed, 1);
   assert.equal(
     lod.group.children.length,
@@ -768,4 +797,120 @@ test("terrain and native canopy sampling share a bounded update, including a sta
   const pending = lod._vegetationJob.job;
   lod.dispose();
   assert.equal(pending._disposed, true);
+});
+
+test("unknown Overworld samples cap fog until authoritative detail owns them", () => {
+  const { lod } = fixture((x) => (x < -80 ? NaN : 32));
+  try {
+    const options = { ...settings, quality: "high", coverage: new Set() };
+    finish(lod, position, options);
+    assert.ok(lod.fogDistance > 0 && lod.fogDistance <= 80);
+    assert.ok(lod._active.data.unknownChunks.size > 0);
+    assert.equal(groundAt(lod, -100, 8), null);
+    assert.equal(groundAt(lod, 8, 8), 33);
+    const samples = lod._samples.size;
+    lod.update(position, {
+      ...options,
+      coverage: new Set(lod._active.data.unknownChunks),
+      budgetMs: 0,
+    });
+    assert.equal(lod.fogDistance, DISTANT_QUALITY.high.horizon);
+    assert.equal(
+      lod._samples.size,
+      samples,
+      "authoritative coverage only changes indices/fog"
+    );
+  } finally {
+    lod.dispose();
+  }
+});
+
+test("over-budget canopy replacements never publish partial geometry or retire the old view", (t) => {
+  t.mock.method(performance, "now", () => 0);
+  const { lod, world } = fixture();
+  lod._vegetationLimits = { vertices: 0, indices: 0 };
+  let reads = 0;
+  const tree = describeTree(
+    240,
+    8,
+    { top: 32, profile: { tree: "oak" } },
+    0.1,
+    123,
+    WATER_LEVEL
+  );
+  world.generator.getTrees = (gx, gz) => {
+    reads++;
+    return gx === 30 && gz === 1 ? [tree] : [];
+  };
+  const options = { ...settings, coverage: new Set() };
+  try {
+    finish(lod, position, options);
+    const previous = lod._vegetation;
+    const expanded = { ...options, quality: "high", radius: 4 };
+    finish(
+      lod,
+      position,
+      expanded,
+      () => lod.vegetationRejections > 0 && lod._job === null
+    );
+    assert.equal(lod._vegetation, previous);
+    assert.equal(lod._vegetationJob, null);
+    assert.equal(previous.layer.group.parent, lod.group);
+    assert.equal(lod.ready, true);
+    assert.equal(lod.fogDistance, DISTANT_QUALITY.low.horizon);
+    const before = reads;
+    for (let frame = 0; frame < 10; frame++) lod.update(position, expanded);
+    assert.equal(
+      reads,
+      before,
+      "a rejected view is not retried every idle frame"
+    );
+    assert.equal(lod.vegetationRejections, 1);
+    world._epoch = 1;
+    lod.update(position, { ...expanded, budgetMs: 0 });
+    assert.equal(lod.ready, false);
+    assert.equal(lod._vegetationRejected, null);
+    assert.equal(lod._treeSamples.size, 0);
+    assert.equal(lod._treeSamples.primitiveCount, 0);
+  } finally {
+    lod.dispose();
+  }
+});
+
+test("terrain slope and color depth are deterministic and leave native heights untouched", () => {
+  const flat = fixture(() => 32);
+  const height = (x) => 32 + Math.floor((Math.abs(x) % 48) / 2);
+  const slope = fixture(height);
+  try {
+    finish(flat.lod);
+    finish(slope.lod);
+    const flatGeometry = surface(flat.lod).geometry;
+    const slopeGeometry = surface(slope.lod).geometry;
+    const flatNormals = flatGeometry.getAttribute("normal");
+    const slopeNormals = slopeGeometry.getAttribute("normal");
+    assert.ok([...flatNormals.array].every(Number.isFinite));
+    assert.notDeepEqual(flatNormals.array, slopeNormals.array);
+    const points = slopeGeometry.getAttribute("position");
+    for (let i = 0; i < points.count; i++)
+      assert.equal(
+        points.getY(i),
+        height(points.getX(i) + surface(slope.lod).parent.position.x) + 1
+      );
+    const colors = flatGeometry.getAttribute("color").array.slice();
+    assert.ok(
+      new Set(colors).size > 3,
+      "coordinate shading enriches flat distant fields"
+    );
+    flat.world._epoch = 1;
+    finish(flat.lod);
+    assert.deepEqual(
+      surface(flat.lod).geometry.getAttribute("color").array,
+      colors
+    );
+    assert.equal(flat.world.chunks.size, 0);
+    assert.equal(slope.world.chunks.size, 0);
+  } finally {
+    flat.lod.dispose();
+    slope.lod.dispose();
+  }
 });

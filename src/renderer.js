@@ -1,11 +1,15 @@
 import * as THREE from "three";
 import { Atmosphere } from "./atmosphere.js";
-import { BLOCK, BLOCKS } from "./blocks.js";
-import { buildChunkGeometry } from "./chunk-mesh.js";
 import { FLUID, isWaterFluid } from "./block-state.js";
+import { buildChunkGeometry } from "./chunk-mesh.js";
 import { fluidAtPoint } from "./collision.js";
 import { DistantTerrain } from "./distant-terrain.js";
 import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
+import {
+  LOCAL_LIGHT_LIMITS,
+  localLightStyle,
+  selectLocalLightSources,
+} from "./local-lighting.js";
 import { disposeBatches, geometryBytes } from "./mesh-palette.js";
 import {
   captureMeshRevision,
@@ -200,11 +204,15 @@ export class GameRenderer {
     this.chunkEpoch = geometryEpoch(world);
     this.atmosphere = new Atmosphere(this.scene, world);
     this.distant = new DistantTerrain(this.scene, this.world);
-    this.localLights = Array.from({ length: 2 }, () => {
-      const light = new THREE.PointLight("#ffce7e", 0, 9, 1.5);
-      this.scene.add(light);
-      return light;
-    });
+    this.localLights = Array.from(
+      { length: LOCAL_LIGHT_LIMITS.maxSources },
+      () => {
+        const light = new THREE.PointLight("#ffce7e", 0, 9, 1.5);
+        this.scene.add(light);
+        return light;
+      }
+    );
+    this.lightStats = {};
     this.lastLightTime = -Infinity;
     this.shadowDirty = true;
     this.shadowPosition = new THREE.Vector3();
@@ -603,29 +611,31 @@ export class GameRenderer {
   }
 
   updateLocalLights(time, position) {
-    if (this.fullbrightInspection || time - this.lastLightTime < 0.3) return;
+    if (
+      this.fullbrightInspection ||
+      time - this.lastLightTime < LOCAL_LIGHT_LIMITS.refreshSeconds
+    )
+      return;
     this.lastLightTime = time;
     const count = QUALITY[this.quality].localLights;
-    if (!count) return;
-    const sources = [];
-    for (const group of this.chunks.values())
-      for (const emitter of group.userData.emitters) {
-        const distance =
-          (emitter.x - position.x) ** 2 +
-          (emitter.y - position.y) ** 2 +
-          (emitter.z - position.z) ** 2;
-        if (distance < 18 ** 2) sources.push({ emitter, distance });
-      }
-    sources.sort((a, b) => a.distance - b.distance);
-    for (let i = 0; i < count; i++) {
-      const source = sources[i]?.emitter;
+    this.lightStats ??= {};
+    const sources = selectLocalLightSources(
+      this.chunks,
+      position,
+      count,
+      this.localLights.map((light) => light.userData.emitter),
+      this.lightStats
+    );
+    for (let i = 0; i < this.localLights.length; i++) {
+      const source = sources[i];
       const light = this.localLights[i];
-      light.intensity = source ? 5 : 0;
-      if (!source) continue;
+      const style = source ? localLightStyle(source.id) : null;
+      light.userData.emitter = source ?? null;
+      light.intensity = style?.intensity ?? 0;
+      if (!style) continue;
       light.position.set(source.x, source.y, source.z);
-      light.color.set(
-        source.id === BLOCK.TORCH ? "#ffd18b" : BLOCKS[source.id].color
-      );
+      light.distance = style.distance;
+      light.color.set(style.color);
     }
   }
 
@@ -636,7 +646,8 @@ export class GameRenderer {
     )
       return;
     const sunlight = this.atmosphere.sunlight;
-    const sunDirection = this.atmosphere.sunDirection;
+    const sunDirection =
+      this.atmosphere.lightDirection ?? this.atmosphere.sunDirection;
     const moved = this.shadowPosition.distanceToSquared(position) > 9;
     const sunChanged =
       time - this.lastShadowTime >= 5 &&

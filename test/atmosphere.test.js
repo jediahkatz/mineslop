@@ -245,3 +245,101 @@ test("disposal removes the inspection light along with the natural lights", () =
   assert.equal(light.parent, null);
   assert.ok(scene.children.every((object) => !object.isLight));
 });
+
+test("the existing square sun stays readable inside a compact, faint halo", () => {
+  withAtmosphere((atmosphere, scene, camera) => {
+    assert.equal(atmosphere.sun.geometry.type, "PlaneGeometry");
+    assert.equal(atmosphere.sun.geometry.parameters.width, 10);
+    assert.equal(atmosphere.sun.geometry.parameters.height, 10);
+    assert.equal(atmosphere.sunGlow.scale.x, 24);
+    for (const time of [0.26, 0.3, 0.5, 0.74]) {
+      atmosphere.timeOfDay = time;
+      atmosphere.update(0, 0, camera.position, camera);
+      assert.equal(atmosphere.sun.visible, true);
+      assert.ok(atmosphere.sunGlow.material.opacity < 0.3);
+      assert.ok(atmosphere.sunGlow.position.equals(atmosphere.sun.position));
+      assert.ok(atmosphere.sun.quaternion.equals(camera.quaternion));
+    }
+    assert.equal(atmosphere.sun.material.toneMapped, false);
+    assert.equal(
+      scene.children.filter((object) => object.isLight).length,
+      3,
+      "sun/moon share one key, plus hemisphere and inspection lights"
+    );
+  });
+});
+
+test("moonlight comes from the visible moon and daylight uses a warm key with cooler fill", () => {
+  withAtmosphere((atmosphere, _scene, camera) => {
+    atmosphere.timeOfDay = 0.5;
+    atmosphere.update(0, 0, camera.position, camera);
+    const dayIntensity = atmosphere.sunlight.intensity;
+    assert.ok(atmosphere.lightDirection.dot(atmosphere.sunDirection) > 0.999);
+    assert.ok(atmosphere.sunlight.color.r > atmosphere.sunlight.color.b);
+    assert.ok(atmosphere.hemi.color.b > atmosphere.hemi.color.r);
+    atmosphere.timeOfDay = 0.72;
+    atmosphere.update(0, 0, camera.position, camera);
+    assert.ok(
+      atmosphere.sunlight.color.r / atmosphere.sunlight.color.b >
+        atmosphere.daySun.r / atmosphere.daySun.b,
+      "dusk warms the material key instead of only the sky"
+    );
+    atmosphere.timeOfDay = 0;
+    atmosphere.update(0, 0, camera.position, camera);
+    assert.equal(atmosphere.moon.visible, true);
+    assert.equal(atmosphere.sun.visible, false);
+    assert.ok(atmosphere.lightDirection.dot(atmosphere.sunDirection) < -0.999);
+    assert.ok(
+      atmosphere.sunlight.position.y > atmosphere.sunlight.target.position.y
+    );
+    assert.ok(atmosphere.sunlight.color.b > atmosphere.sunlight.color.r);
+    assert.ok(
+      atmosphere.sunlight.intensity > 0 &&
+        atmosphere.sunlight.intensity < dayIntensity * 0.2
+    );
+  });
+});
+
+test("Nether and End keep continuous dimension lighting across the outdoor sun/moon handoff", () => {
+  withAtmosphere((atmosphere, _scene, camera) => {
+    for (const dimension of ["nether", "end"]) {
+      atmosphere.setBiome({ dimension });
+      atmosphere.timeOfDay = 0.25 - 0.00001;
+      atmosphere.update(0, 0, camera.position, camera);
+      const before = atmosphere.lightDirection.clone();
+      const color = atmosphere.sunlight.color.clone();
+      const intensity = atmosphere.sunlight.intensity;
+      atmosphere.timeOfDay = 0.25 + 0.00001;
+      atmosphere.update(0, 0, camera.position, camera);
+      assert.ok(atmosphere.lightDirection.distanceTo(before) < 0.001);
+      assert.ok(atmosphere.sunlight.color.equals(color));
+      assert.equal(atmosphere.sunlight.intensity, intensity);
+    }
+  });
+});
+
+test("celestial art renders before terrain even when the horizon passes its fixed sky distance", () => {
+  withAtmosphere((atmosphere, _scene, camera) => {
+    camera.far = 1024;
+    atmosphere.update(0, 0, camera.position, camera);
+    for (const object of [
+      atmosphere.stars,
+      atmosphere.sunGlow,
+      atmosphere.sun,
+      atmosphere.moon,
+    ]) {
+      assert.equal(object.material.transparent, false, object.type);
+      assert.equal(object.material.depthWrite, false, object.type);
+      assert.equal(object.material.depthTest, false, object.type);
+      assert.ok(object.renderOrder > atmosphere.sky.renderOrder);
+      assert.ok(object.renderOrder < 0, "opaque terrain renders afterwards");
+    }
+    assert.equal(
+      atmosphere.sunGlow.material.blending,
+      THREE.AdditiveBlending,
+      "halo opacity still blends inside the early opaque queue"
+    );
+    assert.equal(atmosphere.stars.material.blending, THREE.AdditiveBlending);
+    assert.ok(atmosphere.sunGlow.renderOrder < atmosphere.sun.renderOrder);
+  });
+});

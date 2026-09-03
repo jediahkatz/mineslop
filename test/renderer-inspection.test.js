@@ -54,7 +54,7 @@ function fixture(t, quality = "low", biome = "dripstone_caves") {
   graphics.updateLocalLights(10, graphics.camera.position);
   t.after(() => {
     graphics.atmosphere.dispose();
-    graphics.localLights.forEach((light) => light.dispose());
+    for (const light of graphics.localLights) light.dispose();
     water.dispose();
     if (previous === undefined) delete globalThis.document;
     else globalThis.document = previous;
@@ -240,4 +240,31 @@ test("shadows restore for Beautiful outdoors, never underground or in cheaper qu
   graphics.setQuality("medium");
   graphics.setFullbrightInspection(false);
   assert.equal(graphics.renderer.shadowMap.enabled, false);
+});
+
+test("the bounded shadow refresh follows the active lunar key, not the below-horizon sun", (t) => {
+  const { graphics } = fixture(t, "high", "forest");
+  graphics.updateShadows(10, graphics.camera.position);
+  graphics.setTime(0.9);
+  graphics.updateShadows(11, graphics.camera.position);
+  assert.ok(
+    graphics.shadowSunDirection.equals(graphics.atmosphere.lightDirection)
+  );
+  assert.ok(
+    graphics.shadowSunDirection.dot(graphics.atmosphere.sunDirection) < 0
+  );
+  graphics.shadowDirty = true;
+  graphics.updateShadows(11.1, graphics.camera.position);
+  assert.equal(
+    graphics.lastShadowTime,
+    11,
+    "moonlight retains the refresh throttle"
+  );
+  graphics.setFullbrightInspection(true);
+  graphics.updateShadows(20, graphics.camera.position);
+  assert.equal(
+    graphics.lastShadowTime,
+    11,
+    "inspection never updates shadow maps"
+  );
 });

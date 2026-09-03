@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { FLUID, isWaterFluid } from "./block-state.js";
+import { sampleOutdoorLighting } from "./environment-lighting.js";
 import { createFluidQueryView } from "./fluid-query-view.js";
 import { createFluidSample, sampleFluidAtPoint } from "./fluid-sampling.js";
 import { geometryWorldSpec } from "./geometry-world.js";
@@ -60,8 +61,8 @@ export class Atmosphere {
     this.sky.renderOrder = -100;
     this.sky.frustumCulled = false;
     scene.add(this.sky);
-    this.hemi = new THREE.HemisphereLight("#d0e5e7", "#7c754a", 2.15);
-    this.sunlight = new THREE.DirectionalLight("#fff2cc", 2.2);
+    this.hemi = new THREE.HemisphereLight("#d3e3fb", "#958671", 1.48);
+    this.sunlight = new THREE.DirectionalLight("#fff6e7", 2.65);
     this.inspectionLight = new THREE.AmbientLight("#ffffff", 0);
     const shadow = this.sunlight.shadow;
     shadow.mapSize.set(768, 768);
@@ -88,28 +89,36 @@ export class Atmosphere {
     glowCanvas.width = glowCanvas.height = 64;
     const ctx = glowCanvas.getContext("2d");
     const glow = ctx.createRadialGradient(32, 32, 1, 32, 32, 32);
-    glow.addColorStop(0, "rgba(255,243,192,.85)");
-    glow.addColorStop(0.2, "rgba(255,223,142,.3)");
+    glow.addColorStop(0, "rgba(255,243,192,.5)");
+    glow.addColorStop(0.25, "rgba(255,223,142,.13)");
     glow.addColorStop(1, "rgba(255,223,142,0)");
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, 64, 64);
     this.glowTexture = new THREE.CanvasTexture(glowCanvas);
+    this.glowTexture.colorSpace = THREE.SRGBColorSpace;
     this.sunGlow = new THREE.Sprite(
       new THREE.SpriteMaterial({
         map: this.glowTexture,
-        transparent: true,
+        transparent: false,
+        opacity: 0.2,
+        depthTest: false,
         depthWrite: false,
         fog: false,
+        toneMapped: false,
         blending: THREE.AdditiveBlending,
       })
     );
-    this.sunGlow.scale.setScalar(62);
+    // The sun already has a square face; keep its halo subordinate to that face.
+    this.sunGlow.scale.setScalar(24);
+    this.sunGlow.renderOrder = -90;
     this.sun = new THREE.Mesh(
       new THREE.PlaneGeometry(10, 10),
       new THREE.MeshBasicMaterial({
         color: "#fff7d9",
         fog: false,
+        depthTest: false,
         depthWrite: false,
+        toneMapped: false,
       })
     );
     this.moon = new THREE.Mesh(
@@ -117,9 +126,12 @@ export class Atmosphere {
       new THREE.MeshBasicMaterial({
         color: "#dce9eb",
         fog: false,
+        depthTest: false,
         depthWrite: false,
+        toneMapped: false,
       })
     );
+    this.sun.renderOrder = this.moon.renderOrder = -80;
     scene.add(this.sun, this.sunGlow, this.moon);
 
     const starPositions = [];
@@ -148,12 +160,18 @@ export class Atmosphere {
       new THREE.PointsMaterial({
         color: "#e0ebff",
         size: 0.55,
-        transparent: true,
+        transparent: false,
+        blending: THREE.AdditiveBlending,
         opacity: 0,
+        depthTest: false,
         depthWrite: false,
         fog: false,
       })
     );
+    // Keep celestial art in the early opaque queue. Additive materials still
+    // blend, but no late transparent sprite can cover terrain beyond 290/300m.
+    // This is one render pass, independent of the expanded terrain horizon.
+    this.stars.renderOrder = -95;
     scene.add(this.stars);
 
     this.clouds = new THREE.InstancedMesh(
@@ -183,11 +201,23 @@ export class Atmosphere {
     this.clouds.frustumCulled = false;
     scene.add(this.clouds);
     this.sunDirection = new THREE.Vector3();
-    this.dayZenith = new THREE.Color("#74b8d9");
+    this.lightDirection = new THREE.Vector3();
+    this.outdoorLighting = {};
+    this.dayZenith = new THREE.Color("#65a6d4");
     this.nightZenith = new THREE.Color("#0c1532");
     this.dayHorizon = new THREE.Color("#d6e1cf");
     this.nightHorizon = new THREE.Color("#24334e");
     this.warmHorizon = new THREE.Color("#e6c29b");
+    this.dayAmbient = new THREE.Color("#d3e3fb");
+    this.nightAmbient = new THREE.Color("#a5bce8");
+    this.duskAmbient = new THREE.Color("#c5bad7");
+    this.dayGround = new THREE.Color("#958671");
+    this.nightGround = new THREE.Color("#4b5875");
+    this.daySun = new THREE.Color("#fff6e7");
+    this.duskSun = new THREE.Color("#ffb66e");
+    this.moonLight = new THREE.Color("#b7caff");
+    this.daySunDisc = new THREE.Color("#fff7d9");
+    this.duskSunDisc = new THREE.Color("#ffd27a");
     this.cloudDay = new THREE.Color("#fff8e9");
     this.cloudNight = new THREE.Color("#7c8ca5");
     this.dimensionZenith = new THREE.Color("#1a142b");
@@ -204,7 +234,7 @@ export class Atmosphere {
     this.waterFog.set(biome?.waterColor ?? "#448f9e");
     const fog = biome?.fogColor;
     this.dayHorizon.set(fog ?? "#d6e1cf");
-    this.dayZenith.set("#74b8d9");
+    this.dayZenith.set("#65a6d4");
     if (this.dimension === "overworld") {
       const temperature = THREE.MathUtils.clamp(
         biome?.temperature ?? 0.6,
@@ -212,17 +242,18 @@ export class Atmosphere {
         1
       );
       this.dayZenith
-        .set("#83b4d3")
-        .lerp(new THREE.Color("#91bdd0"), temperature);
-      if (biome?.category === "swamp") this.dayZenith.set("#8eaaa2");
+        .set("#609bd1")
+        .lerp(new THREE.Color("#79b2d4"), temperature);
+      if (biome?.category === "swamp") this.dayZenith.set("#80a7a8");
       if (this.underground) {
         this.dimensionHorizon.set(fog ?? "#36444d").multiplyScalar(0.12);
         this.dimensionZenith.copy(this.dimensionHorizon).multiplyScalar(0.55);
       }
-      this.hemi.color.set("#d0e5e7");
-      this.hemi.groundColor
-        .set(biome?.grassColor ?? "#7c754a")
-        .multiplyScalar(0.8);
+      this.dayGround
+        .set("#958671")
+        .lerp(new THREE.Color(biome?.grassColor ?? "#7c754a"), 0.16);
+      this.hemi.color.copy(this.dayAmbient);
+      this.hemi.groundColor.copy(this.dayGround);
     } else {
       this.dimensionHorizon.set(
         fog ?? (this.dimension === "nether" ? "#6a302c" : "#292334")
@@ -266,17 +297,16 @@ export class Atmosphere {
     this.sunDirection
       .set(Math.cos(angle) * 0.72, Math.sin(angle), -Math.cos(angle) * 0.69)
       .normalize();
-    const daylight = THREE.MathUtils.smoothstep(
+    const lighting = sampleOutdoorLighting(
       this.sunDirection.y,
-      -0.18,
-      0.35
+      this.outdoorLighting
     );
-    const warmth =
-      (1 -
-        THREE.MathUtils.smoothstep(Math.abs(this.sunDirection.y), 0.08, 0.7)) *
-      daylight;
+    const { daylight, warmth } = lighting;
     const uniforms = this.sky.material.uniforms;
     const overworldSky = this.dimension === "overworld" && !this.underground;
+    this.lightDirection
+      .copy(this.sunDirection)
+      .multiplyScalar(overworldSky ? lighting.keySign : 1);
     if (overworldSky) {
       uniforms.zenith.value
         .copy(this.nightZenith)
@@ -311,7 +341,11 @@ export class Atmosphere {
       .copy(camera.position)
       .addScaledVector(this.sunDirection, 290);
     this.sun.quaternion.copy(camera.quaternion);
+    this.sun.material.color
+      .copy(this.daySunDisc)
+      .lerp(this.duskSunDisc, lighting.sunWarmth * 0.6);
     this.sunGlow.position.copy(this.sun.position);
+    this.sunGlow.material.opacity = 0.16 + warmth * 0.1;
     this.sun.visible = this.sunGlow.visible =
       overworldSky && this.sunDirection.y > -0.08;
     this.moon.position
@@ -321,18 +355,29 @@ export class Atmosphere {
     this.moon.visible = overworldSky && this.sunDirection.y < 0.1;
     this.sunlight.position
       .set(position.x, position.y, position.z)
-      .addScaledVector(this.sunDirection, 90);
+      .addScaledVector(this.lightDirection, 90);
     this.sunlight.target.position.set(position.x, position.y, position.z);
     this.sunlight.intensity = overworldSky
-      ? 0.1 + daylight * 2
+      ? lighting.keyIntensity
       : this.underground
         ? 0
         : 0.35;
-    this.sunlight.color.set(
-      overworldSky ? (daylight > 0.2 ? "#fff0cf" : "#9badde") : "#d7c4ce"
-    );
+    if (overworldSky) {
+      if (lighting.keySign > 0)
+        this.sunlight.color
+          .copy(this.daySun)
+          .lerp(this.duskSun, lighting.sunWarmth);
+      else this.sunlight.color.copy(this.moonLight);
+      this.hemi.color
+        .copy(this.nightAmbient)
+        .lerp(this.dayAmbient, daylight)
+        .lerp(this.duskAmbient, warmth * 0.28);
+      this.hemi.groundColor
+        .copy(this.nightGround)
+        .lerp(this.dayGround, daylight);
+    } else this.sunlight.color.set("#d7c4ce");
     this.hemi.intensity = overworldSky
-      ? 0.42 + daylight * 1.65
+      ? lighting.hemisphereIntensity
       : this.underground
         ? 0.05
         : 1.55;

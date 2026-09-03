@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
+import { BLOCK, BLOCKS } from "../src/blocks.js";
 import {
+  createDistantVegetationCache,
   createDistantVegetationJob,
+  DISTANT_VEGETATION_LIMITS,
   treePrimitives,
 } from "../src/distant-vegetation.js";
-import { seedHash } from "../src/noise.js";
+import { getBiomeTint } from "../src/mesh-palette.js";
+import { hash, seedHash } from "../src/noise.js";
 import { WATER_LEVEL, WORLD_MAX, WORLD_MIN } from "../src/terrain.js";
 import { TREE_SPECIES } from "../src/terrain-profiles.js";
 import { createTreeGenerator, describeTree } from "../src/terrain-trees.js";
@@ -46,8 +50,8 @@ function fixture(type = "oak") {
   return { generator, calls };
 }
 
-function complete(generator, area = bounds, material) {
-  const job = createDistantVegetationJob(generator, area);
+function complete(generator, area = bounds, material, options) {
+  const job = createDistantVegetationJob(generator, area, options);
   for (let i = 0; !job.done && i < 1000; i++) job.step({ budgetMs: 4 });
   assert.equal(job.done, true);
   return { job, layer: job.build(material) };
@@ -321,6 +325,21 @@ test("a forest produces one merged mesh, bounded local vertices and no full-deta
   const geometry = layer.mesh.geometry;
   assert.ok(geometry.getAttribute("position").count < layer.treeCount * 300);
   assert.ok(geometry.drawRange.count > 0);
+  assert.ok(geometry.getAttribute("position").count < geometry.index.count);
+  assert.ok(
+    layer.resourceBytes <=
+      DISTANT_VEGETATION_LIMITS.vertices * 36 +
+        DISTANT_VEGETATION_LIMITS.indices * 4
+  );
+  assert.ok(
+    layer._buckets.every(
+      (bucket) =>
+        bucket.count > 0 &&
+        bucket.count % 3 === 0 &&
+        bucket.start + bucket.count <= layer._sourceIndices.length
+    ),
+    "each owning chunk has one compact index span"
+  );
   const point = new THREE.Vector3();
   for (const attribute of Object.values(geometry.attributes))
     assert.ok([...attribute.array].every(Number.isFinite));
@@ -460,8 +479,11 @@ test("zero budgets do no work, a stalled clock is capped, and real elapsed time 
   let clock = 0;
   t.mock.method(performance, "now", () => (clock += 0.5));
   const before = calls.length;
+  const beforePrimitives = job.primitiveCount;
   job.step({ budgetMs: 2 });
-  assert.ok(calls.length > before && calls.length <= before + 3);
+  assert.ok(calls.length <= before + 3);
+  assert.ok(job.primitiveCount <= beforePrimitives + 3);
+  assert.ok(calls.length > before || job.primitiveCount > beforePrimitives);
   job.dispose();
 });
 
@@ -558,4 +580,289 @@ test("empty canopies stay invisible and oversized or invalid requests fail befor
       }),
     RangeError
   );
+});
+
+test("distant foliage matches native biome tint and has crown depth without changing descriptors", () => {
+  const tree = describeTree(
+    8,
+    8,
+    { top: 30, profile: { tree: "oak" } },
+    0.1,
+    123,
+    WATER_LEVEL
+  );
+  const original = structuredClone(tree);
+  const area = { minX: 0, maxX: 32, minZ: 0, maxZ: 32 };
+  const biomes = [{ foliageColor: "#388538" }, { foliageColor: "#989540" }];
+  let biomeReads = 0;
+  const layers = biomes.map(
+    (biome) =>
+      complete(
+        {
+          getTrees: (gx, gz) => (gx === 1 && gz === 1 ? [tree] : []),
+          getBiome() {
+            biomeReads++;
+            return biome;
+          },
+        },
+        area
+      ).layer
+  );
+  try {
+    assert.equal(biomeReads, layers.length, "one biome read per native tree");
+    assert.deepEqual(tree, original);
+    const [first, second] = layers.map((layer) => layer.mesh.geometry);
+    for (const name of ["position", "normal"])
+      assert.deepEqual(
+        first.getAttribute(name).array,
+        second.getAttribute(name).array
+      );
+    assert.deepEqual(first.index.array, second.index.array);
+    assert.notDeepEqual(
+      first.getAttribute("color").array,
+      second.getAttribute("color").array
+    );
+    const crown = treePrimitives(tree).at(-1);
+    const positions = first.getAttribute("position");
+    const normals = first.getAttribute("normal");
+    const colors = first.getAttribute("color");
+    let top = -1,
+      bottom = -1;
+    for (let i = 0; i < positions.count; i++) {
+      if (positions.getY(i) === crown.maxY && normals.getY(i) > 0.5) top = i;
+      if (positions.getY(i) === crown.minY && normals.getY(i) < -0.5) bottom = i;
+      if (positions.getY(i) < crown.minY)
+        for (const channel of ["getX", "getY", "getZ"])
+          assert.equal(
+            colors[channel](i),
+            second.getAttribute("color")[channel](i)
+          );
+    }
+    assert.ok(top >= 0 && bottom >= 0);
+    const tint = getBiomeTint(BLOCK.LEAVES, "side", biomes[0]);
+    const expected = new THREE.Color(BLOCKS[BLOCK.LEAVES].color).toArray();
+    const variation = 0.94 + hash(tree.x, tree.z, 0x5729) * 0.12;
+    for (let channel = 0; channel < 3; channel++) {
+      assert.ok(
+        Math.abs(
+          colors.array[top * 3 + channel] -
+            expected[channel] * tint[channel] * variation
+        ) < 1e-6
+      );
+      assert.ok(
+        colors.array[bottom * 3 + channel] < colors.array[top * 3 + channel]
+      );
+    }
+    assert.equal(layers[0].mesh.castShadow, false);
+  } finally {
+    for (const layer of layers) layer.dispose();
+  }
+});
+
+test("cherry crowns stay pink and near/far canopy bands retain block-sharp faces", () => {
+  const tree = describeTree(
+    8,
+    8,
+    { top: 30, profile: { tree: "cherry" } },
+    0.1,
+    123,
+    WATER_LEVEL
+  );
+  const area = { minX: 0, maxX: 32, minZ: 0, maxZ: 32 };
+  const layers = ["#388538", "#989540"].map(
+    (foliageColor) =>
+      complete(
+        {
+          getTrees: (gx, gz) => (gx === 1 && gz === 1 ? [tree] : []),
+          getBiome: () => ({ foliageColor }),
+        },
+        area
+      ).layer
+  );
+  const coarse = complete(
+    { getTrees: (gx, gz) => (gx === 1 && gz === 1 ? [tree] : []) },
+    area,
+    undefined,
+    { center: { x: 1000, z: 1000 } }
+  ).layer;
+  try {
+    assert.deepEqual(
+      layers[0].mesh.geometry.getAttribute("color").array,
+      layers[1].mesh.geometry.getAttribute("color").array
+    );
+    assert.ok(coarse.primitiveCount <= coarse.treeCount * 3);
+    assert.ok(
+      coarse.mesh.geometry.getAttribute("position").count <
+        layers[0].mesh.geometry.getAttribute("position").count
+    );
+    for (const layer of [...layers, coarse]) {
+      assert.equal(layer.group.children.length, 1);
+      const normals = layer.mesh.geometry.getAttribute("normal");
+      for (let i = 0; i < normals.count; i++)
+        assert.equal(
+          Math.abs(normals.getX(i)) +
+            Math.abs(normals.getY(i)) +
+            Math.abs(normals.getZ(i)),
+          1,
+          "canopy tiers are voxel boxes, not smooth pyramids"
+        );
+    }
+  } finally {
+    for (const layer of [...layers, coarse]) layer.dispose();
+  }
+});
+
+test("shared hull caches replay identical geometry with no native reads and reset for a new generator", () => {
+  const { generator, calls } = fixture("cherry");
+  const cache = createDistantVegetationCache();
+  const first = complete(generator, bounds, undefined, { cache }).layer;
+  const before = calls.length;
+  const second = complete(generator, bounds, undefined, { cache }).layer;
+  try {
+    assert.equal(calls.length, before);
+    assert.equal(second.nativeSamples, 0);
+    for (const name of ["position", "normal", "color"])
+      assert.deepEqual(
+        first.mesh.geometry.getAttribute(name).array,
+        second.mesh.geometry.getAttribute(name).array
+      );
+    assert.deepEqual(
+      first.mesh.geometry.index.array,
+      second.mesh.geometry.index.array
+    );
+    assert.ok(cache.size <= DISTANT_VEGETATION_LIMITS.cachedSamples);
+    assert.ok(cache.primitiveCount <= DISTANT_VEGETATION_LIMITS.cachedPrimitives);
+    const empty = { getTrees: () => [] };
+    assert.equal(cache.read(empty, 0, 0).fresh, true);
+    assert.equal(cache.size, 1);
+    assert.equal(cache.primitiveCount, 0);
+    cache.clear();
+    assert.equal(cache.size, 0);
+  } finally {
+    first.dispose();
+    second.dispose();
+  }
+});
+
+test("cache capacity bounds both empty samples and dense native hulls", () => {
+  const tree = describeTree(
+    8,
+    8,
+    { top: 30, profile: { tree: "oak" } },
+    0.1,
+    123,
+    WATER_LEVEL
+  );
+  const count =
+    treePrimitives(tree).length +
+    treePrimitives(tree, { maxCrowns: 2 }).length;
+  const generator = { getTrees: (gx) => (gx % 3 === 0 ? [tree] : []) };
+  const cache = createDistantVegetationCache({
+    maxSamples: 4,
+    maxPrimitives: count,
+  });
+  for (let gx = 0; gx <= 3; gx++) cache.read(generator, gx, 0);
+  assert.equal(cache.primitiveCount, count);
+  assert.equal(cache.read(generator, 1, 0).fresh, false);
+  assert.equal(
+    cache.read(generator, 0, 0).fresh,
+    true,
+    "old populated entry was evicted"
+  );
+  for (let gx = 4; gx < 100; gx++) {
+    cache.read(generator, gx, 0);
+    assert.ok(cache.size <= 4);
+    assert.ok(cache.primitiveCount <= count);
+  }
+  cache.clear();
+  assert.equal(cache.primitiveCount, 0);
+});
+
+test("cached empty cells and populated primitives obey separate stalled-clock limits", (t) => {
+  t.mock.method(performance, "now", () => 0);
+  const cache = createDistantVegetationCache();
+  const generator = { getTrees: () => [] };
+  const area = { minX: -128, maxX: 128, minZ: -128, maxZ: 128 };
+  complete(generator, area, undefined, { cache }).layer.dispose();
+  const cached = createDistantVegetationJob(generator, area, { cache });
+  const populated = createDistantVegetationJob(
+    fixture("cherry").generator,
+    bounds
+  );
+  try {
+    cached.step({ budgetMs: 10000, maxSamples: 1 });
+    assert.equal(cached.lastStep.samples, 0);
+    assert.equal(cached.lastStep.cells, DISTANT_VEGETATION_LIMITS.cellsPerStep);
+    assert.equal(cached.done, false);
+    populated.step({ budgetMs: 10000, maxSamples: 10000 });
+    assert.equal(
+      populated.lastStep.primitives,
+      DISTANT_VEGETATION_LIMITS.primitivesPerStep
+    );
+    assert.ok(
+      populated.lastStep.samples <= DISTANT_VEGETATION_LIMITS.samplesPerStep
+    );
+    assert.ok(
+      populated.lastStep.cells <= DISTANT_VEGETATION_LIMITS.cellsPerStep
+    );
+  } finally {
+    cached.dispose();
+    populated.dispose();
+  }
+});
+
+test("vertex and index admission limits reject a job without publishing partial canopies", () => {
+  for (const limits of [
+    { vertices: 16, indices: 10000 },
+    { vertices: 10000, indices: 12 },
+  ]) {
+    const job = createDistantVegetationJob(fixture().generator, bounds, {
+      limits,
+    });
+    for (let i = 0; !job.done && i < 1000; i++) job.step({ budgetMs: 4 });
+    assert.equal(job.status, "budget");
+    assert.ok(job._positions.length / 3 <= limits.vertices);
+    assert.ok(job._indices.length <= limits.indices);
+    assert.ok(job._indices.every((index) => index < job._positions.length / 3));
+    assert.throws(() => job.build(), /admitted/);
+    job.dispose();
+    assert.equal(job._positions.length, 0);
+  }
+});
+
+test("oversized native descriptors are rejected before unbounded primitive or clipping work", () => {
+  const tree = describeTree(
+    8,
+    8,
+    { top: 30, profile: { tree: "oak" } },
+    0.1,
+    123,
+    WATER_LEVEL
+  );
+  const nativeCases = [
+    Array.from({ length: DISTANT_VEGETATION_LIMITS.treesPerCell + 1 }, () => tree),
+    [
+      {
+        ...tree,
+        parts: Array.from(
+          { length: DISTANT_VEGETATION_LIMITS.partsPerTree + 1 },
+          () => tree.parts[0]
+        ),
+      },
+    ],
+    [
+      {
+        ...tree,
+        parts: [{ ...tree.parts[0], x: -1024, z: -1024, width: 2048 }],
+      },
+    ],
+  ];
+  for (const trees of nativeCases) {
+    const job = createDistantVegetationJob({ getTrees: () => trees }, bounds);
+    for (let i = 0; !job.done && i < 100; i++) job.step({ budgetMs: 4 });
+    assert.equal(job.status, "budget");
+    assert.equal(job._positions.length, 0);
+    assert.throws(() => job.build(), /admitted/);
+    job.dispose();
+  }
 });

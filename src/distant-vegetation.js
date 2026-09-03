@@ -1,11 +1,25 @@
 import * as THREE from "three";
 import { BLOCKS } from "./blocks.js";
 import { geometryWorldSpec } from "./geometry-world.js";
+import { getBiomeTint, leafBlock } from "./mesh-palette.js";
+import { hash } from "./noise.js";
 import { CHUNK_SIZE, WORLD_MAX, WORLD_MIN } from "./terrain.js";
 import { TREE_REACH, TREE_SPACING } from "./terrain-trees.js";
 
-const MAX_SAMPLES_PER_STEP = 64;
-const MAX_JOB_SAMPLES = 16384;
+export const DISTANT_VEGETATION_LIMITS = Object.freeze({
+  samplesPerStep: 64,
+  jobSamples: 16384,
+  cachedSamples: 16384,
+  cachedPrimitives: 65536,
+  treesPerCell: 8,
+  partsPerTree: 128,
+  cellsPerStep: 256,
+  primitivesPerStep: 96,
+  clipColumnsPerHull: 16,
+  vertices: 524288,
+  indices: 1048576,
+});
+const DETAILED_CANOPY_DISTANCE = 192;
 const FACES = [
   [0, 1, 2, 3],
   [4, 7, 6, 5],
@@ -14,6 +28,12 @@ const FACES = [
   [2, 6, 7, 3],
   [3, 7, 4, 0],
 ];
+
+function limit(value, maximum) {
+  return Number.isFinite(value)
+    ? Math.max(0, Math.min(maximum, Math.floor(value)))
+    : maximum;
+}
 
 function crownHull(crowns) {
   let minX = Infinity,
@@ -98,7 +118,7 @@ function crownGroups(crowns, limit) {
 // Centered conifers keep up to three tiers; asymmetric crowns keep up to six
 // spatial lobes. Their actual offsets, height, taper and unequal X/Z extents are
 // retained, including v3 shapes. At most seven hulls include the main trunk.
-export function treePrimitives(tree) {
+export function treePrimitives(tree, { maxCrowns = 6 } = {}) {
   const result = [];
   const trunk = tree.parts.find((part) => part.kind === "trunk");
   if (trunk) {
@@ -118,9 +138,162 @@ export function treePrimitives(tree) {
   const centeredConifer =
     ["spruce", "pine", "giant_spruce"].includes(tree.type) &&
     crowns.every((crown) => crown.x === crowns[0].x && crown.z === crowns[0].z);
-  for (const group of crownGroups(crowns, centeredConifer ? 3 : 6))
+  const groupLimit = Math.max(1, Math.min(6, Math.floor(maxCrowns) || 6));
+  for (const group of crownGroups(
+    crowns,
+    Math.min(centeredConifer ? 3 : 6, groupLimit)
+  ))
     result.push(crownHull(group));
   return result;
+}
+
+// Cache reduced, renderer-owned hulls, not voxel chunks or mutable native tree
+// parts. Identity/epoch changes clear this from DistantTerrain; a different
+// generator also invalidates it here for callers using this helper directly.
+export function createDistantVegetationCache({
+  maxSamples,
+  maxPrimitives,
+} = {}) {
+  const samples = new Map();
+  const populated = new Set();
+  const sampleLimit = limit(maxSamples, DISTANT_VEGETATION_LIMITS.cachedSamples);
+  const primitiveLimit = limit(
+    maxPrimitives,
+    DISTANT_VEGETATION_LIMITS.cachedPrimitives
+  );
+  let primitiveCount = 0;
+  let owner = null;
+  return {
+    get size() {
+      return samples.size;
+    },
+    get primitiveCount() {
+      return primitiveCount;
+    },
+    clear() {
+      samples.clear();
+      populated.clear();
+      primitiveCount = 0;
+      owner = null;
+    },
+    read(generator, gx, gz) {
+      if (owner !== generator) {
+        samples.clear();
+        populated.clear();
+        primitiveCount = 0;
+        owner = generator;
+      }
+      const key = `${gx},${gz}`;
+      if (samples.has(key)) {
+        const entry = samples.get(key);
+        samples.delete(key);
+        samples.set(key, entry);
+        if (entry.count) {
+          populated.delete(key);
+          populated.add(key);
+        }
+        return { trees: entry.trees, fresh: false };
+      }
+      const native = generator.getTrees(gx, gz);
+      if (
+        native.length > DISTANT_VEGETATION_LIMITS.treesPerCell ||
+        native.some(
+          (tree) =>
+            tree.parts.length > DISTANT_VEGETATION_LIMITS.partsPerTree
+        )
+      )
+        return { trees: [], fresh: true, overflow: true };
+      const trees = native.map((tree) => {
+        const root = tree.parts.find((part) => part.kind === "trunk");
+        const x = tree.x ?? root?.x ?? gx * TREE_SPACING;
+        const z = tree.z ?? root?.z ?? gz * TREE_SPACING;
+        const biome = generator.getBiome?.(x, z);
+        const palette = new Map();
+        const variation = 0.94 + hash(x, z, 0x5729) * 0.12;
+        const tint = (primitive) => {
+          if (!palette.has(primitive.block)) {
+            const base = new THREE.Color(
+              BLOCKS[primitive.block]?.color ?? "#578a3d"
+            );
+            const biomeTint = getBiomeTint(primitive.block, "side", biome);
+            palette.set(
+              primitive.block,
+              base
+                .toArray()
+                .map((channel, i) => channel * biomeTint[i] * variation)
+            );
+          }
+          return { ...primitive, color: palette.get(primitive.block) };
+        };
+        return {
+          x,
+          z,
+          exclude: tree.exclude ? { ...tree.exclude } : undefined,
+          fine: treePrimitives(tree).map(tint),
+          coarse: treePrimitives(tree, { maxCrowns: 2 }).map(tint),
+        };
+      });
+      const count = trees.reduce(
+        (sum, tree) => sum + tree.fine.length + tree.coarse.length,
+        0
+      );
+      if (sampleLimit > 0 && count <= primitiveLimit) {
+        while (
+          samples.size >= sampleLimit ||
+          primitiveCount + count > primitiveLimit
+        ) {
+          // A forest admission must not walk thousands of cached empty cells
+          // just to free a few hulls. Both eviction queues retain LRU order.
+          const oldest =
+            primitiveCount + count > primitiveLimit
+              ? populated.values().next().value
+              : samples.keys().next().value;
+          primitiveCount -= samples.get(oldest).count;
+          samples.delete(oldest);
+          populated.delete(oldest);
+        }
+        samples.set(key, { trees, count });
+        if (count) populated.add(key);
+        primitiveCount += count;
+      }
+      return { trees, fresh: true };
+    },
+  };
+}
+
+function canopyBands(primitive, coarse) {
+  const { x, z, minY, maxY, radius, topRadius } = primitive;
+  const radiusX = primitive.radiusX ?? radius;
+  const radiusZ = primitive.radiusZ ?? radius;
+  const topX = primitive.topX ?? x;
+  const topZ = primitive.topZ ?? z;
+  const topRadiusX = primitive.topRadiusX ?? topRadius;
+  const topRadiusZ = primitive.topRadiusZ ?? topRadius;
+  const box = (px, pz, rx, rz, low, high) => ({
+    ...primitive,
+    x: px,
+    z: pz,
+    topX: px,
+    topZ: pz,
+    radiusX: rx,
+    radiusZ: rz,
+    topRadiusX: rx,
+    topRadiusZ: rz,
+    minY: low,
+    maxY: high,
+  });
+  // The distant tier still uses native, asymmetric crown groups, but one box
+  // per group. Nearer crowns have a one-block cap, never a smooth pyramid.
+  if (
+    coarse ||
+    (x === topX && z === topZ && radiusX === topRadiusX && radiusZ === topRadiusZ)
+  )
+    return [box(x, z, radiusX, radiusZ, minY, maxY)];
+  const cap = Math.max(minY, maxY - 1);
+  const bands = [];
+  if (cap > minY) bands.push(box(x, z, radiusX, radiusZ, minY, cap));
+  bands.push(box(topX, topZ, topRadiusX, topRadiusZ, cap, maxY));
+  return bands;
 }
 
 function clip(polygon, axis, boundary, lower) {
@@ -171,7 +344,7 @@ class VegetationLayer {
     this.group.position.set(job.originX, 0, job.originZ);
     this._ownsMaterial = !material;
     this._disposed = false;
-    this._buckets = [...job._buckets.values()];
+    this._buckets = [];
     const geometry = new THREE.BufferGeometry();
     for (const [name, values] of [
       ["position", job._positions],
@@ -180,10 +353,19 @@ class VegetationLayer {
     ])
       geometry.setAttribute(name, new THREE.Float32BufferAttribute(values, 3));
     const vertexCount = geometry.getAttribute("position").count;
-    const indices =
-      vertexCount > 65535
-        ? new Uint32Array(vertexCount)
-        : new Uint16Array(vertexCount);
+    const IndexArray = vertexCount > 65535 ? Uint32Array : Uint16Array;
+    this._sourceIndices = new IndexArray(job._indices.length);
+    let cursor = 0;
+    // Compact once by owning chunk. Every later edit/streaming cutout is a
+    // typed-array copy per visible chunk, not a JavaScript walk per triangle.
+    for (const { cx, cz, ranges } of job._buckets.values()) {
+      const start = cursor;
+      for (let r = 0; r < ranges.length; r += 2)
+        for (let i = ranges[r]; i < ranges[r] + ranges[r + 1]; i++)
+          this._sourceIndices[cursor++] = job._indices[i];
+      this._buckets.push({ cx, cz, start, count: cursor - start });
+    }
+    const indices = new IndexArray(job._indices.length);
     geometry.setIndex(
       new THREE.BufferAttribute(indices, 1).setUsage(THREE.DynamicDrawUsage)
     );
@@ -210,6 +392,10 @@ class VegetationLayer {
     this.group.add(this.mesh);
     this.treeCount = job.treeCount;
     this.sampleCount = job.sampleCount;
+    this.nativeSamples = job.nativeSamples;
+    this.primitiveCount = job.primitiveCount;
+    this.resourceBytes =
+      vertexCount * 9 * Float32Array.BYTES_PER_ELEMENT + indices.byteLength;
     this.cutout();
   }
 
@@ -231,13 +417,10 @@ class VegetationLayer {
     const geometry = this.mesh.geometry;
     const indices = geometry.index.array;
     let count = 0;
-    for (const { cx, cz, ranges } of this._buckets) {
+    for (const { cx, cz, start, count: length } of this._buckets) {
       if (covered(cx, cz)) continue;
-      for (let r = 0; r < ranges.length; r += 2) {
-        const start = ranges[r],
-          end = start + ranges[r + 1];
-        for (let i = start; i < end; i++) indices[count++] = i;
-      }
+      indices.set(this._sourceIndices.subarray(start, start + length), count);
+      count += length;
     }
     geometry.setDrawRange(0, count);
     geometry.index.needsUpdate = true;
@@ -252,11 +435,12 @@ class VegetationLayer {
     if (this._ownsMaterial) this.mesh.material.dispose();
     this.group.removeFromParent();
     this._buckets.length = 0;
+    this._sourceIndices = null;
   }
 }
 
 class VegetationJob {
-  constructor(generator, bounds, { spec } = {}) {
+  constructor(generator, bounds, { spec, cache, center, limits = {} } = {}) {
     if (typeof generator?.getTrees !== "function")
       throw new TypeError(
         "Distant vegetation requires native getTrees(gx, gz)"
@@ -313,16 +497,30 @@ class VegetationJob {
     );
     this._width = Math.max(0, maxGX - this._minGX + 1);
     this.totalSamples = this._width * Math.max(0, maxGZ - this._minGZ + 1);
-    if (this.totalSamples > MAX_JOB_SAMPLES)
+    if (this.totalSamples > DISTANT_VEGETATION_LIMITS.jobSamples)
       throw new RangeError(
         "Distant vegetation jobs are limited to 16384 feature cells; tile larger views"
       );
     this._generator = generator;
+    this._cache = cache ?? createDistantVegetationCache();
+    this._ownsCache = !cache;
+    this._center = center;
+    this.limits = {
+      vertices: limit(limits.vertices, DISTANT_VEGETATION_LIMITS.vertices),
+      indices: limit(limits.indices, DISTANT_VEGETATION_LIMITS.indices),
+    };
+    this.status = "building";
+    this.lastStep = { samples: 0, cells: 0, primitives: 0 };
+    this._pending = [];
+    this._pendingCursor = 0;
     this.sampleCount = 0;
+    this.nativeSamples = 0;
     this.treeCount = 0;
+    this.primitiveCount = 0;
     this._positions = [];
     this._normals = [];
     this._colors = [];
+    this._indices = [];
     this._palette = new Map();
     this._buckets = new Map();
     this._disposed = false;
@@ -330,34 +528,67 @@ class VegetationJob {
   }
 
   get done() {
-    return this.sampleCount === this.totalSamples;
+    return (
+      this.status === "budget" ||
+      (this.sampleCount === this.totalSamples &&
+        this._pendingCursor === this._pending.length)
+    );
   }
 
-  _emit(polygon, facing, color, cx, cz) {
-    let bucket;
-    const start = this._positions.length / 3;
+  _emit(polygon, facing, color, cx, cz, primitive) {
+    const start = this._indices.length;
+    const first = this._positions.length / 3;
+    if (
+      first + polygon.length > this.limits.vertices ||
+      start + (polygon.length - 2) * 3 > this.limits.indices
+    ) {
+      this.status = "budget";
+      return false;
+    }
     for (let i = 1; i < polygon.length - 1; i++) {
       const vertices = [polygon[0], polygon[i], polygon[i + 1]];
       if (!normal(...vertices)) continue;
-      for (const [x, y, z] of vertices) {
-        this._positions.push(x - this.originX, y, z - this.originZ);
-        this._normals.push(...facing);
-        this._colors.push(...color);
-      }
+      this._indices.push(first, first + i, first + i + 1);
     }
-    const count = this._positions.length / 3 - start;
-    if (!count) return;
+    const count = this._indices.length - start;
+    if (!count) return true;
+    // Vertices are shared within each clipped face. Hard normals remain voxel-
+    // sharp without storing six attribute triples for every rectangular face.
+    for (const [x, y, z] of polygon) {
+      this._positions.push(x - this.originX, y, z - this.originZ);
+      this._normals.push(...facing);
+      const height = THREE.MathUtils.clamp(
+        (y - primitive.minY) / (primitive.maxY - primitive.minY),
+        0,
+        1
+      );
+      const shade = leafBlock[primitive.block]
+        ? (0.78 + height * 0.22) * (facing[1] < -0.5 ? 0.8 : 1)
+        : 0.88 + height * 0.12;
+      this._colors.push(color[0] * shade, color[1] * shade, color[2] * shade);
+    }
     const key = `${cx},${cz}`;
-    bucket = this._buckets.get(key);
-    if (!bucket) this._buckets.set(key, (bucket = { cx, cz, ranges: [] }));
+    let bucket = this._buckets.get(key);
+    if (!bucket) {
+      bucket = { cx, cz, ranges: [] };
+      this._buckets.set(key, bucket);
+    }
     const ranges = bucket.ranges,
       last = ranges.length - 2;
     if (last >= 0 && ranges[last] + ranges[last + 1] === start)
       ranges[last + 1] += count;
     else ranges.push(start, count);
+    return true;
   }
 
-  _append(primitive, exclude) {
+  _append(primitive, exclude, coarse) {
+    for (const band of canopyBands(primitive, coarse)) {
+      this._appendHull(band, exclude);
+      if (this.status === "budget") return;
+    }
+  }
+
+  _appendHull(primitive, exclude) {
     const { x, z, minY, maxY, radius, topRadius, block } = primitive;
     const radiusX = primitive.radiusX ?? radius,
       radiusZ = primitive.radiusZ ?? radius;
@@ -403,6 +634,13 @@ class VegetationJob {
     );
     if (minX >= maxX || minZ >= maxZ || minY >= this.maxY || maxY <= this.minY)
       return;
+    const columns =
+      (Math.ceil(maxX / CHUNK_SIZE) - Math.floor(minX / CHUNK_SIZE)) *
+      (Math.ceil(maxZ / CHUNK_SIZE) - Math.floor(minZ / CHUNK_SIZE));
+    if (columns > DISTANT_VEGETATION_LIMITS.clipColumnsPerHull) {
+      this.status = "budget";
+      return;
+    }
     const points = [
       [x - radiusX, minY, z - radiusZ],
       [x + radiusX, minY, z - radiusZ],
@@ -413,7 +651,7 @@ class VegetationJob {
       [topX + topRadiusX, maxY, topZ + topRadiusZ],
       [topX - topRadiusX, maxY, topZ + topRadiusZ],
     ];
-    let color = this._palette.get(block);
+    let color = primitive.color ?? this._palette.get(block);
     if (!color) {
       color = new THREE.Color(BLOCKS[block]?.color ?? "#578a3d").toArray();
       this._palette.set(block, color);
@@ -445,7 +683,11 @@ class VegetationJob {
             polygon = clip(polygon, axis, boundary, lower);
             if (polygon.length < 3) break;
           }
-          if (polygon.length >= 3) this._emit(polygon, facing, color, cx, cz);
+          if (
+            polygon.length >= 3 &&
+            !this._emit(polygon, facing, color, cx, cz, primitive)
+          )
+            return;
         }
       }
     }
@@ -453,33 +695,73 @@ class VegetationJob {
 
   // No timers, chunk loading, world edits, or collision access. The caller spends
   // its remaining frame budget here and may cancel the job on any world change.
-  step({ budgetMs = 1, maxSamples = MAX_SAMPLES_PER_STEP } = {}) {
+  step({
+    budgetMs = 1,
+    maxSamples = DISTANT_VEGETATION_LIMITS.samplesPerStep,
+  } = {}) {
+    this.lastStep = { samples: 0, cells: 0, primitives: 0 };
     if (this._disposed || this._built) return this.done;
     const budget = Number.isFinite(budgetMs)
       ? Math.max(0, Math.min(4, budgetMs))
       : 1;
-    const limit = Number.isFinite(maxSamples)
-      ? Math.max(0, Math.min(MAX_SAMPLES_PER_STEP, Math.floor(maxSamples)))
-      : MAX_SAMPLES_PER_STEP;
+    const sampleLimit = limit(
+      maxSamples,
+      DISTANT_VEGETATION_LIMITS.samplesPerStep
+    );
+    if (!sampleLimit || !budget) return this.done;
     const started = performance.now();
-    let work = 0;
-    while (!this.done && work < limit && performance.now() - started < budget) {
+    let samples = 0,
+      cells = 0,
+      primitives = 0;
+    while (!this.done && performance.now() - started < budget) {
+      if (this._pendingCursor < this._pending.length) {
+        if (primitives >= DISTANT_VEGETATION_LIMITS.primitivesPerStep) break;
+        const { primitive, exclude, coarse } =
+          this._pending[this._pendingCursor++];
+        this._append(primitive, exclude, coarse);
+        primitives++;
+        this.primitiveCount++;
+        continue;
+      }
+      if (
+        samples >= sampleLimit ||
+        cells >= DISTANT_VEGETATION_LIMITS.cellsPerStep
+      )
+        break;
       const gx = this._minGX + (this.sampleCount % this._width);
       const gz = this._minGZ + Math.floor(this.sampleCount / this._width);
-      for (const tree of this._generator.getTrees(gx, gz)) {
-        for (const primitive of treePrimitives(tree))
-          this._append(primitive, tree.exclude);
-        this.treeCount++;
+      const { trees, fresh, overflow } = this._cache.read(
+        this._generator,
+        gx,
+        gz
+      );
+      this._pending = [];
+      this._pendingCursor = 0;
+      for (const tree of trees) {
+        const coarse =
+          this._center &&
+          Math.max(
+            Math.abs(tree.x - this._center.x),
+            Math.abs(tree.z - this._center.z)
+          ) > DETAILED_CANOPY_DISTANCE;
+        for (const primitive of coarse ? tree.coarse : tree.fine)
+          this._pending.push({ primitive, exclude: tree.exclude, coarse });
       }
+      this.treeCount += trees.length;
+      this.nativeSamples += Number(fresh);
+      samples += Number(fresh);
       this.sampleCount++;
-      work++;
+      cells++;
+      if (overflow) this.status = "budget";
     }
+    this.lastStep = { samples, cells, primitives };
+    if (this.done && this.status === "building") this.status = "ready";
     return this.done;
   }
 
   build(material) {
-    if (this._disposed || this._built || !this.done)
-      throw new Error("Build a completed vegetation job exactly once");
+    if (this._disposed || this._built || !this.done || this.status === "budget")
+      throw new Error("Build a completed, admitted vegetation job exactly once");
     const layer = new VegetationLayer(this, material);
     this._built = true;
     this.dispose();
@@ -490,8 +772,12 @@ class VegetationJob {
     if (this._disposed) return;
     this._disposed = true;
     this._positions.length = this._normals.length = this._colors.length = 0;
+    this._indices.length = 0;
+    this._pending.length = 0;
+    this._pendingCursor = 0;
     this._buckets.clear();
     this._palette.clear();
+    if (this._ownsCache) this._cache.clear();
     this._generator = null;
   }
 }
