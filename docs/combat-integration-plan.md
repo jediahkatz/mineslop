@@ -5,6 +5,11 @@ of mob-origin fire. They do not activate friendly fire. The next checkpoint
 adds composable base-owner edits and an inactive runtime; normal Game callers
 remain on their existing paths until the complete cutover gate passes.
 
+The [inactive runtime checkpoint](combat-runtime.md) is now implemented and
+passes its isolated tests and baseline comparison. The separate base-owner
+batch delivery and combined owner/runtime integration still require execution
+and review. No normal Game activation follows from this runtime-only result.
+
 ## Next checkpoint: independent work boundaries
 
 ### Wildlife base-edit composition
