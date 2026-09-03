@@ -9,6 +9,42 @@ remain open for that reference-led check, alongside final-source/live-world
 verification. Preserve the previous evidence; do not substitute it for the
 new comparison.
 
+## Java-reference host/routing checkpoint
+
+Source `e46c9a18a30e9f76779c6e48cca0da16bbb309b9` updates the stone,
+deepslate and netherrack hosts, deepslate ore face routing and shadow ramps,
+Nether-gold nuggets, quartz seams and debris side courses. Plain deepslate
+retains separate side/end faces; its ores use the side host on every face,
+matching the pinned `cube_all` models. Only the three host display colors
+change in block metadata. Atlas allocations and gameplay metadata are preserved.
+
+Executed verification:
+
+- All 69 focused material, mineral, dispatch, metadata and atlas checks pass.
+- Game and production-component gallery builds pass.
+- Both Pages-path checks pass, including real WebGL/worker and save/reload.
+- Both browser-art suites pass; all 270 catalog IDs render without shader or
+  context errors. This remains runtime coverage, not aesthetic approval.
+- All 66 affected face tiles are exported from frozen source. Twenty-four
+  direct before/current/reference comparisons verify the pinned reference PNG
+  hashes and retain native 32px views.
+- Eight actual production-component sheets cover all 22 affected IDs in day
+  and shadow, including placed faces, inventory icons and held views.
+
+Evidence uses source fingerprint
+`40db79e95dab1444211d5278318c5156056d1f20b276abbf63f62a2bc9b9bc90`.
+The comparison manifest is
+`/tmp/mineslop-minecraft-references/ores_hosts_java_26_2_02/comparisons_checkpoint_01/manifest.json`;
+render receipts are in `/tmp/mineslop-host-routing-rendered-01/manifest.json`.
+
+Visual correction remains open: the new deepslate tone is closer to the
+reference, but its conspicuous diagonal bands differ from the reference's
+irregular fractured plates. A deepslate-only refinement is requested; these
+captures must remain tied to their original source. No individual review
+approval is advanced by this checkpoint. Independent visual review,
+final-combined-source capture and actual native-world near/far coherence remain
+separate gates.
+
 ## Historical recognizability checkpoint
 
 The 19 ore IDs received source-specific paired visual passes at the
