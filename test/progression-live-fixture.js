@@ -76,7 +76,7 @@ export function progressionLiveFixture(t, {
   let pearls;
   const getOwner = (id) => id === "local-player" ? {
     id, life: pearls.life, ref: game.player, world: game.world,
-    dimension: game.world.dimension, alive: !game.gameplay.dead,
+    dimension: game.world.dimension, alive: !game.gameplay.dead, mode: game.gameplay.mode,
     position: game.player.position, eye: game.player.eyePosition,
     forward: game.player.forward, radius: PLAYER_WIDTH / 2, height: game.player.height,
     poseRevision: game.player.poseRevision,
