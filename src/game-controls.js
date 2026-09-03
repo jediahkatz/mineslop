@@ -146,7 +146,7 @@ export function bindGameControls(game) {
       else game.ui.toggleInventory();
       return;
     }
-    // Voxelcraft extensions: B opens the atlas; P saves the local world.
+    // Mineslop extensions: B opens the atlas; P saves the local world.
     if (event.code === "KeyB") {
       event.preventDefault();
       if (event.repeat || game.containerUI?.isOpen) return;

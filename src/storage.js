@@ -31,7 +31,7 @@ export function normalizeSave(input) {
     Array.isArray(input) ||
     !input.world
   )
-    throw new Error("Not a Voxelcraft world file");
+    throw new Error("Not a Mineslop world file");
   const data = structuredClone(input);
   if (![1, 2, 3].includes(data.version))
     throw new Error("Unsupported or invalid world format");
@@ -215,7 +215,7 @@ export class WorldStorage {
       };
       request.onerror = () => reject(request.error);
       request.onblocked = () =>
-        reject(new Error("Close other Voxelcraft tabs to open this world"));
+        reject(new Error("Close other Mineslop tabs to open this world"));
       request.onsuccess = () => {
         this.database = request.result;
         this.database.onversionchange = () => {

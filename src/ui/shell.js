@@ -5,7 +5,7 @@ export function shellMarkup() {
     <section class="game-hud" hidden aria-label="Game interface">
       <div class="debug-overlay" hidden>
         <div class="hud-location">
-          <div class="debug-line">Voxelcraft (browser edition) · <span class="creative-badge">Survival</span></div>
+          <div class="debug-line">Mineslop (browser edition) · <span class="creative-badge">Survival</span></div>
           <div class="debug-line"><span class="fps-indicator"></span> · <span class="chunk-count"></span></div>
           <div class="coordinates debug-line">XYZ: <b data-coordinate="x">0</b> / <b data-coordinate="y">0</b> / <b data-coordinate="z">0</b></div>
           <div class="debug-line">Dimension: <span class="hud-dimension">Overworld</span></div>
@@ -15,7 +15,7 @@ export function shellMarkup() {
           <div class="flight-indicator debug-line" hidden>Flying · Space: up · Shift: down · Double-Space: land</div>
           <button class="hud-pause">Pause Game</button>
         </div>
-        <span class="debug-help">F3: hide debug · B: Voxelcraft atlas · P: save</span>
+        <span class="debug-help">F3: hide debug · B: Mineslop atlas · P: save</span>
       </div>
       <div class="crosshair" aria-hidden="true"></div>
       <div class="mining-progress sr-only" role="progressbar" aria-label="Mining progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-live="off" hidden></div>
@@ -40,7 +40,7 @@ export function shellMarkup() {
     <section class="death-overlay" hidden tabindex="-1">
       <div class="death-panel" role="alertdialog" aria-modal="true" aria-labelledby="death-title" aria-describedby="death-description" tabindex="-1">
         <h2 id="death-title">You Died!</h2><p id="death-description"></p>
-        <p class="death-reassurance">Keep Inventory is enabled in Voxelcraft. Your items are kept.</p>
+        <p class="death-reassurance">Keep Inventory is enabled in Mineslop. Your items are kept.</p>
         <button class="respawn-button">Respawn</button>
         <button class="death-quit-button">Title Screen</button>
       </div>

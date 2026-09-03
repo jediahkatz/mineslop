@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { chromium } from "playwright";
 
-const prefix = "/voxelcraft/";
+const prefix = "/mineslop/";
 const dist = fileURLToPath(new URL("../dist/", import.meta.url));
 const types = {
   ".html": "text/html",
@@ -78,6 +78,7 @@ async function waitForSave(page, revision = null) {
 
 test("production entrypoints, font and worker use the Pages project prefix", async () => {
   const html = await readFile(resolve(dist, "index.html"), "utf8");
+  assert.match(html, /<title>Mineslop — A world of your own<\/title>/);
   assert.doesNotMatch(html, /\/@vite\/|\/src\/main\.js|__voxelBot/);
   const assets = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
     .map((match) => match[1]);
@@ -89,10 +90,10 @@ test("production entrypoints, font and worker use the Pages project prefix", asy
     const content = await readFile(resolve(dist, asset.slice(prefix.length)));
     assert.ok(content.length > 0, `Missing build asset: ${asset}`);
     if (asset.endsWith(".css")) {
-      assert.match(content.toString(), /\/voxelcraft\/fonts\/Monocraft-Regular\.ttf/);
+      assert.match(content.toString(), /\/mineslop\/fonts\/Monocraft-Regular\.ttf/);
     }
     if (asset.endsWith(".js")) {
-      assert.match(content.toString(), /\/voxelcraft\/assets\/terrain\.worker-[^"']+\.js/);
+      assert.match(content.toString(), /\/mineslop\/assets\/terrain\.worker-[^"']+\.js/);
     }
   }
 });
@@ -100,7 +101,10 @@ test("production entrypoints, font and worker use the Pages project prefix", asy
 test("Pages-path production game loads a worker and preserves a real save on reload", {
   timeout: 180000,
 }, async (t) => {
-  const url = await serveBuild(t);
+  const deployedUrl = process.env.MINESLOP_PAGES_URL;
+  if (deployedUrl !== undefined)
+    assert.equal(deployedUrl, "https://jediahkatz.github.io/mineslop/");
+  const url = deployedUrl ?? await serveBuild(t);
   const browser = await chromium.launch({
     ...(process.env.CHROME_BIN ? { executablePath: process.env.CHROME_BIN } : {}),
     headless: true,
@@ -127,6 +131,12 @@ test("Pages-path production game loads a worker and preserves a real save on rel
   page.on("worker", (worker) => workers.push(worker.url()));
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.locator(".play-button").waitFor({ state: "visible", timeout: 90000 });
+  assert.equal(await page.title(), "Mineslop — A world of your own");
+  assert.equal(await page.locator(".title-copy h1").textContent(), "MINESLOP");
+  assert.equal(
+    await page.locator("#game canvas").getAttribute("aria-label"),
+    "Mineslop game world"
+  );
   assert.ok(workers.some((worker) =>
     worker.startsWith(`${url}assets/terrain.worker-`)
   ), "The real production terrain worker starts under the Pages path");
@@ -174,8 +184,13 @@ test("Pages-path production game loads a worker and preserves a real save on rel
   assert.equal(await page.evaluate(() =>
     localStorage.getItem("voxelcraft-controls-v1")
   ), preferences);
+  const databases = await page.evaluate(async () =>
+    (await indexedDB.databases()).map((database) => database.name)
+  );
+  assert.ok(databases.includes("voxelcraft-worlds"), "The existing save namespace is retained");
+  assert.ok(!databases.includes("mineslop-worlds"), "Renaming must not fork the user's saves");
   assert.deepEqual(failures, []);
   for (const request of requests)
     assert.ok(request.startsWith(url), `Request escaped the Pages path: ${request}`);
-  t.diagnostic(`${requests.size} project-path resources; native terrain worker; WebGL2; saved camera, world, health and controls survive reload.`);
+  t.diagnostic(`${url}: ${requests.size} project-path resources; Mineslop branding; native terrain worker; WebGL2; existing save namespace, camera, world, health and controls survive reload.`);
 });

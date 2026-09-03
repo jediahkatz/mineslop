@@ -168,7 +168,7 @@ export class GameRenderer {
     this.renderer.domElement.classList.add("game-canvas");
     this.renderer.domElement.setAttribute(
       "aria-label",
-      "Voxelcraft game world"
+      "Mineslop game world"
     );
     container.appendChild(this.renderer.domElement);
     this.atlas = createAtlas();

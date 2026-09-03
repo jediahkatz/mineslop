@@ -1,4 +1,4 @@
-name: Deploy Voxelcraft to GitHub Pages
+name: Deploy Mineslop to GitHub Pages
 
 on:
   push:

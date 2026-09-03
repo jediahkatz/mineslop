@@ -11,7 +11,7 @@ export function createAtlas(container, { listen, onClose, onTravel }) {
   container.innerHTML = `
     <div class="atlas-panel pixel-panel" role="dialog" aria-modal="true" aria-labelledby="atlas-title" tabindex="-1">
       <header class="inventory-header">
-        <div><h2 id="atlas-title">World Atlas</h2><p>Voxelcraft extension · Biome browser and Creative travel</p></div>
+        <div><h2 id="atlas-title">World Atlas</h2><p>Mineslop extension · Biome browser and Creative travel</p></div>
         <button class="icon-button atlas-close" aria-label="Close world atlas">${svg("close")}</button>
       </header>
       <div class="atlas-current"><span class="atlas-current-label">Exploring the Overworld</span></div>

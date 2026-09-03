@@ -16,8 +16,8 @@ const controls = [
   ["F3", "Debug information"],
   ["F5", "Change perspective"],
   ["Esc", "Game menu / close screen"],
-  ["B", "World atlas (Voxelcraft)"],
-  ["P", "Save world (Voxelcraft)"],
+  ["B", "World atlas (Mineslop)"],
+  ["P", "Save world (Mineslop)"],
 ];
 
 function fullscreenSettings(page) {
@@ -35,7 +35,7 @@ function fullscreenSettings(page) {
 export function menuMarkup() {
   return `
     <section class="menu-screen" hidden aria-label="Main menu" tabindex="-1">
-      <div class="title-copy"><h1>VOXELCRAFT</h1><span class="edition-label">BROWSER EDITION</span></div>
+      <div class="title-copy"><h1>MINESLOP</h1><span class="edition-label">BROWSER EDITION</span></div>
       <h2 class="menu-title" hidden>Game Menu</h2>
       <div class="menu-pages">
         <section class="main-menu-stack" data-menu-page="main">
@@ -85,7 +85,7 @@ export function menuMarkup() {
             </div>
             <button class="spawn-button" data-creative-only hidden>Return to Spawn</button>
             <p class="settings-note">One stored world. Importing or generating replaces it after confirmation. Export a backup first.</p>
-            <input class="import-file" type="file" accept=".json,application/json" aria-label="Import a Voxelcraft save file" hidden>
+            <input class="import-file" type="file" accept=".json,application/json" aria-label="Import a Mineslop save file" hidden>
           </section>
           <section class="menu-page new-world-page" data-menu-page="new-world" hidden>
             <p class="world-replace-warning">This browser stores one world. A new world replaces the current one. Export your save first to keep it.</p>
@@ -95,6 +95,6 @@ export function menuMarkup() {
         </div>
       </div>
       <p class="storage-status" role="status" aria-live="polite">Saves stay on this device. Export a backup to keep.</p>
-      <footer class="title-footer"><span>Voxelcraft · Original voxel sandbox</span><span class="footer-world">Seed: <b>cedar-valley</b></span></footer>
+      <footer class="title-footer"><span>Mineslop · Original voxel sandbox</span><span class="footer-world">Seed: <b>cedar-valley</b></span></footer>
     </section>`;
 }

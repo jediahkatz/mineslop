@@ -53,7 +53,7 @@ export function createUI({
   onImport,
 } = {}) {
   const root = document.querySelector("#ui");
-  if (!root) throw new Error("VOXELCRAFT requires a #ui container");
+  if (!root) throw new Error("MINESLOP requires a #ui container");
   const events = createEventScope();
   const { listen } = events;
   const state = {

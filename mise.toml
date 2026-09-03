@@ -1,15 +1,15 @@
 [tasks.install]
-description = "Install the standalone Voxelcraft dependencies"
+description = "Install the standalone Mineslop dependencies"
 run = "npm ci"
 
 # Canonical tasks. See .cursor/skills/devex/mise-monorepo-tasks/SKILL.md.
 [tasks.build]
-description = "Build the Voxelcraft browser game"
+description = "Build the Mineslop browser game"
 env = { NODE_ENV = "production" }
 run = "npm run build"
 
 [tasks.start]
-description = "Start Voxelcraft on port 5173"
+description = "Start Mineslop on port 5173"
 run = "npm run dev"
 
 [tasks.test]

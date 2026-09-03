@@ -1,4 +1,4 @@
-# Voxelcraft
+# Mineslop
 
 An original Minecraft-inspired survival and creative sandbox running entirely in
 a desktop browser. No account, backend, remote assets, or API keys are required.
@@ -16,18 +16,18 @@ build locally. The game requires WebGL 2 and a mouse and keyboard.
 
 ## GitHub Pages
 
-The deployment target is [jediahkatz.github.io/voxelcraft](https://jediahkatz.github.io/voxelcraft/).
-Vite uses `/voxelcraft/` as its base for scripts, styles, fonts, icons and the
+The deployment target is [jediahkatz.github.io/mineslop](https://jediahkatz.github.io/mineslop/).
+Vite uses `/mineslop/` as its base for scripts, styles, fonts, icons and the
 terrain worker. Local development and preview use the same path on port 5173.
 
-In [repository Settings → Pages](https://github.com/jediahkatz/voxelcraft/settings/pages),
-choose **GitHub Actions** as the source. The `Deploy Voxelcraft to GitHub Pages`
+In [repository Settings → Pages](https://github.com/jediahkatz/mineslop/settings/pages),
+choose **GitHub Actions** as the source. The `Deploy Mineslop to GitHub Pages`
 workflow builds and tests pushes to `main` (or a manual run on `main`), then
 publishes only `dist/`. The build has read-only repository access; only the
 deployment job receives Pages and OIDC write permissions.
 
-The repository can remain private on a GitHub plan that supports private-repo
-Pages. The deployed game is public; no source-visibility change is automatic.
+This repository and its deployed game are public. A private fork requires a
+GitHub plan that supports private-repository Pages.
 Worlds and preferences stay in the visitor's browser. To move a localhost
 world to Pages, use **Export Save...** locally and **Import Save...** on the
 hosted game; different origins cannot share browser storage.
@@ -41,7 +41,7 @@ npx playwright install chromium
 npm run test:pages
 ```
 
-The smoke test serves only `/voxelcraft/`, with no root-asset or SPA fallback.
+The smoke test serves only `/mineslop/`, with no root-asset or SPA fallback.
 It checks asset paths, native worker startup, WebGL2, real save/reload, and
 device preferences in a fresh browser profile. `CHROME_BIN` can select an
 already installed Chrome instead of downloading Playwright's browser.
@@ -56,7 +56,7 @@ already installed Chrome instead of downloading Playwright's browser.
 - 1–9 or mouse wheel: select a hotbar slot; middle mouse: pick a block (owned items only in Survival).
 - E: inventory; Escape: close a screen or pause/resume; F: swap hands; Q: drop one item; Ctrl-Q: drop one selected stack.
 - F1: hide the HUD/hands; F3: debug information; F5: first-person/back/front view.
-- B opens the biome atlas and P saves: these are Voxelcraft extensions.
+- B opens the biome atlas and P saves: these are Mineslop extensions.
 - Arrow keys also look around.
 
 ### Local or remote mouse input
