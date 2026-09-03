@@ -90,9 +90,18 @@ The new render fingerprint is
 Evidence is retained in
 `/tmp/mineslop-minecraft-references/deepslate_grain_java_26_2_03/comparisons_checkpoint_01/`
 and `/tmp/mineslop-deepslate-grain-rendered-01/manifest.json`.
-The corrected grain has a separate visual reassessment; it does not resolve
-the unchanged mineral-coverage or debris findings, nor grant final per-ID
-approval or native-world tiling/lighting parity.
+Independent reassessment of all three comparison panels and six galleries
+confirms the dominant diagonal-band defect is resolved for `1036` and
+`1060`–`1067`. The side/end distinction remains correct across the shown Y/X/Z
+states, and the ores retain `cube_all` faces without a new broad readability
+regression in either lighting condition.
+
+The fixed-orientation repeat still exposes weaker upright/hooked chains,
+especially on plain sides. This is a residual fidelity issue, not continuation
+of the original diagonal blocker; no replacement dominant brick/checker grid
+was identified. The unchanged mineral-coverage and `1070` debris findings remain
+open. Closing this host defect does not grant final per-ID approval or
+native-world rotation, distance or lighting parity.
 
 ## Historical recognizability checkpoint
 
