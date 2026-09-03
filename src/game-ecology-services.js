@@ -770,10 +770,17 @@ export class GameEcologyServices {
     const ctx = this._readContext(), killed = dealt === mob.health;
     const validateBase = () => guard() && loaded() && player() && currentAction() === true &&
       (killed || this.canWake(mob, this._readContext()));
+    // Earlier committed reflections may change HP without changing the recipient.
+    const recipient = () => {
+      if (!playerKill) return true;
+      const next = this._readContext();
+      return next.health > 0 && next.playerTargetKey === ctx.playerTargetKey &&
+        next.playerDimension === ctx.playerDimension;
+    };
     const afterHit = () => {
       this.ecology.invalidateAvailability();
       this._dirty = true;
-      if (hit && !mob.dead && guard() && player()) {
+      if (hit && !mob.dead && guard() && recipient()) {
         // Keep the standalone reflection bridge's current player context, but
         // only synchronize after commit, never while preparing the base edit.
         this._syncPlayer();
