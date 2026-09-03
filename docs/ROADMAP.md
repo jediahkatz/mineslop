@@ -18,6 +18,9 @@ loading, and has relevant regression tests and real browser verification.
   the day/night cycle, lighting, underground views or inspection settings.
 - [ ] **Better lighting.** Improve daylight, dusk/night and local-light
   readability while preserving cave darkness, material identity and performance.
+- [ ] **Gradual tunnel lighting.** Remove the sudden whole-view blackout when
+  entering a tunnel. Check light falloff near the entrance, views back toward
+  daylight, torch-lit interiors and transitions in both directions.
 - [ ] **Every block gets an adversarial art review.** Render the entire block
   catalog with real game textures and geometry, record a verdict for each block,
   and fix weak/confusable materials, bad face seams, transparency, lighting and
