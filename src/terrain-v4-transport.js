@@ -7,6 +7,10 @@ import { STRUCTURE_LIMITS } from "./structure-catalog.js";
 import { structureBounds } from "./structure-layouts.js";
 import { V4_MAX_XZ, V4_MIN_XZ } from "./terrain-v4-config.js";
 import { V4_GENERATION_MANIFEST } from "./terrain-v4-manifest.js";
+import { V5_GENERATION_MANIFEST } from "./terrain-v5-manifest.js";
+
+const manifestFor = (job) => job.generatorVersion === 5
+  ? V5_GENERATION_MANIFEST : V4_GENERATION_MANIFEST;
 
 // Bounds on the declaration plane, not permission to expand generation work.
 // Native layout-v1 has at most one selected family per 192x192 owner; the
@@ -177,12 +181,13 @@ function checkAnchoredBlock(name, position, blocks, job, spec) {
 }
 
 function validateMapQuery(query, marker, job) {
+  const manifest = manifestFor(job);
   if (
     !record(query) ||
-    !V4_GENERATION_MANIFEST.structureKinds.includes(query.kind) ||
+    !manifest.structureKinds.includes(query.kind) ||
     query.dimension !== job.dimension ||
     query.seed !== job.seed ||
-    query.layoutVersion !== V4_GENERATION_MANIFEST.structureLayoutVersion ||
+    query.layoutVersion !== manifest.structureLayoutVersion ||
     query.sourceMarkerId !== marker.id ||
     !record(query.from) ||
     ["x", "y", "z"].some(
@@ -211,7 +216,7 @@ function validateCanonical(descriptor, job, spec, blocks) {
   );
   if (
     !owner ||
-    !V4_GENERATION_MANIFEST.structureKinds.includes(owner.kind) ||
+    !manifestFor(job).structureKinds.includes(owner.kind) ||
     descriptor.layoutVersion !== owner.layoutVersion ||
     descriptor.generatorVersion !== owner.generatorVersion ||
     descriptor.seed !== job.seed ||
@@ -353,7 +358,7 @@ export function cloneTerrainStructures(structures, job, spec, blocks) {
     )
       invalid("expected a structure descriptor");
     if (
-      V4_GENERATION_MANIFEST.structureKinds.includes(descriptor.kind) &&
+      manifestFor(job).structureKinds.includes(descriptor.kind) &&
       (typeof descriptor.id !== "string" ||
         !descriptor.id.startsWith("structure:"))
     )

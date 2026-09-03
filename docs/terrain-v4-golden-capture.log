@@ -1,0 +1,12 @@
+{"seed":"cedar-valley","dimension":"overworld","spawn":{"x":-317.5,"y":114.01,"z":296.5},"chunks":8}
+{"seed":"cedar-valley","dimension":"nether","spawn":{"x":10.5,"y":39.01,"z":-31.5},"chunks":7}
+{"seed":"cedar-valley","dimension":"end","spawn":{"x":0.5,"y":75.01,"z":0.5},"chunks":4}
+{"seed":"mineslop-audit-2","dimension":"overworld","spawn":{"x":463.5,"y":71.01,"z":481.5},"chunks":5}
+{"seed":"mineslop-audit-2","dimension":"nether","spawn":{"x":-16.5,"y":36.01,"z":1.5},"chunks":5}
+{"seed":"mineslop-audit-2","dimension":"end","spawn":{"x":0.5,"y":77.01,"z":0.5},"chunks":4}
+{"seed":"","dimension":"overworld","spawn":{"x":562.5,"y":80.01,"z":-294.5},"chunks":5}
+{"seed":"","dimension":"nether","spawn":{"x":10.5,"y":40.01,"z":17.5},"chunks":5}
+{"seed":"","dimension":"end","spawn":{"x":0.5,"y":78.01,"z":0.5},"chunks":4}
+{"result":"captured unchanged deployed v4 constants","records":9,"chunks":47,"sha256":"6b6f16551afa69e5be72bfb133745961370302e60766236e29b17c4e91b6b67a"}
+
+capture_exit=0

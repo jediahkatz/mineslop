@@ -1,5 +1,6 @@
 import { BIOMES } from "./biomes.js";
 import { defaultFluidFor, isValidCell } from "./block-state.js";
+import { hasExpandedTerrain } from "./generator-version.js";
 import { CHUNK_SIZE } from "./terrain.js";
 import { cloneTerrainStructures } from "./terrain-v4-transport.js";
 import { getWorldSpec, inColumnBounds } from "./world-spec.js";
@@ -53,10 +54,10 @@ function generatorPacket(chunk, job) {
   const spec = validateChunkJob(job);
   if (!chunk || typeof chunk !== "object")
     throw new RangeError("Invalid generated chunk");
-  // Native v4 and explicit fixtures must declare their vertical layout; never
+  // Expanded native versions and fixtures must declare their vertical layout; never
   // reinterpret historical bytes as expanded terrain.
   if (
-    job.generatorVersion === 4 &&
+    hasExpandedTerrain(job.generatorVersion) &&
     (chunk.minY === undefined || chunk.maxY === undefined)
   )
     throw new RangeError("Generated chunks must declare their world spec");

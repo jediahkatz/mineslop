@@ -238,7 +238,7 @@ test("native constructor and explicit loadEdits version changes use the same fac
   const snapshot = world.serialize();
   const epoch = world.epoch;
   const resident = world.chunks.get("0,0");
-  for (const generatorVersion of [undefined, 0, 5]) {
+  for (const generatorVersion of [undefined, 0, 6]) {
     assert.equal(world.loadEdits({ ...snapshot, generatorVersion }), false);
     assert.deepEqual(world.serialize(), snapshot);
     assert.equal(world.epoch, epoch);

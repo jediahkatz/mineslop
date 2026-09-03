@@ -35,6 +35,11 @@ import {
   getNativeV4Decorators,
   V4_GENERATION_MANIFEST,
 } from "./terrain-v4-manifest.js";
+import { createTerrainV5 } from "./terrain-v5.js";
+import {
+  getNativeV5Decorators,
+  V5_GENERATION_MANIFEST,
+} from "./terrain-v5-manifest.js";
 
 export { BIOMES, getBiomeById } from "./biomes.js";
 export const WORLD_MIN = -30000000;
@@ -69,6 +74,16 @@ export function createGenerator(
     });
     Object.defineProperty(generator, "generationManifest", {
       value: V4_GENERATION_MANIFEST,
+      enumerable: true,
+    });
+    return generator;
+  }
+  if (generatorVersion === 5) {
+    const generator = createTerrainV5(seedString, dimension, {
+      decorators: getNativeV5Decorators(),
+    });
+    Object.defineProperty(generator, "generationManifest", {
+      value: V5_GENERATION_MANIFEST,
       enumerable: true,
     });
     return generator;

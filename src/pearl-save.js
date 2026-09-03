@@ -1,3 +1,4 @@
+import { isSupportedGeneratorVersion } from "./generator-version.js";
 import {
   PEARL_STEP_SECONDS,
   validPearlPosition,
@@ -118,7 +119,7 @@ export function normalizePlayerProjectilesSnapshot(data, context, owner) {
       data.seed.length > 80 ||
       data.seed !== String(context.seed) ||
       data.generatorVersion !== context.generatorVersion ||
-      ![1, 2, 3, 4].includes(data.generatorVersion) ||
+      !isSupportedGeneratorVersion(data.generatorVersion) ||
       !validPearlOwnerId(data.ownerId) ||
       !validPearlLife(data.life) ||
       (owner !== undefined &&

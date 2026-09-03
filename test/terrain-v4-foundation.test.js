@@ -51,7 +51,7 @@ test("the opt-in dispatch leaves all historical encodings on Uint8", () => {
   assert.ok(modern.blocks instanceof Uint16Array);
   assert.equal(modern.blocks.length, (modern.maxY - modern.minY) * 256);
   assert.throws(
-    () => createGenerator("v4-dispatch", "overworld", 5),
+    () => createGenerator("v4-dispatch", "overworld", 6),
     /version/
   );
 });

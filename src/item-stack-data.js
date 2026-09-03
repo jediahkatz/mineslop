@@ -1,4 +1,5 @@
 import { parseStructureIdentity } from "./canonical-structure-identity.js";
+import { isSupportedGeneratorVersion } from "./generator-version.js";
 import { getItem } from "./items.js";
 import { getWorldSpec } from "./world-spec.js";
 
@@ -205,7 +206,7 @@ export function normalizeMapTarget(value, context) {
     // This is a World identity, not a display name. Preserve its raw spelling.
     typeof value.seed !== "string" ||
     value.seed.length > 80 ||
-    ![1, 2, 3, 4].includes(value.generatorVersion) ||
+    !isSupportedGeneratorVersion(value.generatorVersion) ||
     !DIMENSIONS.has(value.dimension) ||
     typeof value.structureId !== "string" ||
     ![value.x, value.y, value.z].every(Number.isSafeInteger) ||

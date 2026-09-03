@@ -4,6 +4,7 @@ import {
   entityContextFor,
   matchesEntityContext,
 } from "./entity-context.js";
+import { hasExpandedTerrain } from "./generator-version.js";
 import { TransactionCoordinator } from "./transactions.js";
 import { inWorldBounds, isDimension } from "./world-spec.js";
 
@@ -25,7 +26,7 @@ function valid(fuse, context) {
       fuse.z,
       context.specForDimension(fuse.dimension)
     ) &&
-    (context.generatorVersion === 4 || fuse.y !== 0) &&
+    (hasExpandedTerrain(context.generatorVersion) || fuse.y !== 0) &&
     Number.isFinite(fuse.remaining) &&
     fuse.remaining >= 0 &&
     fuse.remaining <= 60
