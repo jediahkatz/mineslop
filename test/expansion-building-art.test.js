@@ -182,6 +182,32 @@ test("deepslate retains neutral layered contrast and a distinct finer cut end", 
   );
 });
 
+test("deepslate grain rearrangement preserves the per-face palette and tonal budget", () => {
+  // Retain the pre-rearrangement authored histograms: this protects pigment
+  // balance and texture means, not the visual fidelity of the new placement.
+  const side = new Map([
+    ["48,48,55", 33],
+    ["63,63,69", 62],
+    ["83,83,87", 74],
+    ["101,101,103", 72],
+    ["120,120,123", 15],
+  ]);
+  const end = new Map([
+    ["62,62,67", 20],
+    ["76,76,81", 67],
+    ["89,89,92", 96],
+    ["102,102,104", 63],
+    ["116,116,119", 10],
+  ]);
+  for (const face of BUILDING_MATERIAL_FACES) {
+    assert.deepEqual(
+      colorsOf(render({ kind: "deepslate", face })),
+      face === "side" ? side : end,
+      `${face}: placement-only changes must not alter the tonal budget`
+    );
+  }
+});
+
 test("the host correction leaves every other building descriptor byte-identical", () => {
   const hash = createHash("sha256");
   let faces = 0;
