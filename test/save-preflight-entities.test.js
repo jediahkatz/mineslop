@@ -143,14 +143,15 @@ test("preflight keeps loose high-flight records distinct from contextual mob and
   assert.throws(() => normalizeWorldComponents(saved), /mob|coordinates/);
   const legacy = {
     ...saved,
-    mobs: undefined,
-    mobStates: undefined,
     fuses: {
       version: 1,
       entries: [{ dimension: "overworld", x: 0, y: 96, z: 0, remaining: 1 }],
     },
     experienceOrbs: undefined,
   };
+  // Legacy absence is distinct from an explicitly malformed canonical sidecar.
+  delete legacy.mobs;
+  delete legacy.mobStates;
   assert.throws(
     () => normalizeWorldComponents(legacy),
     /explosives.*coordinates/
