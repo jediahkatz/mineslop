@@ -17,6 +17,7 @@ import {
   createFurnace,
   furnaceProgress,
 } from "./furnace.js";
+import { isSupportedGeneratorVersion } from "./generator-version.js";
 import { cloneSlots, insertStack, takeStack } from "./inventory-slots.js";
 import { getItem, ITEM } from "./items.js";
 import { prepareCropBatch } from "./settlement-crop-batch.js";
@@ -122,7 +123,7 @@ export class Settlement {
       DIMENSIONS.includes(world.dimension) &&
       typeof world.seed === "string" &&
       world.seed.length <= 80 &&
-      [1, 2, 3, 4].includes(world.generatorVersion) &&
+      isSupportedGeneratorVersion(world.generatorVersion) &&
       world.coordinator === this.coordinator &&
       typeof world.isLoaded === "function" &&
       typeof world.get === "function" &&

@@ -5,6 +5,7 @@ import {
 } from "./exploration-markers.js";
 import { MAX_EXPLORATION_BATCH } from "./exploration-state.js";
 import { nativeExplorationContext } from "./exploration-host-state.js";
+import { hasExpandedTerrain } from "./generator-version.js";
 import { cloneStack } from "./inventory-slots.js";
 import { lootNeedsMap } from "./loot-tables.js";
 import {
@@ -69,7 +70,7 @@ function inspect(service, hit) {
     (hit.fluid !== undefined && station.before.fluid !== hit.fluid)
   )
     return null;
-  if (station.kind !== "chest" || world.generatorVersion !== 4)
+  if (station.kind !== "chest" || !hasExpandedTerrain(world.generatorVersion))
     return { hit, station, entry: null, claim: null };
   if (!index.ensure(hit)) return null;
   const lookup = index.lookup(hit);

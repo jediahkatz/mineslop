@@ -5,6 +5,7 @@ import {
   validSlotArray,
 } from "./container-slots.js";
 import { cloneFurnace, isValidFurnace } from "./furnace.js";
+import { hasExpandedTerrain } from "./generator-version.js";
 import { cloneSlots } from "./inventory-slots.js";
 import { RECIPES } from "./recipes.js";
 import { encodedBytes } from "./save-budget.js";
@@ -67,7 +68,7 @@ export function settlementPositionValid(
   if (!DIMENSIONS.includes(dimension)) return false;
   const version = context?.generatorVersion ?? GENERATOR_VERSION;
   const spec = getWorldSpec(version, dimension);
-  const minimum = spec.minY + (version === 4 ? 0 : 1) + (crop ? 1 : 0);
+  const minimum = spec.minY + (hasExpandedTerrain(version) ? 0 : 1) + (crop ? 1 : 0);
   return inWorldBounds(x, y, z, spec) && y >= minimum;
 }
 

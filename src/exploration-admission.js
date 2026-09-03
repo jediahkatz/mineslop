@@ -2,6 +2,7 @@ import { BLOCK, BLOCKS } from "./blocks.js";
 import { cellsEqual, normalizeCell } from "./block-state.js";
 import { explorationMarkersFromStructure } from "./exploration-markers.js";
 import { nativeExplorationContext } from "./exploration-host-state.js";
+import { hasExpandedTerrain } from "./generator-version.js";
 import {
   freezeProgressData,
   progressArray,
@@ -19,6 +20,7 @@ import {
   selectStructureKind,
 } from "./structure-placement.js";
 import { CHUNK_SIZE } from "./terrain.js";
+import { describeV5Structure } from "./terrain-v5-manifest.js";
 
 const DESCRIPTOR_FIELDS = [
   "id",
@@ -107,7 +109,8 @@ export function explorationEntryEdited(world, entry) {
 function canonicalColumnStructure(world, terrain, bounds) {
   const manifest = world.generator.generationManifest;
   if (
-    manifest?.generatorVersion !== 4 ||
+    !hasExpandedTerrain(world.generatorVersion) ||
+    manifest?.generatorVersion !== world.generatorVersion ||
     manifest.structureLayoutVersion !== STRUCTURE_LAYOUT_VERSION
   )
     throw new RangeError("Native structure generation manifest is unavailable");
@@ -124,7 +127,9 @@ function canonicalColumnStructure(world, terrain, bounds) {
   const gz = Math.floor(bounds.minZ / STRUCTURE_LIMITS.spacing);
   const kind = selectStructureKind(createStructureSite(terrain, gx, gz));
   if (!kind || !kinds.includes(kind)) return null;
-  const descriptor = describeStructure(kind, terrain, gx, gz);
+  const descriptor = world.generatorVersion === 5
+    ? describeV5Structure(kind, terrain, gx, gz)
+    : describeStructure(kind, terrain, gx, gz);
   return descriptor &&
     descriptor.bounds.minX < bounds.maxX &&
     descriptor.bounds.maxX > bounds.minX &&
@@ -144,7 +149,7 @@ export function admittedExplorationEntries(world, event, context, limits) {
     event.chunk.structures ?? [],
     limits.descriptorsPerColumn
   );
-  if (world.generatorVersion !== 4) {
+  if (!hasExpandedTerrain(world.generatorVersion)) {
     if (descriptors.length)
       throw new RangeError("Historical terrain has no native markers");
     return [];
@@ -168,7 +173,7 @@ export function admittedExplorationEntries(world, event, context, limits) {
     if (
       !STRUCTURE_KINDS.includes(declaration.kind) ||
       declaration.seed !== world.seed ||
-      declaration.generatorVersion !== 4 ||
+      declaration.generatorVersion !== world.generatorVersion ||
       declaration.dimension !== world.dimension ||
       (declaration.owner !== undefined &&
         declaration.owner !==

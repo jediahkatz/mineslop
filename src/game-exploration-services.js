@@ -14,6 +14,7 @@ import {
   prepareExplorationOpen,
 } from "./exploration-materialization.js";
 import { ExplorationResidentIndex } from "./exploration-resident-index.js";
+import { hasExpandedTerrain } from "./generator-version.js";
 import { cloneStack } from "./inventory-slots.js";
 import {
   composeProgressionPlan,
@@ -322,7 +323,7 @@ export class GameExplorationServices {
   _containerAccessible(world, hit) {
     if (!this.active || world !== this.world) return false;
     const cell = world.getCell(hit.x, hit.y, hit.z);
-    if (world.generatorVersion !== 4 || cell?.id !== BLOCK.CHEST) return true;
+    if (!hasExpandedTerrain(world.generatorVersion) || cell?.id !== BLOCK.CHEST) return true;
     const lookup = this.index.lookup(hit);
     if (lookup.status === "ordinary") return true;
     if (lookup.status !== "marker") return false;

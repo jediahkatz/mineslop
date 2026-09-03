@@ -2,6 +2,7 @@ import {
   EXPLORATION_VERSION,
   normalizeExplorationSnapshot,
 } from "./exploration-state.js";
+import { hasExpandedTerrain } from "./generator-version.js";
 import {
   normalizeProgressContext,
   progressRecord,
@@ -72,8 +73,8 @@ export function explorationServiceLimits(value) {
 export function nativeExplorationContext(world) {
   const generator = world.generator;
   if (
-    world.generatorVersion !== 4 ||
-    generator?.generatorVersion !== 4 ||
+    !hasExpandedTerrain(world.generatorVersion) ||
+    generator?.generatorVersion !== world.generatorVersion ||
     generator.seed !== world.seed ||
     generator.dimension !== world.dimension ||
     !synchronousProgressCallback(generator.sampleColumn) ||

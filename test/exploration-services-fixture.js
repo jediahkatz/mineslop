@@ -19,6 +19,7 @@ import {
   resolveStructureMapTarget,
 } from "../src/structure-catalog.js";
 import { TransactionCoordinator } from "../src/transactions.js";
+import { describeV5Structure } from "../src/terrain-v5-manifest.js";
 import { World } from "../src/world.js";
 import { createWorldContext } from "../src/world-spec.js";
 
@@ -46,7 +47,7 @@ export function nativeExplorationSite(
   variant = "",
   required = true
 ) {
-  const key = JSON.stringify([world.seed, world.dimension, kind, variant]);
+  const key = JSON.stringify([world.seed, world.generatorVersion, world.dimension, kind, variant]);
   if (sites.has(key)) return sites.get(key);
   const context = nativeExplorationContext(world);
   const attempts = [];
@@ -61,7 +62,8 @@ export function nativeExplorationSite(
     assert.ok(located.sampledColumns <= NATIVE_EXPLORATION_SEARCH.maxSamples);
     attempts.push({ from, ...located });
     if (!located.target) continue;
-    const descriptor = describeStructure(
+    const describe = world.generatorVersion === 5 ? describeV5Structure : describeStructure;
+    const descriptor = describe(
       kind,
       context,
       located.target.gx,
@@ -127,6 +129,7 @@ export async function explorationServicesFixture(
     maxEntries,
     saved = null,
     allowOverBudget = false,
+    generatorVersion = 4,
   } = {}
 ) {
   const coordinator = new TransactionCoordinator();
@@ -135,7 +138,7 @@ export async function explorationServicesFixture(
     ? ["cedar-valley", "tidal-archive", "basalt-crossing"]
     : [seed]) {
     world = new World(candidate, {
-      generatorVersion: 4,
+      generatorVersion,
       dimension,
       useWorker: false,
       coordinator,
