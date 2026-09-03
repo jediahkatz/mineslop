@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { BLOCK } from "../src/blocks.js";
 import { VoxelGame } from "../src/game.js";
+import { GameHarvestActions } from "../src/game-harvest-actions.js";
 import { GameUseActions } from "../src/game-use-actions.js";
 import { ITEM } from "../src/items.js";
 import { normalizeWorldComponents } from "../src/save-preflight.js";
+import { Settlement } from "../src/settlement.js";
 import { potionStack } from "./brewing-fixture.js";
 import { integratedProgressionFixture } from "./game-progression-integration-fixture.js";
+import { progressionStack } from "./progression-live-fixture.js";
 
 test("real Game preparation stages progression beside its still-detached pearl owner", {
   timeout: 30000,
@@ -113,4 +116,52 @@ test("real held drink dispatch uses potion ownership rather than the ordinary fo
   assert.equal(f.gameplay.getHandStack("main").id, ITEM.GLASS_BOTTLE);
   assert.ok(f.gameplay.health > beforeHealth);
   assert.equal(f.gameplay.count(BLOCK.STONE), 0);
+});
+
+function stockedStation(t) {
+  const f = integratedProgressionFixture(t);
+  const settlement = new Settlement({ context: f.context, coordinator: f.coordinator });
+  assert.equal(settlement.bindWorld(f.world), true);
+  t.after(() => settlement.dispose());
+  f.game.settlement = settlement;
+  f.place("enchanting");
+  f.editInventory((owned) => {
+    owned.slots[0] = progressionStack(ITEM.IRON_PICKAXE);
+    owned.slots[1] = progressionStack(ITEM.DIAMOND_SWORD, 1, { name: "Stored sword" });
+    owned.slots[2] = progressionStack(ITEM.LAPIS, 8);
+    return true;
+  });
+  assert.equal(f.open().ok, true);
+  f.transfer(1, 0);
+  f.transfer(2, 1);
+  assert.equal(f.integration.close().ok, true);
+  f.gameplay.select(0);
+  return {
+    ...f,
+    harvest: new GameHarvestActions(f.game),
+    hit: { ...f.at, ...f.world.getCell(f.at.x, f.at.y, f.at.z) },
+  };
+}
+
+test("real Game harvesting retains a station's owned contents once", (t) => {
+  const f = stockedStation(t);
+  assert.equal(f.harvest.break(f.hit).ok, true);
+  assert.equal(f.world.get(f.at.x, f.at.y, f.at.z), BLOCK.AIR);
+  assert.equal(f.services.stations.get(f.at), null);
+  const drops = f.overflow.serialize();
+  assert.equal(drops.entries.filter((entry) => entry.id === ITEM.DIAMOND_SWORD)
+    .reduce((total, entry) => total + entry.count, 0), 1);
+  assert.equal(drops.entries.find((entry) => entry.id === ITEM.DIAMOND_SWORD).data.name, "Stored sword");
+  assert.equal(drops.entries.filter((entry) => entry.id === ITEM.LAPIS)
+    .reduce((total, entry) => total + entry.count, 0), 8);
+  assert.equal(f.harvest.break(f.hit).ok, false);
+  assert.deepEqual(f.overflow.serialize(), drops);
+});
+
+test("station-retention veto leaves the real block, escrow and mining hand untouched", (t) => {
+  const f = stockedStation(t);
+  const before = f.snapshot();
+  t.mock.method(f.game, "prepareDropItems", () => null);
+  assert.equal(f.harvest.break(f.hit).ok, false);
+  assert.deepEqual(f.snapshot(), before);
 });

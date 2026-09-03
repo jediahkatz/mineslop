@@ -3,6 +3,7 @@ import { cellAfterBreaking } from "./block-state.js";
 import { isBuildingBlock } from "./building-placement.js";
 import { miningExperience } from "./experience-rewards.js";
 import { harvestDrops, miningProfile } from "./gameplay-harvest.js";
+import { progressionStationKind } from "./progression-station-state.js";
 import { TransactionInvariantError } from "./transactions.js";
 import { explosionTargets } from "./world-interactions.js";
 
@@ -182,6 +183,22 @@ export class GameHarvestActions {
         },
         scope
       );
+    }
+    if (progressionStationKind(hit.id) && game.progressionIntegration) {
+      const removed = game.progressionIntegration.prepareStationRemoval(
+        linked?.changes ?? [{
+          x: hit.x, y: hit.y, z: hit.z, before, after: cellAfterBreaking(before),
+        }],
+        { extraDrops: drops, participants }
+      );
+      if (!removed?.participants) return null;
+      return this.guard({
+        ...removed,
+        result: {
+          ...removed.result, drops, experience: 0,
+          dropsCommitted: true, experienceCommitted: true,
+        },
+      }, scope);
     }
     const mutation = world.prepareMutation(
       linked?.changes ?? [
