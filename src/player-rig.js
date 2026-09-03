@@ -140,7 +140,7 @@ function buildLeg(rig, side) {
     [0, -0.05, 0.04],
     [0.27, 0.14, 0.36]
   );
-  rig.legs.push({ root, knee, foot, thigh, shin, boot, thighArmor, shinArmor });
+  rig.legs.push({ root, knee, foot, thigh, shin, boot, thighArmor, shinArmor, side });
 }
 
 /** CPU-only local rig. +Z is its face; no node aliases physical player state. */
@@ -327,6 +327,18 @@ function finite(value, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+function legLengths(leg, thigh, shin) {
+  leg.knee.position.y = -thigh;
+  leg.thigh.node.position.y = -thigh / 2;
+  leg.shin.node.position.y = -shin / 2;
+  leg.thigh.node.scale.y = thigh;
+  leg.shin.node.scale.y = shin;
+  leg.thighArmor.node.position.y = -thigh / 2;
+  leg.thighArmor.node.scale.y = thigh + 0.01;
+  leg.shinArmor.node.position.y = -shin * 0.36;
+  leg.shinArmor.node.scale.y = shin * 0.72;
+}
+
 function poseLeg(leg, hipY, hipZ, stride, lift) {
   const ankleY = ANKLE_HEIGHT + lift;
   const dy = hipY - ankleY;
@@ -336,25 +348,34 @@ function poseLeg(leg, hipY, hipZ, stride, lift) {
   // never alters the simulated foot position, height, velocity or collision.
   const length = Math.max(LEG_LENGTH, distance / 2);
   const bend = Math.acos(Math.min(1, distance / (2 * length)));
-  leg.root.position.y = hipY;
-  leg.root.position.z = hipZ;
-  leg.root.rotation.x = -Math.atan2(dz, dy) - bend;
-  leg.knee.position.y = -length;
-  leg.knee.rotation.x = bend * 2;
-  leg.thigh.node.position.y = leg.shin.node.position.y = -length / 2;
-  leg.thigh.node.scale.y = leg.shin.node.scale.y = length;
-  leg.thighArmor.node.position.y = -length / 2;
-  leg.thighArmor.node.scale.y = length + 0.01;
-  leg.shinArmor.node.position.y = -length * 0.36;
-  leg.shinArmor.node.scale.y = length * 0.72;
-  leg.foot.position.y = ankleY;
-  leg.foot.position.z = stride;
+  leg.root.position.set(leg.side * 0.125, hipY, hipZ);
+  leg.root.rotation.set(-Math.atan2(dz, dy) - bend, 0, 0, "XYZ");
+  leg.knee.rotation.set(bend * 2, 0, 0);
+  legLengths(leg, length, length);
+  leg.foot.position.set(leg.side * 0.125, ankleY, stride);
+  leg.foot.rotation.set(0, 0, 0);
+}
+
+function poseHorseLeg(leg, hipY, hipZ) {
+  // The coat's lower edge is the pelvis reference (~.72). Hips sit just inside
+  // that hem, keeping the sideways thighs above the horse's 1.61-high back when
+  // the physical seat feet offset is .95. Knees/shins hang OUTSIDE its .79-wide
+  // body; boat-style forward legs would penetrate the neck and chest instead.
+  const thigh = 0.39, shin = 0.4, hipX = leg.side * 0.16;
+  const jointY = hipY + 0.1;
+  leg.root.position.set(hipX, jointY, hipZ);
+  leg.root.rotation.set(-Math.PI / 2, leg.side * Math.PI / 2, 0, "YXZ");
+  leg.knee.rotation.set(Math.PI / 2, 0, 0);
+  legLengths(leg, thigh, shin);
+  leg.foot.position.set(hipX + leg.side * thigh, jointY - shin, hipZ);
+  leg.foot.rotation.set(0, 0, 0);
 }
 
 /** Pose only; callers own camera placement, collisions, inventory and timing. */
 export function posePlayerRig(rig, dt, state) {
   const step = Math.max(0, Math.min(0.1, finite(dt, 0)));
   const seated = state.seated === true;
+  const horse = seated && state.vehicleType === "horse";
   const crouching = !seated && Boolean(state.crouching);
   const bodyHeight = THREE.MathUtils.clamp(
     finite(state.bodyHeight, crouching ? 1.5 : STANDING_HEIGHT),
@@ -393,12 +414,19 @@ export function posePlayerRig(rig, dt, state) {
   const swing = Math.sin(rig.stride) * rig.gait;
   const airborne = !seated && Math.abs(finite(state.velocityY, 0)) > 0.2;
   const lift = airborne ? 0 : Math.cos(rig.stride) * rig.gait * 0.18;
-  rig.root.rotation.y = finite(state.yaw, 0) + Math.PI;
+  const aimYaw = finite(state.yaw, 0);
+  const bodyYaw = horse ? finite(state.hullYaw, aimYaw) : aimYaw;
+  rig.root.rotation.y = bodyYaw + Math.PI;
   rig.torso.position.set(0, hipY, hipZ);
   rig.torso.rotation.x = lean;
   rig.head.position.set(0, headY, hipZ + TORSO_LENGTH * Math.sin(lean));
-  rig.head.rotation.x = -pitch;
-  if (seated) {
+  // Only the appearance follows horse heading; yaw/pitch remain physical aim.
+  const lookYaw = horse
+    ? Math.atan2(Math.sin(aimYaw - bodyYaw), Math.cos(aimYaw - bodyYaw)) : 0;
+  rig.head.rotation.set(-pitch, lookYaw, 0, horse ? "YXZ" : "XYZ");
+  if (horse) {
+    for (const leg of rig.legs) poseHorseLeg(leg, hipY, hipZ);
+  } else if (seated) {
     // Horizontal thighs, bent knees and raised, level boots. This is a visual
     // pose inside the same feet/eye envelope, not a smaller world collider.
     const seatLift = Math.max(0, hipY - LEG_LENGTH - ANKLE_HEIGHT);

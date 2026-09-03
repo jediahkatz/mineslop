@@ -4,12 +4,18 @@ import { BLOCK } from "./blocks.js";
 import { captureEntityContext, entityContextFor, matchesEntityContext } from "./entity-context.js";
 import { ecologyCollider, ecologyVisualScale } from "./expansion-ecology.js";
 import { ECOLOGY_HOST_LIMITS } from "./ecology-population.js";
+import { createHorseView, HORSE_ACTIVE_DISTANCE, MAX_LIVING_HORSES } from "./horse-definitions.js";
+import { horseEnvironment } from "./horse-collision.js";
+import {
+  horseBaseProjection, normalizeHorseSnapshot, sameHorseBase, validHorseMotion,
+} from "./horse-save.js";
 import { ITEM } from "./items.js";
 import { createMobState, mobEye, stepMob } from "./mob-ai.js";
 import {
   animateMob,
   createMobModel,
   createProjectileModel,
+  isMobPartVisible,
   MAX_PARTS_PER_MOB,
 } from "./mob-models.js";
 import {
@@ -53,6 +59,7 @@ import {
   setSulfurBlock,
 } from "./mob-sulfur.js";
 import { CHUNK_SIZE } from "./terrain.js";
+import { TransactionCoordinator } from "./transactions.js";
 import { isWorldPose } from "./world-spec.js";
 
 const CELL_SIZE = 8;
@@ -83,6 +90,7 @@ export class Wildlife {
       autoSpawn = true,
       maxEntities = MAX_MOBS,
       context = world,
+      allowOverBudget = false,
     } = {}
   ) {
     this.scene = scene;
@@ -103,6 +111,9 @@ export class Wildlife {
     this.animals = this.entities;
     this.byId = new Map();
     this.dormantEcology = new Map();
+    this.dormantHorses = new Map();
+    this._retainedHorseIds = new Set();
+    this.horseServices = null;
     this.ecologyServices = null;
     this._ecologyRevision = 0;
     this._dormantIterator = null;
@@ -119,6 +130,8 @@ export class Wildlife {
     this.defendUntil = 0;
     this.player = new THREE.Vector3();
     this.hasPlayer = false;
+    this.coordinator = world.coordinator instanceof TransactionCoordinator ? world.coordinator : null;
+    this._ownsRegistration = false;
     const capacity = MAX_MOBS * MAX_PARTS_PER_MOB + MAX_PROJECTILES * 3;
     this.skinResources = createMobSkinResources(capacity);
     this.geometry = this.skinResources.geometry;
@@ -160,6 +173,8 @@ export class Wildlife {
       random: () => this.random(),
       hurt: (mob, damage, direction, retaliate) => mob.spec.ecology
         ? this.ecologyServices?.hurt(mob, damage, direction, { retaliate })
+        : this.retainsHorse(mob)
+          ? this.horseServices?.hurt(mob, damage, direction, { retaliate })
         : this.damage(mob, damage, direction, retaliate),
       cull: (mob) => this.remove(mob),
       relocate: (...args) => this.relocate(...args),
@@ -177,8 +192,17 @@ export class Wildlife {
       health: 20,
       spawnProtected: false,
       getMob: (id) => this.byId.get(id) ?? null,
+      ownsMotionThisFrame: (mob) => this.horseServices?.ownsMotionThisFrame(mob) === true,
+      retainsMob: (mob) => this.retainsHorse(mob) || !!mob?.spec.ecology,
       worldContext: this.worldContext,
     };
+    if (this.coordinator) {
+      if (!this.coordinator.register(this, 0, { allowOverBudget })) {
+        this.dispose();
+        throw new RangeError("Cannot register Wildlife base owner");
+      }
+      this._ownsRegistration = true;
+    }
   }
 
   random() {
@@ -222,9 +246,11 @@ export class Wildlife {
           return null;
         id = `${this.dimension}:local:${nextId++}`;
       } while (this.byId.has(id) || this.killed.has(id) ||
+        this.horseServices?.identityReserved(id) ||
         this.ecologyServices?.ecology.identityReserved(id));
     }
     if (!isMobId(id) || this.byId.has(id) || this.killed.has(id) ||
+      this.horseServices?.identityReserved(id) ||
       this.ecologyServices?.ecology.identityReserved(id)) return null;
     if (!restoring) {
       if (spec.aquatic || spec.flying) {
@@ -279,7 +305,7 @@ export class Wildlife {
     if (this.byId.get(entity.id) !== entity) return;
     // An ecology resident can only relinquish its base pose in a prepared
     // death plan, alongside its domain state and retained rewards.
-    if (entity.spec.ecology) return false;
+    if (entity.spec.ecology || this.retainsHorse(entity)) return false;
     this.byId.delete(entity.id);
     this.entities.splice(this.entities.indexOf(entity), 1);
     entity.dead = true;
@@ -297,35 +323,57 @@ export class Wildlife {
       if (!Number.isSafeInteger(nextId) || nextId >= Number.MAX_SAFE_INTEGER - 1) return null;
       const id = `${this.dimension}:ecology:${nextId++}`;
       if (!this.byId.has(id) && !this.killed.has(id) &&
+        !this.horseServices?.identityReserved(id) &&
         !this.ecologyServices.ecology.identityReserved(id)) ids.push(id);
     }
     return ids.length === count ? Object.freeze({ ids: Object.freeze(ids), nextId }) : null;
   }
 
-  _prepareEcologyEdit({ spawn, remove, damage, nextId = this.nextId, validate = () => true, notify } = {}) {
-    const host = this.ecologyServices, coordinator = host?.coordinator;
-    if (this.disposed || !host?.active || coordinator.usage(this) !== 0 ||
+  _prepareEcologyEdit(options = {}) {
+    return this._prepareResidentEdit("ecology", options);
+  }
+
+  /** One base-owner participant for either borrower. Publication never calls a
+   * borrower or releases its registration; the paired domain owns the bytes.
+   */
+  _prepareResidentEdit(domain, {
+    spawn, remove, damage, mob = remove ?? damage?.mob, heal = 0, motion,
+    retain = false, nextId = this.nextId, validate = () => true, notify,
+  } = {}) {
+    const key = domain === "horse" ? "horseServices" : "ecologyServices";
+    const dormantKey = domain === "horse" ? "dormantHorses" : "dormantEcology";
+    const host = this[key], coordinator = this.coordinator;
+    if (this.disposed || !host?.active || coordinator !== host.coordinator ||
+      !this._ownsRegistration || coordinator.usage(this) !== 0 ||
       !synchronousEcologyHook(validate) || (notify !== undefined && !synchronousEcologyHook(notify)) ||
       !Number.isSafeInteger(nextId) || nextId < this.nextId || nextId >= Number.MAX_SAFE_INTEGER)
       return null;
     const revision = this._ecologyRevision, priorId = this.nextId;
-    const entities = this.entities, byId = this.byId, dormant = this.dormantEcology;
-    const mob = remove ?? damage?.mob;
-    if (mob && (!mob.spec.ecology || mob.dead || mob.dormant ||
+    const entities = this.entities, byId = this.byId, dormant = this[dormantKey];
+    const retained = this._retainedHorseIds;
+    if (mob && ((domain === "horse" ? mob.kind !== "horse" : !mob.spec.ecology) || mob.dead || mob.dormant ||
       byId.get(mob.id) !== mob || !entities.includes(mob))) return null;
     const health = mob?.health, position = mob && positionData(mob.position);
+    const base = domain === "horse" && mob ? horseBaseProjection(mob) : null;
+    const wasRetained = mob && retained.has(mob.id);
     const current = captureEntityContext(this.world, this.worldContext);
+    if (retain && !wasRetained && retained.size >= MAX_LIVING_HORSES) return null;
     if (spawn && (entities.length >= this.maxEntities || byId.has(spawn.id) || this.killed.has(spawn.id) ||
+      this.horseServices?.identityReserved(spawn.id) ||
       dormant.size + entities.filter((entry) => entry.spec.ecology).length >= MAX_ECOLOGY_RESIDENTS)) return null;
     let used = false;
     return Object.freeze({
       owner: this, beforeBytes: 0, afterBytes: 0,
-      validate: () => !used && !this.disposed && this.ecologyServices === host && host.active &&
-        coordinator.usage(this) === 0 && this._ecologyRevision === revision && this.nextId === priorId &&
-        this.entities === entities && this.byId === byId && this.dormantEcology === dormant && current() &&
+      validate: () => !used && !this.disposed && this[key] === host && host.active &&
+        this.coordinator === coordinator && this._ownsRegistration && coordinator.usage(this) === 0 &&
+        this._ecologyRevision === revision && this.nextId === priorId &&
+        this.entities === entities && this.byId === byId && this[dormantKey] === dormant &&
+        this._retainedHorseIds === retained && current() &&
         (!mob || (byId.get(mob.id) === mob && entities.includes(mob) && !mob.dead && !mob.dormant &&
-          mob.health === health && ecologyDistance(mob.position, position) === 0)) &&
-        (!spawn || (!byId.has(spawn.id) && !this.killed.has(spawn.id) && entities.length < this.maxEntities)) &&
+          mob.health === health && ecologyDistance(mob.position, position) === 0 &&
+          (!base || (sameHorseBase(base, horseBaseProjection(mob)) && retained.has(mob.id) === wasRetained)))) &&
+        (!spawn || (!byId.has(spawn.id) && !this.killed.has(spawn.id) &&
+          !this.horseServices?.identityReserved(spawn.id) && entities.length < this.maxEntities)) &&
         validate() === true,
       publish: () => {
         used = true;
@@ -337,8 +385,14 @@ export class Wildlife {
           entities.splice(entities.indexOf(remove), 1);
           dormant.delete(remove.id);
           byId.delete(remove.id);
+          if (domain === "horse") retained.delete(remove.id);
           remove.health = 0;
           remove.dead = true;
+        }
+        if (retain) retained.add(mob.id);
+        if (heal) {
+          mob.health = health + heal;
+          mob.fleeTime = 0;
         }
         if (damage) {
           mob.health = health - damage.amount;
@@ -351,10 +405,54 @@ export class Wildlife {
             else mob.angry = 20;
           }
         }
+        if (motion && !remove) {
+          mob.position.copy(motion.position);
+          mob.root.rotation.y = mob.targetYaw = motion.yaw;
+          mob.velocityY = motion.motion.vy;
+          mob.moving = Math.hypot(motion.position.x - position.x, motion.position.z - position.z) > 1e-6;
+          mob.speed = Math.hypot(motion.motion.vx, motion.motion.vz);
+          if (motion.motion.grounded) mob.groundY = motion.position.y;
+          if (domain === "horse") {
+            // The generic planner resumes around the dismount location, not
+            // the old spawning site. Riding already owns any hit impulse.
+            mob.home.copy(motion.position);
+            mob.knockback.x = mob.knockback.z = 0;
+          }
+        }
         this.nextId = nextId;
         this._ecologyRevision++;
       },
       ...(notify ? { notify } : {}),
+    });
+  }
+
+  prepareHorseEdit(mob, {
+    health = mob?.health, remove = false, retain = false, motion,
+    direction, retaliate = true, validate, notify,
+  } = {}) {
+    if (mob?.kind !== "horse" || mob.tamed || typeof remove !== "boolean" ||
+      typeof retain !== "boolean" || (remove && retain) || typeof retaliate !== "boolean" ||
+      (!remove && (!Number.isFinite(health) || health <= 0 || health > mob.spec.health))) return null;
+    let movement;
+    if (motion) {
+      if (!validMobPosition(motion.position, mob.spec, this.worldContext, this.dimension) ||
+        !Number.isFinite(motion.yaw) || !validHorseMotion(motion.motion)) return null;
+      movement = { position: positionData(motion.position),
+        yaw: normalizeMobHeading(motion.yaw), motion: { ...motion.motion } };
+    }
+    const length = finitePosition(direction) ? Math.hypot(direction.x, direction.z) : 0;
+    const amount = mob.health - health, strength = Math.min(7, 2.5 + Math.max(0, amount) * 0.4);
+    return this._prepareResidentEdit("horse", {
+      mob, remove: remove ? mob : undefined, retain, motion: movement,
+      heal: !remove && amount < 0 ? -amount : 0,
+      damage: !remove && amount > 0 ? {
+        mob, amount, retaliate,
+        knockback: length ? { x: direction.x / length * strength, z: direction.z / length * strength }
+          : { x: 0, z: 0 },
+        threat: length ? { x: mob.position.x - direction.x / length * 3,
+          z: mob.position.z - direction.z / length * 3 } : { x: this.player.x, z: this.player.z },
+      } : undefined,
+      validate, notify,
     });
   }
 
@@ -412,6 +510,55 @@ export class Wildlife {
     this._ecologyRevision++;
     this.ecologyServices?.clearIntent(mob);
     return true;
+  }
+
+  retainsHorse(mob) {
+    const id = typeof mob === "string" ? mob : mob?.id;
+    return this._retainedHorseIds.has(id);
+  }
+
+  refreshHorseView(mob) {
+    if (mob?.kind !== "horse" || this.byId.get(mob.id) !== mob) return null;
+    // A detached renderer may have a validated restore/authored view. Bound
+    // play always derives the view from the real owner, never held items or
+    // the wolf-specific tamed field. suspend() explicitly clears its views.
+    if (this.horseServices) mob.horseView = this.horseServices.presentation(mob.id);
+    return mob.horseView ?? null;
+  }
+
+  refreshHorseViews() {
+    for (const mob of this.byId.values()) this.refreshHorseView(mob);
+  }
+
+  clearHorseViews() {
+    for (const mob of this.byId.values()) if (mob.kind === "horse") mob.horseView = null;
+  }
+
+  suspendHorse(mob) {
+    if (!this.retainsHorse(mob) || this.byId.get(mob.id) !== mob ||
+      this.dormantHorses.has(mob.id) || this.horseServices?.mountFor()?.id === mob.id) return false;
+    const index = this.entities.indexOf(mob);
+    if (index < 0) return false;
+    this.entities.splice(index, 1);
+    this.dormantHorses.set(mob.id, mob);
+    mob.dormant = true;
+    this._ecologyRevision++;
+    this.refreshHorseView(mob);
+    return true;
+  }
+
+  _wakeHorses() {
+    if (!this.horseServices?.active) return;
+    for (const mob of this.dormantHorses.values()) {
+      if (this.entities.length >= this.maxEntities) break;
+      if (!this.horseServices.canWake(mob)) continue;
+      // Same object, ID, health and saved location. Never wolf relocation.
+      this.dormantHorses.delete(mob.id);
+      this.entities.push(mob);
+      mob.dormant = false;
+      this._ecologyRevision++;
+      this.refreshHorseView(mob);
+    }
   }
 
   _wakeEcology() {
@@ -483,6 +630,7 @@ export class Wildlife {
   }
 
   relocate(entity, center, minRadius = 2, maxRadius = 5) {
+    if (this.retainsHorse(entity)) return false;
     for (let attempt = 0; attempt < 10; attempt++) {
       const angle = this.random() * Math.PI * 2;
       const radius = minRadius + this.random() * (maxRadius - minRadius);
@@ -557,7 +705,8 @@ export class Wildlife {
       )
         continue;
       const id = `${this.dimension}:${cx},${cz}:${wantHostile ? "h" : water ? "w" : "p"}`;
-      if (this.byId.has(id) || this.killed.has(id)) continue;
+      if (this.byId.has(id) || this.killed.has(id) ||
+        this.horseServices?.identityReserved(id)) continue;
       const biome = this.world.getBiome(
         x,
         z,
@@ -693,7 +842,13 @@ export class Wildlife {
           if (!this.ecologyServices?.canWake(mob))
             this.suspendEcology(mob);
           else mob.dormant = false;
-        } else if (mob.tamed && (!loaded || distance > 18)) {
+        } else if (this.retainsHorse(mob)) {
+          // A rider stays frozen/owned at unknown frontiers. An unseated
+          // airborne handoff may sleep with its velocity/fall sidecar intact.
+          if (this.horseServices?.mountFor()?.id !== mob.id &&
+            (!loaded || distance > HORSE_ACTIVE_DISTANCE)) this.suspendHorse(mob);
+          else mob.dormant = false;
+        } else if (mob.tamed && mob.kind === "wolf" && (!loaded || distance > 18)) {
           if (mob.teleportCooldown <= 0) {
             this.relocate(mob, this.player, 2, 5);
             mob.teleportCooldown = 2;
@@ -723,6 +878,7 @@ export class Wildlife {
           this.remove(mob);
         } else mob.dormant = false;
       }
+      this._wakeHorses();
       this._wakeEcology();
       this.spawnTimer -= dt;
       if (this.autoSpawn && this.spawnTimer <= 0) {
@@ -734,6 +890,8 @@ export class Wildlife {
       for (let i = 0; i < steps; i++) {
         for (const mob of [...this.entities]) {
           if (mob.spec.ecology) this.ecologyServices?.stepMob(mob, step);
+          // stepMob's motion-ownership gate is voice-only for any rider or
+          // same-frame handoff. Keep that path without a second physical step.
           else stepMob(mob, step, ctx);
         }
         this.updateProjectiles(step);
@@ -779,6 +937,8 @@ export class Wildlife {
       return { hit: false, killed: false, damage: 0 };
     if (entity.spec.ecology)
       return { hit: false, killed: false, damage: 0, reason: "prepared-ecology-hit-required" };
+    if (this.retainsHorse(entity))
+      return { hit: false, killed: false, damage: 0, reason: "prepared-horse-hit-required" };
     amount = Math.min(1000, amount);
     const dealt = Math.min(entity.health, amount);
     entity.health -= dealt;
@@ -827,7 +987,8 @@ export class Wildlife {
   }
 
   rememberKilled(id) {
-    if (!isMobId(id) || this.byId.get(id)?.spec.ecology ||
+    if (!isMobId(id) || this.byId.get(id)?.spec.ecology || this.retainsHorse(id) ||
+      this.horseServices?.identityReserved(id) ||
       this.ecologyServices?.ecology.identityReserved(id)) return false;
     this.killed.add(id);
     if (this.killed.size > MAX_KILLED_MOBS)
@@ -839,7 +1000,7 @@ export class Wildlife {
     if (typeof entity === "string") entity = this.byId.get(entity);
     if (!entity || entity.dead || this.byId.get(entity.id) !== entity)
       return false;
-    if (entity.spec.ecology) return false;
+    if (entity.spec.ecology || entity.kind === "horse") return false;
     if (entity.kind === "sulfur_cube")
       return feedSulfurCube(entity, itemId, this);
     if (entity.kind === "wolf" && itemId === ITEM.BONE && !entity.tamed) {
@@ -945,6 +1106,8 @@ export class Wildlife {
       ) {
         const hurt = mob.spec.ecology
           ? (entity, amount, direction) => this.ecologyServices?.hurt(entity, amount, direction, { retaliate: false })
+          : this.retainsHorse(mob)
+            ? (entity, amount, direction) => this.horseServices?.hurt(entity, amount, direction, { retaliate: false })
           : (...args) => this.damage(...args);
         hurt(
           mob,
@@ -1095,6 +1258,7 @@ export class Wildlife {
     let result = null;
     for (const entity of this.entities) {
       if (entity.dead || entity.dormant) continue;
+      this.refreshHorseView(entity);
       const { model } = entity;
       const base = {
         x: entity.position.x,
@@ -1114,7 +1278,7 @@ export class Wildlife {
         continue;
       model.root.updateMatrixWorld(true);
       for (const part of model.parts) {
-        if (part.condition && !entity[part.condition]) continue;
+        if (!isMobPartVisible(part, entity)) continue;
         this.inversePart.copy(part.node.matrixWorld).invert();
         this.localRay.copy(this.pickRay).applyMatrix4(this.inversePart);
         if (!this.localRay.intersectBox(this.unitBox, this.pickPoint)) continue;
@@ -1150,7 +1314,7 @@ export class Wildlife {
         ? 0.8
         : 0;
     for (const part of model.parts) {
-      if (part.condition && !mob?.[part.condition]) continue;
+      if (!isMobPartVisible(part, mob)) continue;
       if (part.skin.translucent) {
         if (this.gelCount >= MAX_GEL_INSTANCES)
           throw new Error("Mob gel instance budget exceeded");
@@ -1200,6 +1364,7 @@ export class Wildlife {
     this.opaqueCount = this.gelCount = 0;
     for (const mob of this.entities) {
       if (mob.dormant) continue;
+      this.refreshHorseView(mob);
       const ecologyState = mob.spec.ecology && this.ecologyServices?.ecology.state(mob.id);
       if (ecologyState) mob.root.scale.setScalar(ecologyVisualScale(ecologyState));
       animateMob(mob, dt, this.elapsed, this.hasPlayer ? this.player : null);
@@ -1311,7 +1476,8 @@ export class Wildlife {
   load(data, options = {}) {
     if (!options || typeof options !== "object" || Array.isArray(options))
       return false;
-    if (this.ecologyServices?.active) return false;
+    if (this.ecologyServices || this.horseServices ||
+      (this._retainedHorseIds.size && !Object.hasOwn(options, "horses"))) return false;
     let context;
     try {
       context = entityContextFor(
@@ -1327,10 +1493,15 @@ export class Wildlife {
       !matchesEntityContext(this.world, context)
     )
       return false;
-    const snapshot = normalizeMobSnapshot(data, context, this.dimension);
+    const horseOptions = Object.hasOwn(options, "horses") ? { horses: options.horses } : {};
+    const horses = Object.hasOwn(options, "horses") ? normalizeHorseSnapshot(options.horses, context) : null;
+    if (Object.hasOwn(options, "horses") && !horses) return false;
+    const retained = new Map((horses?.entries ?? []).filter((entry) =>
+      entry.alive && entry.dimension === this.dimension).map((entry) => [entry.id, entry]));
+    const snapshot = normalizeMobSnapshot(data, context, this.dimension, horseOptions);
     const ecology = options.ecology ?? this.ecologyServices?.ecology;
     if (!snapshot ||
-      snapshot.entities.filter((entry) => !MOB_SPECIES[entry.kind].ecology).length > this.maxEntities ||
+      snapshot.entities.filter((entry) => !MOB_SPECIES[entry.kind].ecology && !retained.has(entry.id)).length > this.maxEntities ||
       snapshot.entities.some((entry) => MOB_SPECIES[entry.kind].ecology &&
         (!ecology?.canRestore(entry.id, entry.kind, this.dimension) ||
           !validMobPosition(entry.position, ecologyCollider(entry.kind, ecology.state(entry.id)), context, this.dimension))))
@@ -1360,6 +1531,12 @@ export class Wildlife {
       });
       setSulfurBlock(mob, entry.absorbedBlock ?? null);
       mob.root.rotation.y = entry.yaw;
+      if (retained.has(mob.id)) {
+        const horse = retained.get(mob.id);
+        mob.targetYaw = entry.yaw;
+        mob.velocityY = horse.motion?.vy ?? 0;
+        mob.horseView = createHorseView(horse, horseEnvironment(this.world, mob.position));
+      }
       if (mob.spec.ecology) mob.root.scale.setScalar(ecologyVisualScale(ecology.state(mob.id)));
       mob.dormant = mob.spec.ecology || !footprintLoaded(
         this.world,
@@ -1371,19 +1548,24 @@ export class Wildlife {
     });
     const byId = new Map(next.map((mob) => [mob.id, mob]));
     const killed = new Set(snapshot.killed);
-    const active = next.filter((mob) => !mob.spec.ecology);
-    const dormant = new Map();
+    const active = next.filter((mob) => !mob.spec.ecology && !retained.has(mob.id));
+    const dormant = new Map(), dormantHorses = new Map();
     for (const mob of next) {
-      if (!mob.spec.ecology) continue;
+      if (!mob.spec.ecology && !retained.has(mob.id)) continue;
       if (mob.dormant || active.length >= this.maxEntities) {
         mob.dormant = true;
-        dormant.set(mob.id, mob);
+        (mob.spec.ecology ? dormant : dormantHorses).set(mob.id, mob);
       } else active.push(mob);
     }
-    for (const mob of this.byId.values()) mob.dead = true;
+    for (const mob of this.byId.values()) {
+      mob.dead = true;
+      if (mob.kind === "horse") mob.horseView = null;
+    }
     this.entities = this.animals = active;
     this.byId = byId;
     this.dormantEcology = dormant;
+    this.dormantHorses = dormantHorses;
+    this._retainedHorseIds = new Set(retained.keys());
     this._dormantIterator = null;
     this._ecologyRevision++;
     this.killed = killed;
@@ -1399,7 +1581,10 @@ export class Wildlife {
   dispose() {
     if (this.disposed) return true;
     // Host captures the complete base snapshot before resources disappear.
+    if (this.horseServices && !this.horseServices.suspend()) return false;
     if (this.ecologyServices && !this.ecologyServices.suspend()) return false;
+    if (this._ownsRegistration && !this.coordinator.release(this)) return false;
+    this._ownsRegistration = false;
     this.disposed = true;
     this.scene.remove(this.group);
     this.clearGelBatch();
@@ -1409,6 +1594,8 @@ export class Wildlife {
     this.entities.length = 0;
     this.byId.clear();
     this.dormantEcology.clear();
+    this.dormantHorses.clear();
+    this._retainedHorseIds.clear();
     this._dormantIterator = null;
     this.projectiles.length = 0;
     this.killed.clear();

@@ -6,12 +6,16 @@ import { createPlayerSkinResources, MAX_PLAYER_PARTS } from "./player-skin.js";
  * Third-person appearance only. dt is seconds; position is physical feet XYZ.
  * update(dt, { position, yaw, pitch, moving, sprinting, crouching, bodyHeight,
  *   eyeHeight, velocityY, seated = false, perspective, mainHand, offhand,
- *   equipment, hurtTint }).
+ *   equipment, hurtTint, vehicleType, hullYaw }).
  * Hands/equipment take canonical { id, count, durability? } stacks or null.
  * Seated bends the shared rig's legs/arms, suppressing gait without changing
  * the physical feet/eye envelope, aim, skins, held items or equipment ownership.
- * It is optional: standing and the separately posed inventory portrait retain
- * their existing appearance. Pass the Player's seated flag, never hull yaw.
+ * For any horse rider (including untamed/bareback), parent also passes
+ * vehicleType:"horse" and the committed rider pose's hullYaw in Player's -Z
+ * convention. The body straddles/follows that heading; the head retains physical
+ * yaw/pitch. Never assign hullYaw to Player/camera aim. Boats ignore hullYaw.
+ * Omitted vehicleType keeps the existing boat seating. Standing and the
+ * separately posed inventory portrait retain their existing appearance.
  * The caller owns camera/F5 controls, hand HUD visibility and gameplay rays.
  * Call update in first person too: that transition releases the GPU batch.
  * Dispose on world teardown; create another instance for the next world.

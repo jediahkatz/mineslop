@@ -126,6 +126,12 @@ test("quadrupeds walk with opposing sides and diagonal support, keeping visual m
     "creeper",
   ]) {
     const mob = entityFor(kind);
+    if (kind === "horse") {
+      animateMob(mob, 0, 0);
+      // Horse gait samples actual travel, including when mounted motion does
+      // not use the generic AI's moving/spec.speed fields.
+      mob.position.z += 0.2;
+    }
     const position = mob.position.toArray();
     mob.moving = true;
     animateMob(mob, 0.1, 0.1);

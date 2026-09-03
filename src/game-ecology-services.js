@@ -256,15 +256,14 @@ export class GameEcologyServices {
     if (!normalizeEcologyServicesSnapshot(saved, this.context) ||
       (saved.ecology.elders.length && (!this.exploration ||
         !ecologyCompletionLinksValid(saved.ecology, this.exploration.serialize())))) return false;
+    // Wildlife owns its base-record registration. Ecology and horse services
+    // only borrow it, so suspending one host cannot invalidate the other.
+    if (wildlife.coordinator !== this.coordinator ||
+        this.coordinator.usage(wildlife) !== 0) return false;
     const before = this.coordinator.usage(this.ecology);
     if (before !== undefined && before !== this.ecology.reservedBytes) return false;
     if (before === undefined && !this.coordinator.register(this.ecology, this.ecology.reservedBytes,
       { allowOverBudget: this.allowOverBudget })) return false;
-    // Moving base records are reserved by their paired Ecology entries.
-    if (!this.coordinator.register(wildlife, 0, { allowOverBudget: this.allowOverBudget })) {
-      if (before === undefined) this.coordinator.release(this.ecology);
-      return false;
-    }
     this.wildlife = wildlife;
     wildlife.ecologyServices = this;
     this._activationEpoch = this.world.epoch;
@@ -915,7 +914,8 @@ export class GameEcologyServices {
     if (!this.wildlife) return true;
     const wildlife = this.wildlife;
     const snapshot = wildlife.serialize();
-    if (!this.coordinator.release(wildlife)) return false;
+    if (wildlife.coordinator !== this.coordinator ||
+        this.coordinator.usage(wildlife) !== 0) return false;
     this._savedMobs[wildlife.dimension] = snapshot;
     for (const mob of wildlife.byId.values())
       if (mob.spec.ecology) this.clearIntent(mob);

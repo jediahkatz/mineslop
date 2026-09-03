@@ -3,12 +3,30 @@ import { animateAquaticMob } from "./aquatic-animation.js";
 import { createAquaticModel } from "./aquatic-models.js";
 import { AQUATIC_KINDS } from "./aquatic-skins.js";
 import { ECOLOGY_SPECIES } from "./expansion-ecology.js";
+import { HORSE_MAX_ELAPSED, HORSE_STRIDE_DISTANCE } from "./horse-definitions.js";
 import { createMobSkin } from "./mob-skins.js";
 import { animateNpcMob, createNpcModel } from "./npc-models.js";
 import { NPC_KINDS } from "./npc-skins.js";
 
 export const MAX_PARTS_PER_MOB = 72;
 export const MAX_GEL_PARTS_PER_MOB = 6;
+
+/**
+ * Horse presentation contract: Wildlife publishes entity.horseView as a frozen
+ * { tamed, saddled, ridden, grounded, swimming } snapshot of committed Horses
+ * state. Missing view means untracked/unsaddled, never "holding a saddle".
+ * Wildlife must use this predicate for BOTH instance batching and part picking.
+ * Refresh the view after committed tack/rider/motion changes and on bind/load;
+ * clear it when detached. "ridden" includes untamed/bareback, not just control.
+ * The view and model.horseMotion are transient and must not enter mob saves.
+ * No horse state is copied into the wolf-specific entity.tamed field.
+ */
+export function isMobPartVisible(part, entity) {
+  if (part.condition === "horseSaddled")
+    return entity?.kind === "horse" &&
+      entity.horseView?.tamed === true && entity.horseView.saddled === true;
+  return !part.condition || Boolean(entity?.[part.condition]);
+}
 
 function validateModelBudget(model) {
   if (model.parts.length > MAX_PARTS_PER_MOB)
@@ -252,6 +270,26 @@ function longLegged(m, camel = false) {
     0.82,
     0.19
   ).rotation.x = 0.18;
+}
+
+function horse(m) {
+  longLegged(m);
+  // Build every conditional part up front, including its skin role. The lazy
+  // atlas therefore knows all tack before freezing; equipping allocates nothing.
+  const tack = (role, x, y, z, sx, sy, sz) =>
+    m.box(m.root, role, x, y, z, sx, sy, sz, "horseSaddled");
+  tack("saddle", 0, 1.64, -0.12, 0.72, 0.07, 0.66);
+  tack("saddle", 0, 1.705, 0.24, 0.52, 0.11, 0.13);
+  tack("saddle", 0, 1.705, -0.44, 0.62, 0.11, 0.13);
+  for (const side of [-1, 1]) {
+    tack("saddle", side * 0.415, 1.45, -0.12, 0.04, 0.37, 0.58);
+    tack("saddle_strap", side * 0.405, 1.255, -0.07, 0.035, 0.69, 0.12);
+    tack("saddle_strap", side * 0.48, 1.42, 0.07, 0.035, 0.38, 0.065);
+    tack("saddle_iron", side * 0.53, 1.23, 0.07, 0.16, 0.04, 0.18);
+  }
+  tack("saddle_strap", 0, 0.9, -0.07, 0.82, 0.035, 0.12);
+  // CPU-only animation history, not saved motion or a second horse pose owner.
+  m.horseMotion = { x: NaN, z: NaN, moving: false, grounded: false, amplitude: 0 };
 }
 
 function rabbit(m) {
@@ -636,7 +674,7 @@ export function createMobModel(kind) {
     cod,
     squid,
     mooshroom: (model) => cow(model, true),
-    horse: longLegged,
+    horse,
     camel: (model) => longLegged(model, true),
     wolf: canine,
     fox: (model) => canine(model, true),
@@ -680,14 +718,42 @@ export function createMobModel(kind) {
 
 const wrap = (value) => Math.atan2(Math.sin(value), Math.cos(value));
 
+function horseGait(entity, dt) {
+  const motion = entity.model.horseMotion;
+  const { position, horseView } = entity;
+  const step = Number.isFinite(dt) ? Math.max(0, Math.min(dt, HORSE_MAX_ELAPSED)) : 0;
+  const distance = Math.hypot(position.x - motion.x, position.z - motion.z);
+  motion.x = position.x;
+  motion.z = position.z;
+  // Untracked ground walkers already publish groundY/velocityY. Mounted horses
+  // publish the physics result in horseView, including airborne and deep water.
+  motion.grounded = horseView
+    ? horseView.grounded === true && horseView.swimming !== true
+    : Number.isFinite(entity.groundY) &&
+      Math.abs(position.y - entity.groundY) < 0.02 &&
+      Math.abs(entity.velocityY) < 0.1;
+  // Reject first samples, zero-time refreshes and relocations. This is a visual
+  // sampling bound, not a speed limit or a physics/AI movement decision.
+  motion.moving = motion.grounded && step > 0 &&
+    Number.isFinite(distance) && distance > 0.0001 && distance <= step * 16;
+  motion.amplitude = motion.moving ? Math.min(0.65, distance / step * 0.11) : 0;
+  if (motion.moving)
+    entity.stride = (entity.stride + distance / HORSE_STRIDE_DISTANCE * Math.PI * 2) % (Math.PI * 2);
+  return motion;
+}
+
 export function animateMob(entity, dt, elapsed, player) {
   if (NPC_KINDS.includes(entity.kind))
     return animateNpcMob(entity, dt, elapsed, player);
   if (AQUATIC_KINDS.includes(entity.kind))
     return animateAquaticMob(entity, dt, elapsed, player);
   const { model, position, spec } = entity;
-  const moving = entity.moving;
-  entity.stride += moving ? dt * (spec.speed * 5 + 3) : 0;
+  const horseMotion = entity.kind === "horse" ? horseGait(entity, dt) : null;
+  const moving = horseMotion ? horseMotion.moving : entity.moving;
+  if (!horseMotion) entity.stride += moving ? dt * (spec.speed * 5 + 3) : 0;
+  const poseStep = horseMotion
+    ? Number.isFinite(dt) ? Math.max(0, Math.min(dt, 0.1)) : 0
+    : dt;
   model.legs.forEach((leg, i) => {
     const phase =
       entity.stride + (leg.userData.stridePhase ?? (i % 2 ? Math.PI : 0));
@@ -701,8 +767,12 @@ export function animateMob(entity, dt, elapsed, player) {
         ? leg.userData.side * Math.max(0, Math.sin(phase)) * 0.12
         : 0;
     } else {
-      const target = moving ? Math.sin(phase) * 0.36 : 0;
-      leg.rotation.x += (target - leg.rotation.x) * Math.min(1, dt * 14);
+      const target = moving
+        ? Math.sin(phase) * (horseMotion?.amplitude ?? 0.36)
+        : horseMotion && !horseMotion.grounded && entity.horseView?.swimming !== true
+          ? (leg.position.z > 0 ? -0.25 : 0.2)
+          : 0;
+      leg.rotation.x += (target - leg.rotation.x) * Math.min(1, poseStep * 14);
       const ground = leg.userData.ground;
       if (ground) {
         const sine = Math.sin(leg.rotation.x);
@@ -721,7 +791,9 @@ export function animateMob(entity, dt, elapsed, player) {
   });
   if (model.head) {
     const target =
-      player && position.distanceToSquared(player) < 100
+      horseMotion && entity.horseView?.ridden === true
+        ? 0
+        : player && position.distanceToSquared(player) < 100
         ? Math.max(
             -0.65,
             Math.min(
@@ -734,12 +806,14 @@ export function animateMob(entity, dt, elapsed, player) {
           )
         : Math.sin(elapsed * 0.7 + entity.phase) * 0.07;
     model.head.rotation.y +=
-      (target - model.head.rotation.y) * Math.min(1, dt * 5);
+      (target - model.head.rotation.y) * Math.min(1, poseStep * 5);
     if (["sheep", "cow", "mooshroom", "horse"].includes(entity.kind)) {
       const graze =
-        !moving && !entity.angry && entity.wanderTimer > 1 ? 0.5 : 0;
+        !moving && !entity.angry && entity.wanderTimer > 1 &&
+        (!horseMotion || (horseMotion.grounded && entity.horseView?.ridden !== true))
+          ? 0.5 : 0;
       model.head.rotation.x +=
-        (graze - model.head.rotation.x) * Math.min(1, dt * 3);
+        (graze - model.head.rotation.x) * Math.min(1, poseStep * 3);
     }
   }
   if (model.tail)

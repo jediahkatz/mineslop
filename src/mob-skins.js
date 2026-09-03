@@ -51,6 +51,9 @@ const palettes = {
     ink: "#362e27",
     hoof: "#443a31",
     pink: "#826650",
+    saddle: "#74482b",
+    strap: "#4d3325",
+    tack: "#aaa894",
   },
   rabbit: {
     hide: "#a38e75",
@@ -286,6 +289,9 @@ const roleColors = {
   udder: "pink",
   wing: "shade",
   hump: "shade",
+  saddle: "saddle",
+  saddle_strap: "strap",
+  saddle_iron: "tack",
 };
 const fire = { light: rgbColor("#e7b757"), shade: rgbColor("#b85f2e") };
 
@@ -759,6 +765,20 @@ function bodyPixel(skin, face, x, y, width, height, p, seed) {
   let color = p[roleColors[role]] ?? p.hide;
   if (role === "flame")
     return { color: noise > 0.36 ? fire.light : fire.shade, shade: 0 };
+  if (kind === "horse" && role === "saddle") {
+    const edge = x === 0 || y === 0 || x === width - 1 || y === height - 1;
+    const stitch = width > 3 && height > 3 &&
+      (x === 1 || x === width - 2 || y === 1 || y === height - 2) &&
+      (x + y) % 2 === 0;
+    return {
+      color: stitch ? p.light : edge ? p.strap : p.saddle,
+      shade: face === 3 ? -12 : noise > 0.65 ? 5 : 0,
+    };
+  }
+  if (kind === "horse" && role === "saddle_strap")
+    return { color: p.strap, shade: y % 4 === 1 ? -10 : 2 };
+  if (kind === "horse" && role === "saddle_iron")
+    return { color: p.tack, shade: face === 2 ? 13 : face === 3 ? -22 : -4 };
   if (role === "wool") {
     // Interlocking tufts, deliberately quieter than the terrain's grain.
     const tuft = (x + Math.floor(y / 3) * 2) % 4;

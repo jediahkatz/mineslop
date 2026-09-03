@@ -1,4 +1,9 @@
 import { entityContextFor } from "./entity-context.js";
+import {
+  HORSE_BASE_RECORD_RESERVED_BYTES, HORSE_RIDER_HEIGHT, HORSE_SEAT_HEIGHT,
+  MAX_LIVING_HORSES,
+} from "./horse-definitions.js";
+import { horseDataArray, horseDataRecord, normalizeHorseSnapshot } from "./horse-save.js";
 import { MAX_ECOLOGY_RESIDENTS, MAX_KILLED_MOBS, MAX_MOBS, MOB_SPECIES } from "./mob-species.js";
 import { validSulfurState } from "./mob-sulfur.js";
 import { encodedBytes } from "./save-budget.js";
@@ -71,8 +76,33 @@ export function validMobPosition(position, spec, context, dimension) {
 export function normalizeMobSnapshot(
   data,
   context,
-  dimension = data?.dimension
+  dimension,
+  options = {}
 ) {
+  try {
+    return normalizeMobSnapshotData(data, context, dimension, options);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Canonical calls MUST pass {horses: normalizedHorseSnapshot} to admit retained
+ * bases beyond the legacy active cap. This is not an ID allowlist or a wolf
+ * tamed flag. Every live sidecar ID in this dimension needs one matching base.
+ */
+function normalizeMobSnapshotData(
+  data,
+  context,
+  dimension,
+  options
+) {
+  if (!horseDataRecord(data, [...headerFields]) ||
+    !horseDataRecord(options, ["horses"], [])) return null;
+  dimension ??= data.dimension;
+  const horses = Object.hasOwn(options, "horses") ? normalizeHorseSnapshot(options.horses, context) : null;
+  if (Object.hasOwn(options, "horses") && !horses) return null;
+  const retained = new Map((horses?.entries ?? []).map((entry) => [entry.id, entry]));
   if (
     !record(data) ||
     !record(context) ||
@@ -82,10 +112,8 @@ export function normalizeMobSnapshot(
     data.seed !== String(context.seed) ||
     !isDimension(dimension) ||
     data.dimension !== dimension ||
-    !Array.isArray(data.entities) ||
-    data.entities.length > MAX_MOBS + MAX_ECOLOGY_RESIDENTS ||
-    !Array.isArray(data.killed) ||
-    data.killed.length > MAX_KILLED_MOBS ||
+    !horseDataArray(data.entities, MAX_MOBS + MAX_ECOLOGY_RESIDENTS + (horses ? MAX_LIVING_HORSES : 0)) ||
+    !horseDataArray(data.killed, MAX_KILLED_MOBS) ||
     !Number.isSafeInteger(data.randomState) ||
     data.randomState < 0 ||
     data.randomState > 0xffffffff ||
@@ -98,17 +126,19 @@ export function normalizeMobSnapshot(
   const ids = new Set();
   const killed = [];
   for (const id of data.killed) {
-    if (!isMobId(id) || ids.has(id)) return null;
+    if (!isMobId(id) || ids.has(id) || retained.has(id)) return null;
     ids.add(id);
     killed.push(id);
   }
   const entities = [];
-  let companions = 0, legacy = 0, ecology = 0;
+  let companions = 0, legacy = 0, ecology = 0, retainedCount = 0;
   try {
     const bounds = entityContextFor(undefined, context);
     // Validate the context even for empty snapshots.
     bounds.specForDimension(dimension);
     for (const entry of data.entities) {
+      if (!horseDataRecord(entry, [...entityFields], [...entityFields].filter((key) => key !== "absorbedBlock")) ||
+        !horseDataRecord(entry.position, ["x", "y", "z"])) return null;
       const spec =
         record(entry) &&
         typeof entry.kind === "string" &&
@@ -118,18 +148,24 @@ export function normalizeMobSnapshot(
       const dimensions =
         spec &&
         (Array.isArray(spec.dimension) ? spec.dimension : [spec.dimension]);
+      const horse = retained.get(entry.id);
+      if (horse && (!horse.alive || entry.kind !== "horse" || horse.dimension !== dimension))
+        return null;
+      const collider = entry.kind === "turtle"
+        ? { ...spec, radius: spec.radius / 2, height: spec.height / 2 }
+        : horse?.rider ? { ...spec, height: Math.max(spec.height, HORSE_SEAT_HEIGHT + HORSE_RIDER_HEIGHT) }
+          : spec;
       if (
         !spec ||
         Object.keys(entry).some((key) => !entityFields.has(key)) ||
         !dimensions.includes(dimension) ||
-        (spec.ecology ? ++ecology > MAX_ECOLOGY_RESIDENTS : ++legacy > MAX_MOBS) ||
+        (horse ? ++retainedCount > MAX_LIVING_HORSES :
+          spec.ecology ? ++ecology > MAX_ECOLOGY_RESIDENTS : ++legacy > MAX_MOBS) ||
         !isMobId(entry.id) ||
         ids.has(entry.id) ||
         // Turtle age is owned by the paired ecology sidecar. Base preflight
         // admits its smallest collider; host link validation checks actual age.
-        !validMobPosition(entry.position, entry.kind === "turtle"
-          ? { ...spec, radius: spec.radius / 2, height: spec.height / 2 }
-          : spec, bounds, dimension) ||
+        !validMobPosition(entry.position, collider, bounds, dimension) ||
         Object.keys(entry.position).some(
           (key) => !["x", "y", "z"].includes(key)
         ) ||
@@ -142,6 +178,7 @@ export function normalizeMobSnapshot(
         !inRange(entry.fuse, 0, 1.65) ||
         !inRange(entry.pacified, 0, 60) ||
         !validSulfurState(entry) ||
+        (horse && encodedBytes(entry) + 1 > HORSE_BASE_RECORD_RESERVED_BYTES) ||
         (spec.ecology && encodedBytes(entry) + 1 > MAX_ECOLOGY_MOB_RECORD_BYTES)
       )
         return null;
@@ -169,6 +206,8 @@ export function normalizeMobSnapshot(
   } catch {
     return null;
   }
+  if ([...retained.values()].some((entry) =>
+    entry.alive && entry.dimension === dimension && !ids.has(entry.id))) return null;
   return {
     version: 1,
     seed: data.seed,
