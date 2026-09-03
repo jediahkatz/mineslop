@@ -53,15 +53,36 @@ The canonical malformed-data guard remains strict. **All 14 archive/preflight
 checks pass** together after this correction. This is targeted verification,
 not a rerun of the full suite.
 
-The egg/bow and remaining lifecycle failures plus manual riding/Survival
-acceptance are still open. Do not publish this batch as verified.
+The follow-up checkpoints resolve the introduced host failures:
 
-The scoped legacy-fixture follow-up below aligns the five respawn cases and
-the projectile death/respawn case. These edits are **unrun pending the parent
-checkpoint**. The exploration return-travel failure is not classified as an
-obvious fixture mismatch and remains unresolved; its assertion now records
-the actual refusal for the next frozen reproduction. No production source
-changes or new acceptance results belong to this follow-up.
+- `3111fe5086d884c98360f478151e6c323d4f1b64`: real World/Wildlife lifecycle
+  fixture alignment passes **25/25** respawn and projectile checks.
+- `a5f1ade4f4776f4654ac1bd060cb72a37fca90ce`: explicit no-loot blocks no
+  longer emit an invalid Air item, and accepted bow publication advances the
+  fired hand's release revision before observers. **82/82** harvest, owned
+  combat, use and metadata checks pass, including Creative/copied releases,
+  observer reentry, veto/retry and preserved Silk Touch behavior.
+- `db11474af8c615f3f2af80f1c144958604344b30`: the return-travel failure was
+  a production search bug, not a fixture mismatch. A coarse landing inside
+  waterlogged kelp suppressed both later valid candidates and an available
+  protected platform. The opt-in canonical predicate now rejects unsafe
+  candidates inside the bounded search. **45/45** targeted checks and the
+  unchanged native shipwreck/fortress round trip pass.
+
+The independent hand-motion checkpoint also passes its 61 selected checks.
+The combined run exposed four older Effects fixtures that lacked the new
+per-view state. `6ec060b` initializes that real state without weakening rendering
+assertions; all **62/62** Effects/hand/use/input checks then pass.
+
+The complete combined run at `6ec060b` finishes **3,522 tests: 3,504 pass and
+18 fail**. Comparison with the previously published reference baseline finds
+**zero new failures**, with identical names and assertions for all 18 inherited
+failures. The combined production build and both Pages-path WebGL/worker/
+save-reload checks also pass.
+
+Real-input browser acceptance remains separate. Manual riding/Survival and
+final hand/art visual acceptance are still open; these results alone do not
+constitute complete gameplay or visual release clearance.
 
 ## Completed ecology owner contract
 
@@ -263,13 +284,12 @@ The previously named parent fixture gaps are aligned in this delivery:
 - `test/horse-lifecycle.integration.test.js` supplies the current `readHorses`
   hook when testing Ecology and Horses borrowing the same base.
 
-### Legacy lifecycle fixture follow-up — unverified
+### Legacy lifecycle fixture follow-up — verified
 
-The verification plan is to rerun the affected respawn and projectile files,
-then isolate the exploration return-travel case and rerun its whole file on a
-parent-created frozen checkpoint. Compare the subsequent full suite with the
-18 known baseline failures; do not remove or relax those cases. No tests,
-builds, git commands, installs, servers or publishing run in this follow-up.
+The affected respawn/projectile files pass all 25 tests on their frozen
+checkpoint. The isolated native exploration return case passes after the
+separate geometry-aware search fix. Compare subsequent full-suite results with
+the 18 known baseline failures; none of those cases is removed or relaxed.
 
 - `test/respawn-safety.integration.test.js` replaces `Object.assign(flatWorld())`
   and successful streaming/serialization stubs with a real `World`. Its bounded
@@ -294,16 +314,12 @@ builds, git commands, installs, servers or publishing run in this follow-up.
   flights, and also checks an error-free respawn, one replacement registered
   Wildlife, real spawn protection and a non-null coherent IndexedDB archive.
 - `test/game-exploration-host.integration.test.js` changes only the return-trip
-  assertion message. The supplied log shows `false !== true`, without the
-  `GameTravel` refusal. This fixture already uses a real source World, a Player
-  bound to it and the default detached preview. Static inspection alone does
-  not establish that the return to the native shipwreck entry is a fixture
-  mismatch rather than landing/admission behavior. The next run reports the
-  unchanged destination, current dimension, refusal message, rollback flag and
-  observer errors. No destination, native terrain, claims, exact slots, map
-  metadata, no-reroll or archive assertions are changed. Further investigation
-  requires that runtime result; this worker does not broaden the host or weaken
-  production safety.
+  assertion message. This fixture already uses a real source World, a bound
+  Player and the default detached preview. Its reported refusal led to scalar
+  evidence of the underwater coarse candidate. No destination, native terrain,
+  claims, exact slots, map metadata, no-reroll or archive assertions change.
+  The production search fix preserves canonical collision/fluid validation,
+  loaded bounds and platform resource protection.
 
 Exactly five files change in this follow-up: the four test/fixture files named
 above and this document. `test/game-exploration-host-fixture.js`, all production
@@ -332,9 +348,9 @@ node --test --test-concurrency=1 \
 node --test --test-concurrency=1 test/game-exploration-host.integration.test.js
 ```
 
-The exploration case is an unresolved reproduction, not an expected-green
-claim. Keep its refusal output if it still fails. The whole-file run also
-retains unrelated known-baseline cases.
+The exploration round trip now passes; keep its refusal diagnostics if a
+future regression occurs. The whole-file run still retains unrelated
+known-baseline cases.
 
 Focused ecology contract coverage:
 
