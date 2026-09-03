@@ -74,36 +74,47 @@ test("empty offhands remain hidden and HUD/perspective visibility hides both han
   assert.equal(offhand.hand.visible, false);
 });
 
-test("held-use poses apply to the correct hand and reset after release", (t) => {
+test("held-use poses ease to the correct hand and back after release", (t) => {
   const { main, offhand } = fixture(t);
+  const closeTo = (actual, expected, message = `${actual} ≈ ${expected}`) =>
+    assert.ok(Math.abs(actual - expected) < 1e-8, message);
+  const settle = (view, use) => {
+    for (let i = 0; i < 60; i++)
+      updateHeldItemView(view, 1 / 60, 2 + i / 60, false, true, use);
+  };
   selectHeldItem(main, ITEM.BOW);
   selectHeldItem(offhand, ITEM.APPLE);
   const food = { active: true, kind: "food", hand: "offhand", progress: 0.5 };
   updateHeldItemView(main, 0, 2, false, true, food);
   updateHeldItemView(offhand, 0, 2, false, true, food);
-  assert.ok(Math.abs(horizontalAnchor(main) - 0.76) < 1e-9);
-  assert.ok(Math.abs(horizontalAnchor(offhand) + 0.42) < 1e-9);
-  assert.equal(offhand.hand.position.z, -0.72);
-  updateHeldItemView(main, 0, 2, false, true, {
+  closeTo(horizontalAnchor(main), 0.76);
+  closeTo(horizontalAnchor(offhand), -0.76, "zero dt must not enter a use pose");
+  settle(offhand, food);
+  closeTo(horizontalAnchor(offhand), -0.42);
+  closeTo(offhand.hand.position.z, -0.72);
+  settle(main, {
     active: true,
     kind: "bow",
     hand: "main",
     progress: 0.8,
   });
-  assert.ok(Math.abs(horizontalAnchor(main) - 0.33) < 1e-9);
+  closeTo(horizontalAnchor(main), 0.33);
   assert.ok(main.itemMesh.scale.y > 1);
-  updateHeldItemView(offhand, 0, 2, false, true, {
+  selectHeldItem(offhand, ITEM.SHIELD);
+  settle(offhand, {
     active: true,
     kind: "shield",
     hand: "offhand",
     progress: 1,
   });
-  assert.ok(Math.abs(horizontalAnchor(offhand) + 0.48) < 1e-9);
-  assert.equal(offhand.itemMesh.scale.x, 1.6);
+  closeTo(horizontalAnchor(offhand), -0.48);
+  closeTo(offhand.itemMesh.scale.x, 1.6);
   for (const hand of [main, offhand]) {
     updateHeldItemView(hand, 0.1, 2, false, true, { active: false });
-    assert.equal(hand.hand.position.z, -0.82);
-    assert.equal(hand.itemMesh.scale.x, 1);
+    assert.ok(hand.hand.position.z > -0.82, "release must not snap to idle");
+    settle(hand, { active: false });
+    closeTo(hand.hand.position.z, -0.82);
+    closeTo(hand.itemMesh.scale.x, hand === offhand ? 1.35 : 1);
     hand.hand.updateMatrixWorld(true);
     assert.ok(hand.hand.matrixWorld.elements.every(Number.isFinite));
   }

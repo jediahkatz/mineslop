@@ -32,6 +32,7 @@ import { bindWorldServiceEvents } from "./game-world-events.js";
 import { stageWorld } from "./game-world-stage.js";
 import { Gameplay } from "./gameplay.js";
 import { hasExpandedTerrain } from "./generator-version.js";
+import { requestHeldItemMining } from "./held-item.js";
 import { HurtFeedback } from "./hurt-feedback.js";
 import { getItem, ITEM } from "./items.js";
 import { raycastMelee } from "./melee-targeting.js";
@@ -1086,7 +1087,7 @@ export class VoxelGame {
     const duration = this.gameplay.miningDuration(this.target.id) /
       (this.ecologyServices?.modifiers().miningSpeedMultiplier ?? 1);
     this.miningProgress += dt / Math.max(0.05, duration);
-    this.effects.swing = Math.max(this.effects.swing, 0.25);
+    requestHeldItemMining(this.effects);
     if (this.miningProgress < 1) return;
     const hit = this.target;
     this.harvestActions ??= new GameMobHarvestActions(this);

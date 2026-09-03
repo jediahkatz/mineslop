@@ -1,5 +1,11 @@
 import * as THREE from "three";
 import { BLOCK, BLOCKS } from "./blocks.js";
+import {
+  advanceHeldMotion,
+  composeHeldMotion,
+  createHeldMotion,
+  requestHeldSelection,
+} from "./held-motion.js";
 import { getItem, isBlockItem } from "./items.js";
 import { itemIcon } from "./textures.js";
 
@@ -13,7 +19,12 @@ export function usesHeldSprite(id) {
 }
 
 export function createHeldItemView(camera, atlas, itemTextures, left = false) {
-  const view = { camera, atlas, itemTextures, left, itemId: 0, swing: 0 };
+  const view = {
+    camera, atlas, itemTextures, left, itemId: 0, swing: 0,
+    motion: createHeldMotion(),
+    // matches stays current; no per-frame matchMedia calls or listeners.
+    motionPreference: globalThis.matchMedia?.("(prefers-reduced-motion: reduce)"),
+  };
   view.hand = new THREE.Group();
   view.hand.name = left ? "Offhand item" : "Main-hand item";
   view.handGeometry = new THREE.BoxGeometry(0.19, 0.19, 0.19);
@@ -47,7 +58,9 @@ export function createHeldItemView(camera, atlas, itemTextures, left = false) {
 
 /** The two hands share immutable image textures, never mutable UVs/materials. */
 export function selectHeldItem(view, id) {
-  view.itemId = getItem(id) ? id : 0;
+  const nextId = getItem(id) ? id : 0;
+  if (nextId !== view.itemId) requestHeldSelection(view.motion);
+  view.itemId = nextId;
   const sprite = Boolean(view.itemId && usesHeldSprite(id));
   const block = !sprite && id > 0 ? BLOCKS[id] : null;
   if (view.held) view.held.visible = Boolean(block);
@@ -65,7 +78,6 @@ export function selectHeldItem(view, id) {
       view.itemMaterial.needsUpdate = true;
     }
   }
-  view.swing = 0.3;
   if (!block) return;
   view.handMaterial.transparent = id === BLOCK.GLASS;
   view.handMaterial.depthWrite = id !== BLOCK.GLASS;
@@ -85,6 +97,16 @@ export function selectHeldItem(view, id) {
   uv.needsUpdate = true;
 }
 
+/**
+ * Call once for each accepted mining update, before Effects.update(). This
+ * renews visual motion only; it neither reads nor changes mining progress.
+ * Effects copies the view fields, so its main hand already owns this state.
+ */
+export function requestHeldItemMining(view) {
+  view.motion ??= createHeldMotion();
+  view.motion.miningRequested = true;
+}
+
 function placeInView(view, x, y, depth, tangent, aspect) {
   view.hand.position.set(
     x * depth * tangent * aspect,
@@ -94,39 +116,29 @@ function placeInView(view, x, y, depth, tangent, aspect) {
 }
 
 export function updateHeldItemView(view, dt, elapsed, moving, visible, use) {
-  const side = view.left ? -1 : 1;
   const tangent = Math.tan(((view.camera.fov ?? 75) * Math.PI) / 360);
   const aspect = view.camera.aspect ?? 1;
-  view.swing = Math.max(0, (view.swing ?? 0) - Math.max(0, dt) * 5);
   view.hand.visible = Boolean(visible && (!view.left || view.itemId));
+  const kind = use?.active &&
+    use.hand === (view.left ? "offhand" : "main") &&
+    (use.itemId === undefined || use.itemId === view.itemId) ? use.kind : null;
+  // Visual phases follow bounded frame dt, never global/day time or a paused
+  // clock jump. Keep elapsed in the shared Effects view signature.
+  const motion = view.motion;
+  const step = advanceHeldMotion(
+    motion, dt, moving, view.hand.visible, kind, use?.progress, view.swing
+  );
+  if (step || !view.hand.visible) view.swing = 0;
+  const shield = getItem(view.itemId)?.tool === "shield";
+  const reducedMotion = Boolean(view.motionPreference?.matches);
+  const pose = composeHeldMotion(motion, view.left, shield, reducedMotion);
   // Anchor to screen edges instead of a fixed world-space camera offset, which
   // intrudes into the hotbar/vitals at narrower aspects and larger GUI scales.
   view.hand.scale.setScalar((0.85 * tangent) / Math.tan((75 * Math.PI) / 360));
-  placeInView(view, side * 0.76, -0.75, 0.82, tangent, aspect);
-  if (moving) view.hand.position.y += Math.sin(elapsed * 11) * 0.006;
-  view.hand.rotation.set(
-    0.15 - Math.sin(view.swing * Math.PI) * 0.8,
-    side * -0.4,
-    side * 0.08
-  );
-  const shield = getItem(view.itemId)?.tool === "shield";
-  view.itemMesh?.scale.setScalar(shield ? 1.35 : 1);
-  view.itemMesh?.rotation.set(0, side * 0.5, side * -0.28);
-  if (!use?.active || use.hand !== (view.left ? "offhand" : "main")) return;
-  if (use.kind === "food") {
-    placeInView(view, side * 0.42, -0.26, 0.72, tangent, aspect);
-    view.hand.position.y += Math.sin(elapsed * 28) * 0.012;
-    view.hand.rotation.x = -0.3;
-  } else if (use.kind === "bow") {
-    placeInView(view, side * 0.33, -0.42, 0.76, tangent, aspect);
-    view.hand.rotation.set(0.06, side * -0.15, side * 0.08);
-    view.itemMesh?.scale.set(1, 1 + Math.min(1, use.progress) * 0.12, 1);
-  } else if (use.kind === "shield") {
-    placeInView(view, side * 0.48, -0.3, 0.75, tangent, aspect);
-    view.hand.rotation.set(0, 0, side * 0.04);
-    view.itemMesh?.rotation.set(0, side * 0.12, 0);
-    view.itemMesh?.scale.setScalar(1.6);
-  }
+  placeInView(view, pose.x, pose.y, pose.depth, tangent, aspect);
+  view.hand.rotation.set(pose.rx, pose.ry, pose.rz);
+  view.itemMesh?.scale.set(pose.scale, pose.scaleY, pose.scale);
+  view.itemMesh?.rotation.set(0, pose.itemYaw, pose.itemRoll);
 }
 
 export function disposeHeldItemView(view) {
