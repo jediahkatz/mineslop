@@ -4,7 +4,7 @@ import test from "node:test";
 import { BLOCK, BLOCKS } from "../src/blocks.js";
 import { paintNaturalMaterial } from "../src/material-art.js";
 import { grain, painter, rgb } from "../src/pixel-art.js";
-import { blockTexturePixels } from "../src/textures.js";
+import { blockEmissionPixels, blockTexturePixels } from "../src/textures.js";
 
 const digest = (pixels) => createHash("sha256").update(pixels).digest("hex");
 const rgbAt = (pixels, i) => Array.from(pixels.subarray(i * 4, i * 4 + 3));
@@ -83,7 +83,7 @@ test("periodic grain and tiled pixel stamps preserve hard edges and transparent 
   assert.ok(pixels.subarray(0, 4).every((value) => value === 0));
 });
 
-test("each ore keeps its declared natural host around a few connected deposits", () => {
+test("each ore keeps its declared host around bounded mineral pockets and grains", () => {
   for (const block of ores) {
     for (const face of ["side", "top", "bottom"]) {
       const pixels = blockTexturePixels(block.id, face);
@@ -95,26 +95,30 @@ test("each ore keeps its declared natural host around a few connected deposits",
         `${block.name}: ${covered}/256 mineral pixels`
       );
       const groups = components(mask);
-      assert.ok(groups.length >= 3 && groups.length <= 5, block.name);
+      // Vanilla Java 26.2 includes fine grains and more than five pockets.
+      // The old large-island rule described our earlier art, not a safety limit.
+      assert.ok(groups.length >= 2 && groups.length <= 16, block.name);
+      assert.ok(groups.some((group) => group.length >= 4), `${block.name}: not only isolated noise`);
       for (const group of groups) {
         assert.ok(
-          group.length >= 6 && group.length <= 32,
-          `${block.name}: connected mineral masses, not specks`
+          group.length <= 32,
+          `${block.name}: bounded mineral groups`
         );
         const brightness = group.map(
           (i) => rgbAt(pixels, i).reduce((sum, value) => sum + value, 0) / 3
         );
-        assert.ok(
-          Math.max(...brightness) - Math.min(...brightness) >= 30,
-          `${block.name}: shaded facets`
-        );
+        if (group.length >= 4)
+          assert.ok(
+            Math.max(...brightness) - Math.min(...brightness) >= 30,
+            `${block.name}: shaded larger fragments`
+          );
       }
       for (let i = 0; i < 256; i++) assert.equal(pixels[i * 4 + 3], 255);
     }
   }
 });
 
-test("ore silhouettes and restrained palettes distinguish minerals without white sparkle noise", () => {
+test("ore silhouettes retain distinct bounded palettes without enabling emission", () => {
   const silhouettes = new Set();
   const minerals = new Map();
   for (const block of ores) {
@@ -137,11 +141,10 @@ test("ore silhouettes and restrained palettes distinguish minerals without white
       if (!mask[i]) continue;
       const color = rgbAt(pixels, i);
       colors.add(color.join(","));
-      assert.ok(
-        color.every((channel) => channel < 245),
-        `${block.name}: no clipped highlights`
-      );
     }
+    // Pale/high-RGB gold and gem facets occur in the vanilla reference.
+    // They are diffuse texture colors, not permission to make ores glow.
+    assert.ok(blockEmissionPixels(block.id).every((value) => value === 0), `${block.name}: no default emission`);
     assert.ok(
       colors.size >= 4 && colors.size <= 6,
       `${block.name}: cavity, body and facet palette`
