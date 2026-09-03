@@ -134,7 +134,9 @@ test("retained bases do not enlarge the active/GPU population, and load refuses 
 
 test("lifecycle release has one owner, is atomic, and leaves the horse at source across a real World switch", (t) => {
   const f = horseFixture(t), horse = f.spawn();
-  assert.equal(f.horses.mount(horse.id).ok, true);
+  f.hold(null);
+  const mounted = f.horses.mount(horse.id);
+  assert.equal(mounted.ok, true, mounted.reason);
   assert.equal(f.horses.preparePassengerRelease().ok, false);
   const plan = f.horses.preparePassengerRelease("player", { travelling: true });
   assert.equal(plan.ok, true);
@@ -168,7 +170,9 @@ test("lifecycle release has one owner, is atomic, and leaves the horse at source
 
 test("same-frame travel clears an unconsumed dismount exit even after the rider link is gone", (t) => {
   const f = horseFixture(t), horse = f.spawn();
-  assert.equal(f.horses.mount(horse.id).ok, true);
+  f.hold(null);
+  const mounted = f.horses.mount(horse.id);
+  assert.equal(mounted.ok, true, mounted.reason);
   f.horses.beginFrame("exit-before-pearl");
   assert.equal(f.horses.dismount().ok, true);
   assert.equal(f.horses.mountFor(), null);

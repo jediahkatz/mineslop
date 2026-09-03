@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { getBiomeById } from "../src/biomes.js";
 import { BLOCK } from "../src/blocks.js";
 import { normalizeCell } from "../src/block-state.js";
 import { DropOverflow } from "../src/drop-overflow.js";
@@ -18,6 +19,7 @@ export const horseRecord = (id = "horse:one", overrides = {}) => ({
 
 /** Real World ingestion/mutations + Wildlife + Gameplay + retained drops + XP.
  * Flat authored terrain is intentional; this is not browser/Survival evidence.
+ * Gameplay keeps its real starter hand; mounting tests explicitly hold(null).
  */
 export function horseFixture(t, {
   saved, hooks = {}, maxEntities, overflowEntries, bind = true,
@@ -29,6 +31,9 @@ export function horseFixture(t, {
   });
   const context = createWorldContext(world), coordinator = world.coordinator, scene = new THREE.Scene();
   if (saved) assert.equal(world.loadEdits(saved.world), true);
+  // The shared ecology fixture supplies block/biome volumes, not this generator
+  // query. Natural Wildlife.populate uses it through the unchanged World API.
+  world.generator.getBiome = () => getBiomeById("plains");
   const gameplay = new Gameplay({ coordinator, context, mode: "survival" });
   const overflow = new DropOverflow({ coordinator, context, ...(overflowEntries ? { maxEntries: overflowEntries } : {}) });
   const experience = new ExperienceOrbs(scene, world, {

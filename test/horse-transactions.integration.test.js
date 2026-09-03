@@ -9,6 +9,7 @@ import { horseFixture, horseVeto } from "./horse-fixture.js";
 
 test("natural-existing Wildlife horse gains only a sidecar, not another identity/pose/health collection", (t) => {
   const f = horseFixture(t);
+  assert.equal(f.world.getBiome(8, 8).id, "plains", "generator query matches the authored biome volumes");
   let horse;
   for (let attempt = 0; attempt < 80 && !horse; attempt++) {
     f.wildlife.populate();

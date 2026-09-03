@@ -102,11 +102,18 @@ test("one ecology host retains complete inactive-dimension poses and replaces on
   const turtleBase = f.wildlife.serialize().entities[0];
   const travel = (dimension) => {
     const previous = f.wildlife;
+    const ecologyBytes = f.coordinator.usage(f.host.ecology);
+    assert.equal(previous._ownsRegistration, true);
     assert.equal(f.host.suspend(), true);
-    assert.equal(f.coordinator.usage(previous), undefined);
+    assert.equal(f.coordinator.usage(previous), 0, "borrower suspension leaves Wildlife self-owned");
+    assert.equal(previous.ecologyServices, null);
     assert.equal(previous.dispose(), true);
+    assert.equal(f.coordinator.usage(previous), undefined, "only Wildlife disposal releases its registration");
+    assert.equal(previous._ownsRegistration, false);
+    assert.equal(f.coordinator.usage(f.host.ecology), ecologyBytes, "disposing a base does not release Ecology");
     f.world.setDimension(dimension).generate(1);
     f.wildlife = f.createWildlife();
+    assert.equal(f.coordinator.usage(f.wildlife), 0, "a fresh Wildlife owns its registration before activation");
     assert.equal(f.host.restoreWildlife(f.wildlife), true);
     assert.equal(f.host.activate(f.wildlife), true);
     f.tick(1, 0);

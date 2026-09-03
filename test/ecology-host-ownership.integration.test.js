@@ -36,17 +36,20 @@ function swordHit(f, extra = {}) {
   });
 }
 
-test("staging and preparing do not advance committed RNG, reserve a candidate, or admit a half mob", (t) => {
+test("staging and preparing leave Wildlife self-owned without advancing RNG or admitting a half mob", (t) => {
   const f = ecologyHostFixture(t, { activate: false });
   const before = f.ownership();
   assert.equal(f.coordinator.usage(f.host.ecology), undefined);
-  assert.equal(f.coordinator.usage(f.wildlife), undefined);
+  assert.equal(f.coordinator.usage(f.wildlife), 0, "Wildlife registers itself independently of staged Ecology");
+  assert.equal(f.wildlife._ownsRegistration, true);
   assert.equal(f.host.attacks, null);
   assert.equal(f.host.prepareAdmission("dolphin", dolphinAt), null);
   assert.deepEqual(f.ownership(), before);
   assert.equal(f.host.activate(f.wildlife), false, "restore is an explicit staging step");
+  assert.equal(f.coordinator.usage(f.wildlife), 0, "failed activation cannot release another owner");
   assert.equal(f.host.restoreWildlife(f.wildlife), true);
   assert.equal(f.host.activate(f.wildlife), true);
+  assert.equal(f.coordinator.usage(f.wildlife), 0, "activation borrows the existing base registration");
   const active = f.ownership(), generated = f.generated();
   const plan = f.host.prepareAdmission("dolphin", dolphinAt);
   assert.ok(plan);
@@ -59,9 +62,17 @@ test("staging and preparing do not advance committed RNG, reserve a candidate, o
   assert.equal(f.wildlife.byId.get(plan.result.id).dead, false);
   assert.equal(f.host.commit(plan).ok, false);
   assert.equal(f.host.activate(f.wildlife), false);
+  assert.equal(f.host.suspend(), true);
+  assert.equal(f.coordinator.usage(f.wildlife), 0, "suspending a borrower preserves the base owner");
+  assert.equal(f.host.dispose(), true);
+  assert.equal(f.coordinator.usage(f.host.ecology), undefined);
+  assert.equal(f.coordinator.usage(f.wildlife), 0, "disposing a borrower also preserves the base owner");
+  assert.equal(f.wildlife.dispose(), true);
+  assert.equal(f.coordinator.usage(f.wildlife), undefined);
+  assert.equal(f.wildlife._ownsRegistration, false);
 });
 
-test("stale candidate and failed activation preserve existing owners and leave no registration", (t) => {
+test("stale candidate and failed activation preserve Wildlife ownership without registering Ecology", (t) => {
   const f = ecologyHostFixture(t, { activate: false });
   assert.equal(f.host.restoreWildlife(f.wildlife), true);
   assert.equal(f.world.loadEdits(f.world.serialize()), true);
@@ -69,8 +80,12 @@ test("stale candidate and failed activation preserve existing owners and leave n
   assert.equal(f.host.activate(f.wildlife), false);
   assert.equal(f.host.restoreWildlife(f.wildlife), false);
   assert.equal(f.coordinator.usage(f.host.ecology), undefined);
-  assert.equal(f.coordinator.usage(f.wildlife), undefined);
+  assert.equal(f.coordinator.usage(f.wildlife), 0, "a stale candidate still owns its base registration");
+  assert.equal(f.wildlife._ownsRegistration, true);
   assert.deepEqual(f.ownership(), before);
+  assert.equal(f.wildlife.dispose(), true);
+  assert.equal(f.coordinator.usage(f.wildlife), undefined);
+  assert.equal(f.wildlife._ownsRegistration, false);
   const g = ecologyHostFixture(t, { activate: false });
   const blocker = {};
   assert.equal(g.coordinator.register(blocker, MAX_RESERVED_BYTES - g.coordinator.budget.totalBytes), true);
@@ -78,8 +93,12 @@ test("stale candidate and failed activation preserve existing owners and leave n
   const full = g.ownership();
   assert.equal(g.host.activate(g.wildlife), false);
   assert.equal(g.coordinator.usage(g.host.ecology), undefined);
-  assert.equal(g.coordinator.usage(g.wildlife), undefined);
+  assert.equal(g.coordinator.usage(g.wildlife), 0, "budget refusal cannot release the pre-existing base owner");
+  assert.equal(g.wildlife._ownsRegistration, true);
   assert.deepEqual(g.ownership(), full);
+  assert.equal(g.wildlife.dispose(), true);
+  assert.equal(g.coordinator.usage(g.wildlife), undefined);
+  assert.equal(g.wildlife._ownsRegistration, false);
 });
 
 for (const hand of ["main", "offhand"])

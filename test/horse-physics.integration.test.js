@@ -148,6 +148,7 @@ test("shallow water slows grounded travel; deep water blocks mount/jump and keep
   assert.equal(wet.horses.mountFor().id, wet.horse.id);
   assert.equal(wet.horses.dismount().reason, "no-safe-exit");
   assert.equal(wet.horses.releasePassenger("player", { travelling: true }).ok, true);
+  wet.hold(null);
   assert.equal(wet.horses.mount(wet.horse.id).reason, "unsafe-mount");
 });
 
