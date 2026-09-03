@@ -356,7 +356,7 @@ test("crossing a biome boundary retains coordinate-owned samples and partial job
   lod.dispose();
 });
 
-test("Nether and cave transitions disable LOD, dispose old geometry and cancel jobs", () => {
+test("dimension transitions dispose LOD, while cave labels only hide it", () => {
   let currentBiome = plains;
   const { lod, world, calls } = fixture(
     () => 32,
@@ -375,10 +375,16 @@ test("Nether and cave transitions disable LOD, dispose old geometry and cancel j
   assert.equal(disposed, 1);
   world.dimension = "overworld";
   finish(lod);
+  const restored = lod._active;
+  const beforeCave = calls.heights;
   currentBiome = { ...plains, id: "lush_caves", category: "cave" };
   lod.update(position, settings);
   assert.equal(lod.ready, false);
-  assert.equal(lod.group.children.length, 0);
+  assert.equal(lod.group.visible, false);
+  assert.equal(lod.fogDistance, 0);
+  assert.equal(lod._active, restored);
+  assert.equal(lod.group.children.length, 1);
+  assert.equal(calls.heights, beforeCave);
   lod.dispose();
 });
 
@@ -701,17 +707,232 @@ test("world resets invalidate identical coordinates, and long travel bounds the 
   lod.dispose();
 });
 
-test("an exposed cave label keeps outdoor LOD, but actual shelter disables it", () => {
+test("an exposed cave label keeps outdoor LOD, but actual shelter hides it", () => {
   const { lod } = fixture(
     () => 32,
     () => ({ ...plains, category: "cave" })
   );
   finish(lod, position, { ...settings, outdoors: true, coverage: new Set() });
+  const ground = lod._active;
   assert.equal(groundAt(lod, position.x, position.z), 33);
   lod.update(position, { ...settings, outdoors: false, budgetMs: 0 });
   assert.equal(lod.ready, false);
-  assert.equal(lod.group.children.length, 0);
+  assert.equal(groundAt(lod, position.x, position.z), null);
+  assert.equal(lod.group.children.length, 1);
+  lod.update(position, { ...settings, outdoors: true, budgetMs: 0 });
+  assert.equal(lod.ready, true);
+  assert.equal(lod._active, ground);
   lod.dispose();
+});
+
+test("a cave look-back reuses ground and canopy immediately with current cutouts", (t) => {
+  t.mock.method(performance, "now", () => 0);
+  const { lod, world, calls } = fixture();
+  const mouth = { x: 60.5, y: 38.62, z: 986.5 };
+  const occluded = { x: 60.5, y: 21.63, z: 937.5 };
+  const lookBack = { x: 60.5, y: 31.62, z: 964.25 };
+  const tree = describeTree(
+    60,
+    1000,
+    { top: 32, profile: { tree: "oak" } },
+    0.1,
+    123,
+    WATER_LEVEL
+  );
+  let treeReads = 0;
+  world.generator.getTrees = (gx, gz) => {
+    treeReads++;
+    return gx === 7 && gz === 125 ? [tree] : [];
+  };
+  const options = {
+    ...settings,
+    outdoors: true,
+    coverage: new Set(["3,61"]),
+  };
+  let disposed = 0;
+  try {
+    finish(lod, mouth, options);
+    const ground = lod._active;
+    const canopy = lod._vegetation;
+    const canopyCount = canopy.layer.mesh.geometry.drawRange.count;
+    assert.ok(canopyCount > 0);
+    const heights = calls.heights;
+    const trees = treeReads;
+    const samples = lod._samples.size;
+    const hulls = lod._treeSamples.primitiveCount;
+    for (const mesh of [ground.terrain, ground.water, canopy.layer.mesh])
+      mesh.geometry.addEventListener("dispose", () => disposed++);
+    const coverage = new Set(["3,62"]);
+    for (let visit = 0; visit < 3; visit++) {
+      for (let frame = 0; frame < 12; frame++) {
+        assert.equal(
+          lod.update(occluded, { ...options, outdoors: false }),
+          false
+        );
+        assert.equal(lod.ready, false);
+        assert.equal(lod.fogDistance, 0);
+        assert.equal(lod.group.visible, false);
+        assert.equal(lod._active, ground);
+        assert.equal(lod._vegetation, canopy);
+        assert.equal(lod._job, null);
+        assert.equal(lod._vegetationJob, null);
+        assert.deepEqual(lod.lastWork, { units: 0, samples: 0 });
+      }
+      assert.equal(
+        lod.update(lookBack, { ...options, coverage, budgetMs: 0 }),
+        true,
+        "the first visible update must not need another build"
+      );
+      assert.equal(lod._active, ground);
+      assert.equal(lod._vegetation, canopy);
+      assert.equal(lod.fogDistance, DISTANT_QUALITY.low.horizon);
+      assert.equal(lod.group.children.length, 2);
+      assertCoverage(lod, coverage);
+      assert.ok(canopy.layer.mesh.geometry.drawRange.count < canopyCount);
+      assert.equal(calls.heights, heights);
+      assert.equal(treeReads, trees);
+      assert.equal(lod._samples.size, samples);
+      assert.equal(lod._treeSamples.primitiveCount, hulls);
+      assert.equal(disposed, 0);
+    }
+    assert.equal(world.chunks.size, 0, "no detail generation or residency");
+    lod.update(occluded, { ...options, outdoors: false });
+  } finally {
+    lod.dispose();
+  }
+  assert.equal(disposed, 3, "hidden/reused geometry still has one owner");
+  lod.dispose();
+  assert.equal(disposed, 3);
+});
+
+test("occlusion suspends partial terrain and canopy jobs without restarting them", (t) => {
+  t.mock.method(performance, "now", () => 0);
+  const { lod, world, calls } = fixture();
+  let trees = 0;
+  world.generator.getTrees = () => {
+    trees++;
+    return [];
+  };
+  const options = { ...settings, outdoors: true };
+  try {
+    lod.update(position, options);
+    const ground = lod._job;
+    const canopy = lod._vegetationJob;
+    assert.ok(ground && canopy);
+    const cursor = ground.cursor;
+    const heights = calls.heights;
+    const treeReads = trees;
+    const canopySamples = canopy.job.sampleCount;
+    for (let frame = 0; frame < 12; frame++) {
+      lod.update(position, { ...options, outdoors: false });
+      assert.equal(lod._job, ground);
+      assert.equal(lod._vegetationJob, canopy);
+      assert.equal(ground.cursor, cursor);
+      assert.equal(canopy.job.sampleCount, canopySamples);
+      assert.equal(canopy.job._disposed, false);
+      assert.deepEqual(lod.lastWork, { units: 0, samples: 0 });
+    }
+    assert.equal(calls.heights, heights);
+    assert.equal(trees, treeReads);
+    lod.update(position, options);
+    assert.equal(lod._job, ground);
+    assert.equal(lod._vegetationJob, canopy);
+    assert.ok(ground.cursor > cursor);
+    assert.ok(canopy.job.sampleCount > canopySamples);
+    finish(lod, position, options);
+    assert.equal(lod._active.data, ground);
+    assert.equal(lod.ready, true);
+  } finally {
+    lod.dispose();
+  }
+});
+
+test("hidden resources still invalidate on world identity changes and dispose once", (t) => {
+  t.mock.method(performance, "now", () => 0);
+  const changes = [
+    (world) => {
+      world.seed = "replacement";
+    },
+    (world) => {
+      world.generatorVersion++;
+    },
+    (world) => {
+      world._epoch = 1;
+    },
+    (world) => {
+      world.generator = { ...world.generator };
+    },
+    (world) => {
+      world.dimension = "end";
+    },
+    (world) => {
+      world.dimension = "nether";
+    },
+  ];
+  for (const change of changes) {
+    const { lod, world } = fixture();
+    world.generator.getTrees = () => [];
+    const options = { ...settings, outdoors: true };
+    let disposed = 0;
+    try {
+      finish(lod, position, options);
+      for (const mesh of [
+        lod._active.terrain,
+        lod._active.water,
+        lod._vegetation.layer.mesh,
+      ])
+        mesh.geometry.addEventListener("dispose", () => disposed++);
+      const next = { ...position, x: 40 };
+      lod.update(next, options);
+      const pending = lod._vegetationJob?.job;
+      assert.ok(lod._job && pending);
+      lod.update(next, { ...options, outdoors: false });
+      assert.equal(disposed, 0);
+      change(world);
+      lod.update(next, { ...options, outdoors: false, budgetMs: 0 });
+      assert.equal(lod.ready, false);
+      assert.equal(lod.fogDistance, 0);
+      assert.equal(lod._active, null);
+      assert.equal(lod._vegetation, null);
+      assert.equal(lod._job, null);
+      assert.equal(lod._vegetationJob, null);
+      assert.equal(pending._disposed, true);
+      assert.equal(lod._samples.size, 0);
+      assert.equal(lod._treeSamples.size, 0);
+      assert.equal(lod.group.children.length, 0);
+      assert.equal(disposed, 3);
+    } finally {
+      lod.dispose();
+    }
+    assert.equal(disposed, 3);
+  }
+});
+
+test("an incompatible reveal cancels suspended jobs before resuming work", (t) => {
+  t.mock.method(performance, "now", () => 0);
+  for (const [at, replacement] of [
+    [position, { quality: "high" }],
+    [position, { radius: 4 }],
+    [{ ...position, x: 12008 }, {}],
+  ]) {
+    const { lod, world } = fixture();
+    world.generator.getTrees = () => [];
+    const options = { ...settings, outdoors: true };
+    try {
+      lod.update(position, options);
+      const pending = lod._vegetationJob.job;
+      lod.update(position, { ...options, outdoors: false });
+      lod.update(at, { ...options, ...replacement, budgetMs: 0 });
+      assert.equal(lod.ready, false);
+      assert.equal(lod._job, null);
+      assert.equal(lod._vegetationJob, null);
+      assert.equal(pending._disposed, true);
+      finish(lod, at, { ...options, ...replacement });
+      assert.equal(lod.ready, true);
+    } finally {
+      lod.dispose();
+    }
+  }
 });
 
 test("native canopies share live cutouts and survive independent ground and forest replacements", () => {

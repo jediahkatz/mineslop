@@ -707,7 +707,12 @@ export class DistantTerrain {
       outdoors === false ||
       (outdoors !== true && biome?.category === "cave")
     ) {
-      this._clear();
+      // Occlusion changes visibility, not world identity. Keep the bounded
+      // layers, caches and pending jobs dormant so a visible cave mouth can
+      // reuse them without waiting for another ground/canopy build. Identity
+      // checks above and request/coverage checks below still reject stale data.
+      this.group.visible = false;
+      this._fogDistance = 0;
       return false;
     }
     // Samples belong to immutable world coordinates, not the player's current
