@@ -1,0 +1,25 @@
+[tasks.build]
+description = "Build the frozen block art review gallery"
+dir = "{{config_root}}/../.."
+env = { NODE_ENV = "production" }
+run = "npm run build:block-art-review"
+
+[tasks.start]
+description = "Serve the frozen block art review gallery on port 5176"
+dir = "{{config_root}}/../.."
+run = "npm run preview:block-art-review"
+
+[tasks.test]
+description = "Test catalog coverage, valid states and review completeness rules"
+dir = "{{config_root}}/../.."
+run = "npm run test:block-art-review"
+
+[tasks."test:browser"]
+description = "Render all catalog blocks through the browser gallery"
+dir = "{{config_root}}/../.."
+run = "npm run test:block-art-review:browser"
+
+[tasks.check]
+description = "Validate the per-block review decisions and evidence"
+dir = "{{config_root}}/../.."
+run = "npm run check:block-art-review"

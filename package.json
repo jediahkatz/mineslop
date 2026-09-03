@@ -24,6 +24,11 @@
     "test:fluids": "node --test test/fluids.browser.integration.mjs",
     "test:fps": "node --test test/fps.browser.integration.mjs",
     "test:art": "node --test test/art.browser.integration.mjs test/mob-skins.browser.integration.mjs",
+    "test:block-art-review": "node --test test/block-art-review.test.js",
+    "test:block-art-review:browser": "node --test test/block-art-review.browser.integration.mjs",
+    "check:block-art-review": "node test/block-art-review/verify.mjs",
+    "build:block-art-review": "vite build --config test/block-art-review/vite.config.mjs",
+    "preview:block-art-review": "vite preview --config test/block-art-review/vite.config.mjs",
     "build:realtime": "vite build --config test/realtime/vite.config.mjs",
     "preview:realtime": "vite preview --config test/realtime/vite.config.mjs --host 0.0.0.0 --port 5175 --strictPort"
   },

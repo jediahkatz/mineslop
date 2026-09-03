@@ -1,0 +1,45 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, sans-serif;
+  color: #24313b;
+  background: #e9edf0;
+  font-synthesis: none;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+#review { width: 1472px; padding: 24px; }
+header { margin-bottom: 20px; }
+.eyebrow { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
+h1 { margin: 8px 0; font-size: 24px; font-weight: 650; }
+p { margin: 7px 0; }
+#description, #status, footer { font-size: 13px; }
+#status { color: #435967; }
+#sheets { display: grid; grid-template-columns: repeat(3, 464px); gap: 16px; }
+.card {
+  border: 1px solid #c3cdd4;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.card h2 { font-size: 17px; margin: 0 0 6px; min-height: 22px; }
+.identity { font-size: 12px; line-height: 1.4; min-height: 35px; overflow-wrap: anywhere; }
+.worlds { display: grid; grid-template-columns: 216px 216px; gap: 6px; }
+figure { margin: 0; }
+figcaption { font-size: 11px; color: #526473; line-height: 1.4; margin: 4px 0 8px; }
+canvas, img { display: block; image-rendering: pixelated; }
+.worlds canvas { width: 216px; height: 176px; }
+.faces { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; min-height: 124px; }
+.faces canvas { width: 96px; height: 96px; }
+.checker {
+  background: repeating-conic-gradient(#e2e6e8 0% 25%, #fff 0% 50%) 50% / 16px 16px;
+}
+.presentation { display: grid; grid-template-columns: 184px 240px; gap: 8px; }
+.inventory { display: flex; align-items: end; gap: 16px; height: 150px; }
+.inventory .large { width: 64px; height: 64px; }
+.inventory .small { width: 32px; height: 32px; }
+.held canvas { width: 240px; height: 150px; }
+.note { font-size: 11px; line-height: 1.45; min-height: 32px; color: #5b6570; }
+footer { line-height: 1.55; margin-top: 20px; max-width: 1200px; color: #526473; }
+.failed { color: #a32328 !important; }
+#gpu[hidden] { display: none; }

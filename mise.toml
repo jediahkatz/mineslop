@@ -76,6 +76,27 @@ run = "npm run test:fps"
 description = "Verify real GPU creature skins, picking, lighting and bounded render resources"
 run = "npm run test:art"
 
+[tasks."test:block-art-review"]
+description = "Check complete block-catalog review coverage and state profiles"
+run = "npm run test:block-art-review"
+
+[tasks."test:block-art-review:browser"]
+description = "Render every catalog block through the real browser art path"
+run = "npm run test:block-art-review:browser"
+
+[tasks."check:block-art-review"]
+description = "Validate per-block review decisions and their rendered evidence"
+run = "npm run check:block-art-review"
+
+[tasks."build:block-art-review"]
+description = "Build the isolated production-component block art gallery"
+env = { NODE_ENV = "production" }
+run = "npm run build:block-art-review"
+
+[tasks."start:block-art-review"]
+description = "Serve the isolated frozen block art gallery on port 5176"
+run = "npm run preview:block-art-review"
+
 [tasks."build:realtime"]
 description = "Build a frozen production browser benchmark"
 env = { NODE_ENV = "production" }
