@@ -1,0 +1,53 @@
+#ui .atlas-overlay, #ui .death-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: safe center;
+  justify-content: safe center;
+  padding: calc(10 * var(--pixel));
+  background: #0009;
+  pointer-events: auto;
+  overflow: auto;
+}
+#ui .atlas-panel { display: flex; flex-direction: column; width: calc(300 * var(--pixel)); max-width: 100%; height: calc(210 * var(--pixel)); max-height: calc(100dvh - 20 * var(--pixel)); }
+#ui .atlas-panel .inventory-header { flex-shrink: 0; }
+#ui .atlas-panel .inventory-header h2 { font-size: calc(11 * var(--pixel)); }
+#ui .atlas-panel .inventory-header p { font-size: calc(7 * var(--pixel)); margin-top: calc(3 * var(--pixel)); line-height: 1.5; }
+#ui .atlas-current { font-size: calc(8 * var(--pixel)); margin-top: calc(5 * var(--pixel)); }
+#ui .atlas-tools { display: flex; gap: calc(4 * var(--pixel)); margin-top: calc(6 * var(--pixel)); flex-shrink: 0; }
+#ui .atlas-tools .search-field { flex: 1; }
+#ui .atlas-tools :is(select, input) { font-size: calc(7 * var(--pixel)); }
+#ui .atlas-tools select { max-width: calc(80 * var(--pixel)); }
+#ui .atlas-results-label { padding: calc(5 * var(--pixel)) 0; font-size: calc(7 * var(--pixel)); }
+#ui .atlas-results { min-height: 0; overflow-y: auto; overscroll-behavior: contain; flex: 1; padding-right: calc(3 * var(--pixel)); scrollbar-width: thin; scrollbar-color: #777 #aaa; }
+#ui .atlas-group { margin-bottom: calc(7 * var(--pixel)); }
+#ui .atlas-group-heading { margin-bottom: calc(3 * var(--pixel)); font-size: calc(9 * var(--pixel)); }
+#ui .atlas-group-heading > span { margin-left: calc(5 * var(--pixel)); font-size: calc(7 * var(--pixel)); }
+#ui .atlas-biome-list { display: flex; flex-direction: column; gap: calc(2 * var(--pixel)); }
+#ui .biome-card { display: grid; grid-template-columns: calc(4 * var(--pixel)) 1fr auto; align-items: center; gap: calc(5 * var(--pixel)); padding: calc(4 * var(--pixel)); background: #b0b0b0; border: var(--pixel) solid #888; }
+#ui .biome-card.is-current { outline: var(--pixel) solid #555; outline-offset: calc(-2 * var(--pixel)); background: #bbb; }
+#ui .biome-swatch { display: block; align-self: stretch; width: calc(4 * var(--pixel)); background: var(--biome-color); border: var(--pixel) solid #555; }
+#ui .biome-title { display: flex; flex-wrap: wrap; gap: calc(5 * var(--pixel)); align-items: baseline; }
+#ui .biome-title h4 { font-size: calc(8 * var(--pixel)); }
+#ui .biome-current, #ui .biome-category { font-size: calc(6 * var(--pixel)); }
+#ui .biome-copy p { margin-top: calc(2 * var(--pixel)); font-size: calc(7 * var(--pixel)); line-height: 1.45; }
+#ui .biome-travel { min-height: calc(16 * var(--pixel)); font-size: calc(7 * var(--pixel)); }
+#ui .biome-travel svg { width: calc(7 * var(--pixel)); height: calc(7 * var(--pixel)); }
+#ui .atlas-empty, #ui .atlas-status { margin-top: calc(5 * var(--pixel)); font-size: calc(8 * var(--pixel)); line-height: 1.5; overflow-wrap: anywhere; }
+#ui .atlas-status[data-state="error"] { color: #a00000; }
+#ui .inventory-footer { display: flex; justify-content: space-between; align-items: baseline; gap: calc(6 * var(--pixel)); flex-shrink: 0; padding-top: calc(5 * var(--pixel)); font-size: calc(6 * var(--pixel)); line-height: 1.5; }
+#ui .inventory-footer > span:last-child { white-space: nowrap; }
+#ui .death-overlay { z-index: 6; background: linear-gradient(#64000087, #170000c2); }
+#ui .death-panel { width: calc(300 * var(--pixel)); max-width: 100%; text-align: center; text-shadow: var(--pixel) var(--pixel) #222; }
+#ui .death-panel h2 { margin-bottom: calc(14 * var(--pixel)); font-size: calc(24 * var(--pixel)); text-shadow: calc(2 * var(--pixel)) calc(2 * var(--pixel)) #292929; }
+#ui .death-panel p { font-size: calc(9 * var(--pixel)); line-height: 1.5; }
+#ui .death-panel .death-reassurance { margin: calc(12 * var(--pixel)) auto calc(22 * var(--pixel)); max-width: calc(230 * var(--pixel)); font-size: calc(7 * var(--pixel)); color: #ddd; }
+#ui .death-panel button { display: block; width: calc(200 * var(--pixel)); max-width: 100%; margin: calc(4 * var(--pixel)) auto 0; }
+#ui .toast { position: absolute; z-index: 20; bottom: calc(29 * var(--pixel)); left: calc(4 * var(--pixel)); max-width: min(calc(270 * var(--pixel)), calc(100% - 8 * var(--pixel))); padding: calc(3 * var(--pixel)) calc(5 * var(--pixel)); color: #fff; background: #000c; font-size: calc(8 * var(--pixel)); line-height: 1.45; text-shadow: var(--pixel) var(--pixel) #333; overflow-wrap: anywhere; }
+#ui .loading-screen { position: absolute; inset: 0; z-index: 9; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(10 * var(--pixel)); padding: calc(20 * var(--pixel)); pointer-events: auto; text-align: center; color: #fff; background-color: #29241f; background-image: repeating-linear-gradient(0deg, #ffffff03 0 calc(3 * var(--pixel)), #00000008 calc(3 * var(--pixel)) calc(7 * var(--pixel))); text-shadow: var(--pixel) var(--pixel) #111; }
+#ui .loading-screen h2 { font-size: calc(12 * var(--pixel)); }
+#ui .loading-label { font-size: calc(9 * var(--pixel)); }
+#ui .loading-track { width: calc(160 * var(--pixel)); max-width: 100%; height: calc(4 * var(--pixel)); border: var(--pixel) solid #111; background: #171717; }
+#ui .loading-track > div { height: 100%; background: #80cc43; }
+#ui .loading-percent { font-size: calc(8 * var(--pixel)); color: #ccc; }

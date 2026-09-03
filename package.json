@@ -1,0 +1,37 @@
+{
+  "name": "voxelcraft",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "An original, local-first browser voxel sandbox.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 5173",
+    "test": "node --test test/*.test.js test/realtime/*.test.mjs",
+    "test:realtime": "node test/realtime/run.mjs",
+    "test:streaming": "node test/realtime/streaming-flight.mjs",
+    "test:controls": "node --test test/controls.browser.integration.mjs",
+    "test:terrain": "node --test test/terrain.browser.integration.mjs",
+    "test:native-v4": "node --test test/native-v4-worker.browser.integration.mjs",
+    "test:inspection": "node --test test/inspection.browser.integration.mjs",
+    "test:ui": "node --test test/ui.browser.integration.mjs",
+    "test:perspective": "node --test test/perspective.browser.integration.mjs",
+    "test:combat": "node --test test/combat.browser.integration.mjs",
+    "test:hurt": "node --test test/hurt.browser.integration.mjs",
+    "test:pearls": "node --test test/pearls.browser.integration.mjs",
+    "test:fluids": "node --test test/fluids.browser.integration.mjs",
+    "test:fps": "node --test test/fps.browser.integration.mjs",
+    "test:art": "node --test test/art.browser.integration.mjs test/mob-skins.browser.integration.mjs",
+    "build:realtime": "vite build --config test/realtime/vite.config.mjs",
+    "preview:realtime": "vite preview --config test/realtime/vite.config.mjs --host 0.0.0.0 --port 5175 --strictPort"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5",
+    "playwright": "^1.62.1",
+    "vite": "^8.2.2"
+  }
+}

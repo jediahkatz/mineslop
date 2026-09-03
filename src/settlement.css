@@ -1,0 +1,40 @@
+#ui .settlement-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: safe center;
+  justify-content: safe center;
+  padding: calc(12 * var(--pixel));
+  overflow: auto;
+  background: #0009;
+  pointer-events: auto;
+}
+#ui .settlement-overlay[hidden] { display: none; }
+#ui .settlement-layout { position: relative; margin: auto; width: calc(178 * var(--pixel)); }
+#ui .settlement-panel { position: relative; width: calc(178 * var(--pixel)); }
+#ui .settlement-header { display: flex; justify-content: space-between; align-items: center; gap: calc(4 * var(--pixel)); margin-bottom: calc(3 * var(--pixel)); }
+#ui .settlement-header h2 { font-size: calc(8 * var(--pixel)); }
+#ui .settlement-header .settlement-close { width: calc(12 * var(--pixel)); height: calc(12 * var(--pixel)); padding: 0; font-size: calc(10 * var(--pixel)); }
+#ui .settlement-location { display: none; color: #555; font-size: calc(6 * var(--pixel)); margin-bottom: calc(4 * var(--pixel)); }
+#ui[data-debug="true"] .settlement-location { display: block; }
+#ui .settlement-inventory-label { margin: calc(7 * var(--pixel)) 0 calc(3 * var(--pixel)); font-size: calc(8 * var(--pixel)); }
+#ui .settlement-hotbar { margin-top: calc(4 * var(--pixel)); }
+#ui .settlement-offhand { position: absolute; right: calc(184 * var(--pixel)); bottom: calc(6 * var(--pixel)); }
+#ui .settlement-offhand > span { display: block; position: absolute; bottom: calc(21 * var(--pixel)); left: 50%; transform: translateX(-50%); color: #fff; font-size: calc(6 * var(--pixel)); text-shadow: var(--pixel) var(--pixel) #222; }
+#ui .settlement-help { margin-top: calc(5 * var(--pixel)); color: #eee; font-size: calc(6 * var(--pixel)); line-height: 1.5; text-align: center; text-shadow: var(--pixel) var(--pixel) #222; }
+#ui .settlement-status, #ui .settlement-owned-note { margin-top: calc(5 * var(--pixel)); color: #444; font-size: calc(7 * var(--pixel)); line-height: 1.5; overflow-wrap: anywhere; }
+#ui .settlement-status[data-state="error"] { color: #a00000; }
+#ui .settlement-owned-note { font-size: calc(6 * var(--pixel)); }
+#ui .furnace-workbench { position: relative; height: calc(65 * var(--pixel)); width: calc(162 * var(--pixel)); }
+#ui .furnace-input { position: absolute; left: calc(48 * var(--pixel)); top: calc(3 * var(--pixel)); }
+#ui .furnace-fuel { position: absolute; left: calc(48 * var(--pixel)); top: calc(43 * var(--pixel)); }
+#ui .furnace-output { position: absolute; left: calc(108 * var(--pixel)); top: calc(21 * var(--pixel)); }
+#ui .furnace-burn { position: absolute; left: calc(49 * var(--pixel)); top: calc(25 * var(--pixel)); width: calc(15 * var(--pixel)); height: calc(15 * var(--pixel)); }
+#ui .furnace-burn > span { position: absolute; inset: 0; font-size: calc(15 * var(--pixel)); line-height: 1; text-align: center; }
+#ui .furnace-flame-empty { color: #777; }
+#ui .furnace-flame-fill { color: #ffb127; }
+#ui .furnace-burn svg { width: 100%; height: 100%; }
+#ui .furnace-cook { position: absolute; left: calc(77 * var(--pixel)); top: calc(22 * var(--pixel)); width: calc(26 * var(--pixel)); height: calc(20 * var(--pixel)); color: #777; }
+#ui .furnace-cook > span { position: absolute; inset: 0; font-size: calc(22 * var(--pixel)); line-height: 1; }
+#ui .furnace-cook-fill { color: #fff; }

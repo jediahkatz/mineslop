@@ -1,0 +1,82 @@
+[tasks.install]
+description = "Install the standalone Voxelcraft dependencies"
+run = "npm ci"
+
+# Canonical tasks. See .cursor/skills/devex/mise-monorepo-tasks/SKILL.md.
+[tasks.build]
+description = "Build the Voxelcraft browser game"
+env = { NODE_ENV = "production" }
+run = "npm run build"
+
+[tasks.start]
+description = "Start Voxelcraft on port 5173"
+run = "npm run dev"
+
+[tasks.test]
+description = "Test voxel generation, persistence, raycasting, and physics"
+run = "npm test"
+
+[tasks."test:realtime"]
+description = "Benchmark continuous browser controls and chunk streaming"
+run = "npm run test:realtime"
+
+[tasks."test:streaming"]
+description = "Verify drawn ground and horizon continuity during sustained browser flight"
+run = "npm run test:streaming"
+
+[tasks."test:controls"]
+description = "Verify native capture and remote drag-look in an isolated browser"
+run = "npm run test:controls"
+
+[tasks."test:terrain"]
+description = "Verify versioned terrain import, reload and regeneration in an isolated browser"
+run = "npm run test:terrain"
+
+[tasks."test:native-v4"]
+description = "Verify native v4 module-worker and synchronous parity on a frozen host"
+run = "npm run test:native-v4"
+
+[tasks."test:inspection"]
+description = "Verify Fullbright cave illumination and browser-only preferences"
+run = "npm run test:inspection"
+
+[tasks."test:ui"]
+description = "Verify classic menus and real inventory/container interactions in a browser"
+run = "npm run test:ui"
+
+[tasks."test:perspective"]
+description = "Verify F5 player rendering, HUD toggles and physical XP in real WebGL"
+run = "npm run test:perspective"
+
+[tasks."test:combat"]
+description = "Verify real-input Enderman melee and precise use in an isolated frozen browser"
+run = "npm run test:combat"
+
+[tasks."test:hurt"]
+description = "Verify real damage, GPU hurt feedback and lifecycle safety in an isolated browser"
+run = "npm run test:hurt"
+
+[tasks."test:pearls"]
+description = "Verify real-input pearl flight, impact, persistence and lifecycle cleanup"
+run = "npm run test:pearls"
+
+[tasks."test:fluids"]
+description = "Verify finite browser fluid interactions, retention and saved replay"
+run = "npm run test:fluids"
+
+[tasks."test:fps"]
+description = "Verify the FPS toggle, device persistence and bounded display overhead"
+run = "npm run test:fps"
+
+[tasks."test:art"]
+description = "Verify real GPU creature skins, picking, lighting and bounded render resources"
+run = "npm run test:art"
+
+[tasks."build:realtime"]
+description = "Build a frozen production browser benchmark"
+env = { NODE_ENV = "production" }
+run = "npm run build:realtime"
+
+[tasks."start:realtime"]
+description = "Serve the frozen browser benchmark on port 5175"
+run = "npm run preview:realtime"

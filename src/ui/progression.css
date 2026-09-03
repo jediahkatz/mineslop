@@ -1,0 +1,107 @@
+#ui .progression-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: safe center;
+  justify-content: safe center;
+  padding: calc(10 * var(--pixel));
+  overflow: auto;
+  background: #0009;
+  pointer-events: auto;
+}
+#ui .progression-overlay[hidden],
+#ui .progression-overlay [hidden] { display: none; }
+#ui .progression-layout { width: calc(178 * var(--pixel)); margin: auto; }
+#ui .progression-panel { position: relative; width: calc(178 * var(--pixel)); }
+#ui .progression-header { display: flex; align-items: center; justify-content: space-between; gap: calc(4 * var(--pixel)); }
+#ui .progression-header h2 { font-size: calc(8 * var(--pixel)); }
+#ui .progression-header .progression-close {
+  width: calc(12 * var(--pixel));
+  height: calc(12 * var(--pixel));
+  padding: 0;
+  font-size: calc(10 * var(--pixel));
+}
+#ui .progression-location { display: none; overflow-wrap: anywhere; font-size: calc(6 * var(--pixel)); color: #555; }
+#ui[data-debug="true"] .progression-location { display: block; }
+#ui .progression-workbench { margin-top: calc(5 * var(--pixel)); }
+#ui .progression-inputs { display: flex; align-items: end; justify-content: center; gap: calc(5 * var(--pixel)); }
+#ui .progression-slot-group { display: flex; flex-direction: column; align-items: center; gap: calc(2 * var(--pixel)); }
+#ui .progression-slot-label { max-width: calc(38 * var(--pixel)); color: #444; text-align: center; font-size: calc(6 * var(--pixel)); }
+#ui .progression-arrow { font-size: calc(15 * var(--pixel)); color: #555; line-height: 1.2; }
+#ui .progression-plus { color: #555; font-size: calc(10 * var(--pixel)); line-height: 1.8; }
+#ui .progression-cost { margin: calc(4 * var(--pixel)) 0; color: #444; font-size: calc(6 * var(--pixel)); line-height: 1.5; }
+#ui .progression-cost[data-state="ready"] { color: #286313; }
+#ui .progression-cost[data-state="error"] { color: #9b2020; }
+#ui .progression-enchant-choices { display: grid; gap: calc(2 * var(--pixel)); }
+#ui .progression-offer {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--pixel);
+  min-height: calc(22 * var(--pixel));
+  padding: calc(2 * var(--pixel)) calc(4 * var(--pixel));
+  text-align: left;
+  border: var(--pixel) solid;
+  border-color: #ead3a2 #4f3b2e #4f3b2e #ead3a2;
+  background: #876a4b;
+  color: #ffefb1;
+  text-shadow: var(--pixel) var(--pixel) #392d20;
+}
+#ui .progression-offer:hover:not(:disabled),
+#ui .progression-offer:focus-visible { background: #795b89; }
+#ui .progression-offer:disabled { background: #777066; color: #b8b3a8; opacity: 1; }
+#ui .progression-offer-clue { font-size: calc(7 * var(--pixel)); }
+#ui .progression-offer-cost { font-size: calc(6 * var(--pixel)); }
+#ui .progression-name-label { display: block; margin-bottom: calc(5 * var(--pixel)); font-size: calc(7 * var(--pixel)); }
+#ui .progression-name {
+  display: block;
+  width: 100%;
+  margin-top: calc(2 * var(--pixel));
+  padding: calc(3 * var(--pixel));
+  border: var(--pixel) solid;
+  border-color: #373737 #fff #fff #373737;
+  background: #8b8b8b;
+  color: #fff;
+  font: inherit;
+  text-shadow: var(--pixel) var(--pixel) #333;
+}
+#ui .progression-brewing-slots {
+  display: grid;
+  grid-template-columns: repeat(3, calc(38 * var(--pixel)));
+  grid-template-rows: auto auto;
+  justify-content: center;
+  gap: calc(7 * var(--pixel)) calc(4 * var(--pixel));
+}
+#ui .progression-brewing-slots [data-brew-slot="3"] { grid-area: 1 / 2; }
+#ui .progression-brewing-slots [data-brew-slot="4"] { grid-area: 1 / 1; }
+#ui .progression-brewing-slots [data-brew-slot="0"] { grid-area: 2 / 1; }
+#ui .progression-brewing-slots [data-brew-slot="1"] { grid-area: 2 / 2; }
+#ui .progression-brewing-slots [data-brew-slot="2"] { grid-area: 2 / 3; }
+#ui .progression-brew-progress,
+#ui .progression-trade-progress {
+  height: calc(5 * var(--pixel));
+  margin: calc(5 * var(--pixel)) 0;
+  border: var(--pixel) solid;
+  border-color: #373737 #fff #fff #373737;
+  background: #5b5b5b;
+}
+#ui .progression-brew-progress > span,
+#ui .progression-trade-progress > span { display: block; height: 100%; width: 0; background: #80b93d; }
+#ui .progression-brew-progress > span { background: #bd85d1; }
+#ui .progression-trade-rank { margin-top: calc(4 * var(--pixel)); color: #444; font-size: calc(7 * var(--pixel)); }
+#ui .progression-trade-offers { display: grid; gap: calc(2 * var(--pixel)); max-height: calc(90 * var(--pixel)); overflow-y: auto; }
+#ui .progression-trade-offer { display: flex; flex-direction: column; align-items: stretch; padding: calc(3 * var(--pixel)); text-align: left; }
+#ui .progression-trade-exchange { display: flex; align-items: center; gap: calc(3 * var(--pixel)); pointer-events: none; }
+#ui .progression-trade-stock { margin-left: auto; font-size: calc(6 * var(--pixel)); }
+#ui .progression-trade-detail { margin-top: calc(2 * var(--pixel)); color: #efe4ff; font-size: calc(6 * var(--pixel)); line-height: 1.5; overflow-wrap: anywhere; }
+#ui .progression-trade-restocks { margin-top: calc(4 * var(--pixel)); color: #444; font-size: calc(6 * var(--pixel)); line-height: 1.5; }
+#ui .progression-inventory-label { margin: calc(6 * var(--pixel)) 0 calc(3 * var(--pixel)); font-size: calc(8 * var(--pixel)); }
+#ui .progression-hotbar { margin-top: calc(4 * var(--pixel)); }
+#ui .progression-equipment { display: flex; align-items: center; gap: calc(2 * var(--pixel)); margin-top: calc(5 * var(--pixel)); }
+#ui .progression-player-level { margin-left: auto; color: #386921; font-size: calc(6 * var(--pixel)); }
+#ui .progression-drop-cursor { margin-top: calc(4 * var(--pixel)); padding: calc(2 * var(--pixel)); font-size: calc(6 * var(--pixel)); }
+#ui .progression-note,
+#ui .progression-status { margin-top: calc(4 * var(--pixel)); color: #444; font-size: calc(6 * var(--pixel)); line-height: 1.5; overflow-wrap: anywhere; }
+#ui .progression-status[data-state="error"] { color: #a00000; }
+#ui .progression-help { margin-top: calc(5 * var(--pixel)); color: #eee; font-size: calc(6 * var(--pixel)); line-height: 1.5; text-align: center; white-space: pre-line; text-shadow: var(--pixel) var(--pixel) #222; }

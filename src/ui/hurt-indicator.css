@@ -1,0 +1,26 @@
+/* The simulation supplies opacity; no autonomous animation can outlive a hit
+ * or run over a paused screen. Color remains available with reduced motion. */
+#ui .hurt-indicator {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    ellipse at center,
+    #be1e1900 35%,
+    #c31e1866 65%,
+    #aa0f0f 100%
+  );
+  box-shadow: inset 0 0 0 calc(2 * var(--pixel)) #ef625c;
+}
+
+#ui .hurt-indicator[hidden] {
+  display: none;
+}
+
+#ui[data-menu="open"] .hurt-indicator,
+#ui[data-overlay]:not([data-overlay=""]) .hurt-indicator,
+#ui[data-hud="hidden"] .hurt-indicator {
+  visibility: hidden;
+}

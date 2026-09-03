@@ -1,0 +1,110 @@
+@import "./ui/menus.css";
+@import "./ui/slots.css";
+@import "./ui/hud.css";
+@import "./ui/combat-indicator.css";
+@import "./ui/hurt-indicator.css";
+@import "./ui/inventory.css";
+@import "./ui/survival.css";
+
+@font-face {
+  font-family: "Voxelcraft";
+  src: url("/fonts/Monocraft-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root { color-scheme: dark; background: #171717; }
+body:has(#game) { margin: 0; overflow: hidden; }
+#game, #ui { position: fixed; inset: 0; width: 100%; height: 100%; }
+#game canvas { display: block; width: 100%; height: 100%; outline: none; }
+#game canvas[data-input-mode="remote"] { cursor: grab; user-select: none; }
+#game canvas[data-input-mode="remote"][data-looking="true"] { cursor: grabbing; }
+
+#ui {
+  --gui-scale: 2;
+  --pixel: calc(1px * var(--gui-scale));
+  --slot-size: calc(18 * var(--pixel));
+  --ink: #fff;
+  --muted: #aaa;
+  --panel: #c6c6c6;
+  --panel-ink: #383838;
+  --accent: #fff;
+  --hairline: #767676;
+  z-index: 2;
+  color: var(--ink);
+  font: calc(9 * var(--pixel))/1.35 "Voxelcraft", monospace;
+  font-synthesis: none;
+  pointer-events: none;
+}
+#ui, #ui *, #ui *::before, #ui *::after { box-sizing: border-box; }
+#ui [hidden] { display: none !important; }
+#ui :is(button, input, select, textarea, kbd) { font: inherit; border-radius: 0; }
+#ui :is(button, a, input, select, textarea) { pointer-events: auto; }
+#ui :is(button, a, input, select) { -webkit-tap-highlight-color: transparent; }
+#ui button {
+  position: relative;
+  min-height: calc(20 * var(--pixel));
+  padding: calc(3 * var(--pixel)) calc(6 * var(--pixel));
+  border: var(--pixel) solid #111;
+  background: linear-gradient(#858585, #707070);
+  box-shadow: inset var(--pixel) var(--pixel) #b5b5b5, inset calc(-1 * var(--pixel)) calc(-2 * var(--pixel)) #4c4c4c;
+  color: #fff;
+  text-align: center;
+  text-shadow: var(--pixel) var(--pixel) #303030;
+  cursor: pointer;
+  line-height: 1.25;
+}
+#ui button:hover:not(:disabled), #ui button:focus-visible {
+  background: #7c88a0;
+  border-color: #fff;
+  color: #ffffa0;
+}
+#ui button:active:not(:disabled) {
+  box-shadow: inset var(--pixel) var(--pixel) #454545, inset calc(-1 * var(--pixel)) calc(-1 * var(--pixel)) #aaa;
+}
+#ui button:disabled { color: #a0a0a0; background: #555; text-shadow: var(--pixel) var(--pixel) #222; cursor: not-allowed; }
+#ui :is(button, input, select, textarea, a):focus-visible { outline: var(--pixel) solid #fff; outline-offset: var(--pixel); }
+#ui :is(input:not([type="range"]):not([type="checkbox"]), select, textarea) {
+  min-width: 0;
+  padding: calc(4 * var(--pixel));
+  background: #090909;
+  border: var(--pixel) solid #888;
+  color: #fff;
+}
+#ui select { max-width: 60%; }
+#ui input[type="checkbox"] { width: calc(10 * var(--pixel)); height: calc(10 * var(--pixel)); accent-color: #b6b6b6; flex-shrink: 0; cursor: pointer; }
+#ui input[type="range"] { width: 100%; height: calc(14 * var(--pixel)); margin: 0; accent-color: #c6c6c6; cursor: pointer; }
+#ui input::placeholder { color: #aaa; opacity: 1; }
+#ui :is(h1, h2, h3, h4, p) { margin: 0; font-weight: 400; }
+#ui svg { width: calc(10 * var(--pixel)); height: calc(10 * var(--pixel)); flex-shrink: 0; pointer-events: none; }
+#ui kbd { white-space: nowrap; color: inherit; }
+#ui .icon-button { width: calc(18 * var(--pixel)); height: calc(18 * var(--pixel)); min-height: 0; padding: calc(3 * var(--pixel)); display: inline-flex; justify-content: center; align-items: center; }
+#ui .pixel-panel {
+  border: calc(2 * var(--pixel)) solid;
+  border-color: #fff #555 #555 #fff;
+  background: var(--panel);
+  color: var(--panel-ink);
+  box-shadow: 0 0 0 var(--pixel) #111, inset calc(-1 * var(--pixel)) calc(-1 * var(--pixel)) #aaa;
+  padding: calc(6 * var(--pixel));
+}
+#ui .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+#ui .item-icon { display: block; object-fit: contain; image-rendering: pixelated; pointer-events: none; }
+#ui .item-icon-fallback { display: flex; align-items: center; justify-content: center; }
+#ui .item-icon-fallback svg { width: 85%; height: 85%; }
+#ui .fatal-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: calc(12 * var(--pixel));
+  padding: 8%;
+  background: #211d1a;
+  text-align: center;
+  pointer-events: auto;
+}
+#ui .fatal-error h1 { font-size: calc(16 * var(--pixel)); }
+#ui .fatal-error p { max-width: calc(300 * var(--pixel)); overflow-wrap: anywhere; }
+#ui .fatal-error button { min-width: calc(140 * var(--pixel)); }

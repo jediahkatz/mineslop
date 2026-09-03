@@ -1,0 +1,75 @@
+/* Small attack indicator below the crosshair; never an entity health bar.
+ * State changes are immediate. The game clock owns the fill and refusal tint,
+ * with no CSS animations, eased readiness or motion to disable. */
+#ui .combat-indicator {
+  position: absolute;
+  top: calc(50% + 8 * var(--pixel));
+  left: 50%;
+  width: calc(16 * var(--pixel));
+  height: calc(8 * var(--pixel));
+  transform: translateX(-50%);
+  color: #fff;
+  pointer-events: none;
+}
+
+#ui .combat-indicator-track {
+  position: absolute;
+  top: calc(2 * var(--pixel));
+  left: 0;
+  width: 100%;
+  height: calc(4 * var(--pixel));
+  border: var(--pixel) solid currentColor;
+  background: #181818;
+  box-shadow: var(--pixel) var(--pixel) #0009;
+}
+
+#ui .combat-indicator-fill {
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  transform-origin: left;
+  transform: scaleX(0);
+}
+
+#ui .combat-indicator-ready {
+  position: absolute;
+  left: calc(4 * var(--pixel));
+  width: calc(8 * var(--pixel));
+  height: calc(8 * var(--pixel));
+  background: currentColor;
+  clip-path: polygon(
+    75% 0, 100% 0, 100% 25%, 62.5% 62.5%, 75% 75%,
+    62.5% 87.5%, 50% 75%, 25% 100%, 0 75%, 25% 50%,
+    12.5% 37.5%, 25% 25%, 37.5% 37.5%
+  );
+}
+
+#ui .combat-indicator[data-phase="using-item"] {
+  color: #aaa;
+}
+
+#ui .combat-indicator[data-phase="using-item"] .combat-indicator-fill {
+  opacity: 0.25;
+}
+
+#ui .combat-indicator[data-phase="using-item"] .combat-indicator-track::after {
+  content: "";
+  position: absolute;
+  top: calc(-3 * var(--pixel));
+  left: calc(6 * var(--pixel));
+  width: var(--pixel);
+  height: calc(8 * var(--pixel));
+  background: currentColor;
+  box-shadow: var(--pixel) 0 #181818;
+  transform: rotate(45deg);
+}
+
+#ui .combat-indicator[data-blocked]:not([data-blocked=""]) {
+  color: #ffb068;
+}
+
+#ui[data-menu="open"] .combat-indicator,
+#ui[data-overlay]:not([data-overlay=""]) .combat-indicator,
+#ui[data-hud="hidden"] .combat-indicator {
+  visibility: hidden;
+}

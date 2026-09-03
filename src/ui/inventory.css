@@ -1,0 +1,59 @@
+#ui .inventory-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: safe center;
+  justify-content: safe center;
+  padding: calc(26 * var(--pixel)) calc(4 * var(--pixel));
+  overflow: auto;
+  background: #0009;
+  pointer-events: auto;
+}
+#ui .inventory-layout { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: calc(4 * var(--pixel)); position: relative; max-width: 100%; margin: auto; }
+#ui .inventory-panel { width: calc(178 * var(--pixel)); flex-shrink: 0; position: relative; }
+#ui .inventory-header { display: flex; justify-content: space-between; align-items: flex-start; gap: calc(4 * var(--pixel)); margin-bottom: calc(3 * var(--pixel)); }
+#ui .inventory-header h2 { font-size: calc(8 * var(--pixel)); line-height: calc(13 * var(--pixel)); }
+#ui .inventory-header .inventory-close { width: calc(12 * var(--pixel)); height: calc(12 * var(--pixel)); padding: 0; font-size: calc(10 * var(--pixel)); }
+#ui .inventory-upper { position: relative; width: calc(162 * var(--pixel)); height: calc(75 * var(--pixel)); }
+#ui .equipment-grid { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; }
+#ui .inventory-avatar { position: absolute; left: calc(23 * var(--pixel)); top: calc(2 * var(--pixel)); width: calc(35 * var(--pixel)); height: calc(68 * var(--pixel)); background: #222; image-rendering: pixelated; }
+#ui .inventory-offhand { position: absolute; left: calc(62 * var(--pixel)); bottom: calc(3 * var(--pixel)); }
+#ui .crafting-workbench { position: absolute; right: 0; top: calc(5 * var(--pixel)); width: calc(78 * var(--pixel)); }
+#ui .crafting-workbench h3 { font-size: calc(8 * var(--pixel)); margin: 0 0 calc(3 * var(--pixel)); }
+#ui .crafting-row { display: flex; align-items: center; gap: calc(2 * var(--pixel)); }
+#ui .crafting-grid { display: grid; grid-template-columns: repeat(var(--crafting-size, 2), var(--slot-size)); grid-auto-rows: var(--slot-size); }
+#ui .crafting-arrow { display: block; color: #666; font-size: calc(15 * var(--pixel)); width: calc(14 * var(--pixel)); }
+#ui .result-slot { width: calc(24 * var(--pixel)); height: calc(24 * var(--pixel)); }
+#ui .recipe-book-toggle { position: absolute; top: 0; left: calc(-22 * var(--pixel)); }
+#ui .bag-label { font-size: calc(8 * var(--pixel)); margin-bottom: calc(3 * var(--pixel)); }
+#ui .inventory-hotbar { margin-top: calc(4 * var(--pixel)); }
+#ui .inventory-panel[data-screen="crafting"] .inventory-upper { height: calc(84 * var(--pixel)); }
+#ui .inventory-panel[data-screen="crafting"] :is(.equipment-grid, .inventory-avatar, .inventory-offhand) { display: none; }
+#ui .inventory-panel[data-screen="crafting"] .crafting-workbench { left: 50%; right: auto; transform: translateX(-50%); width: calc(99 * var(--pixel)); }
+#ui .inventory-panel[data-screen="crafting"] .recipe-book-toggle { top: calc(27 * var(--pixel)); left: calc(-24 * var(--pixel)); }
+#ui .inventory-tabs { position: absolute; left: calc(-2 * var(--pixel)); top: calc(-26 * var(--pixel)); display: flex; gap: calc(2 * var(--pixel)); }
+#ui .creative-tab { width: calc(27 * var(--pixel)); height: calc(25 * var(--pixel)); padding: calc(4 * var(--pixel)); display: flex; align-items: center; justify-content: center; background: #aaa; }
+#ui .creative-tab .item-icon { width: calc(16 * var(--pixel)); height: calc(16 * var(--pixel)); }
+#ui .creative-tab[aria-selected="true"] { background: #c6c6c6; border-bottom-color: #c6c6c6; box-shadow: inset var(--pixel) var(--pixel) #fff; z-index: 1; }
+#ui .inventory-panel:has(.creative-catalog:not([hidden])) { width: calc(190 * var(--pixel)); }
+#ui .search-field { display: flex; align-items: center; gap: calc(3 * var(--pixel)); min-width: 0; }
+#ui .search-field input { width: 100%; font-size: calc(8 * var(--pixel)); height: calc(16 * var(--pixel)); }
+#ui .creative-grid { display: grid; grid-template-columns: repeat(9, var(--slot-size)); grid-auto-rows: var(--slot-size); overflow-y: auto; max-height: calc(90 * var(--pixel)); overscroll-behavior: contain; margin-top: calc(4 * var(--pixel)); scrollbar-width: thin; scrollbar-color: #777 #b8b8b8; }
+#ui .inventory-result-count { display: block; margin-top: calc(3 * var(--pixel)); font-size: calc(6 * var(--pixel)); line-height: 1.5; }
+#ui .inventory-empty { padding: calc(8 * var(--pixel)); font-size: calc(8 * var(--pixel)); }
+#ui .creative-palette { margin-top: calc(7 * var(--pixel)); }
+#ui .creative-palette p { font-size: calc(6 * var(--pixel)); margin-top: calc(5 * var(--pixel)); }
+#ui .owned-hotbar-label { margin-top: calc(6 * var(--pixel)); font-size: calc(8 * var(--pixel)); }
+#ui .inventory-status { margin-top: calc(5 * var(--pixel)); font-size: calc(7 * var(--pixel)); line-height: 1.5; overflow-wrap: anywhere; }
+#ui .inventory-status[data-state="error"] { color: #a00000; }
+#ui .legacy-crafting { margin-top: calc(4 * var(--pixel)); font-size: calc(7 * var(--pixel)); color: #665122; }
+#ui .inventory-help { width: 100%; color: #eee; font-size: calc(6 * var(--pixel)); line-height: 1.5; text-shadow: var(--pixel) var(--pixel) #222; text-align: center; }
+#ui .recipe-book { width: calc(130 * var(--pixel)); height: calc(184 * var(--pixel)); display: flex; flex-direction: column; flex-shrink: 0; gap: calc(5 * var(--pixel)); }
+#ui .recipe-book h3 { font-size: calc(9 * var(--pixel)); }
+#ui .recipe-search { width: 100%; font-size: calc(8 * var(--pixel)); height: calc(17 * var(--pixel)); }
+#ui .craftable-filter { display: flex; align-items: center; gap: calc(3 * var(--pixel)); font-size: calc(7 * var(--pixel)); }
+#ui .recipe-grid { display: grid; grid-template-columns: repeat(4, calc(24 * var(--pixel))); grid-auto-rows: calc(24 * var(--pixel)); gap: var(--pixel); min-height: 0; overflow-y: auto; flex: 1; scrollbar-width: thin; }
+#ui .recipe-slot { width: calc(24 * var(--pixel)); height: calc(24 * var(--pixel)); }
+#ui .recipe-slot.is-unavailable { border-color: #875555 #ddd #ddd #875555; }
+#ui .recipe-empty, #ui .recipe-book-help { font-size: calc(7 * var(--pixel)); line-height: 1.45; }

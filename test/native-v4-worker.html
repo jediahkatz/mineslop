@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="voxelcraft-test-fixture" content="native-v4-worker" />
+    <link rel="icon" href="data:," />
+    <title>Native v4 transport test</title>
+  </head>
+  <body>
+    <p>Frozen production-only native terrain transport fixture. No Game, storage or player save is loaded.</p>
+    <!-- Parent builds this entry into a new immutable output and serves a fresh
+         numeric-loopback port. The fixture rejects development/HMR hosts. -->
+    <script type="module" src="./native-v4-browser-fixture.js"></script>
+  </body>
+</html>

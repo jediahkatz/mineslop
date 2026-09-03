@@ -1,0 +1,65 @@
+#ui .stack-slot, #ui .recipe-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+  width: var(--slot-size);
+  height: var(--slot-size);
+  min-height: 0;
+  padding: var(--pixel);
+  border: var(--pixel) solid;
+  border-color: #373737 #fff #fff #373737;
+  background: #8b8b8b;
+  box-shadow: none;
+  color: #fff;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+}
+#ui .stack-slot:disabled, #ui .recipe-slot:disabled { opacity: 1; background: #8b8b8b; box-shadow: none; }
+#ui .stack-slot:hover:not(:disabled), #ui .stack-slot:active:not(:disabled), #ui .stack-slot:focus-visible, #ui .recipe-slot:hover:not(:disabled), #ui .recipe-slot:focus-visible {
+  background: #b2b2b2;
+  border-color: #373737 #fff #fff #373737;
+  box-shadow: none;
+}
+#ui .stack-slot:focus-visible { outline-offset: calc(-2 * var(--pixel)); }
+#ui .stack-slot.is-drag-target { background: #c4c4c4; outline: var(--pixel) solid #fff; outline-offset: calc(-2 * var(--pixel)); }
+#ui .slot-picture { display: flex; align-items: center; justify-content: center; width: calc(16 * var(--pixel)); height: calc(16 * var(--pixel)); pointer-events: none; }
+#ui .slot-picture .item-icon, #ui .recipe-slot .item-icon { width: calc(16 * var(--pixel)); height: calc(16 * var(--pixel)); }
+#ui .slot-count { position: absolute; right: 0; bottom: calc(-1 * var(--pixel)); z-index: 2; color: #fff; font-size: calc(9 * var(--pixel)); line-height: 1; text-shadow: var(--pixel) var(--pixel) #222; pointer-events: none; }
+#ui .slot-wear { position: absolute; left: calc(2 * var(--pixel)); right: calc(2 * var(--pixel)); bottom: var(--pixel); height: calc(2 * var(--pixel)); background: #111; pointer-events: none; }
+#ui .slot-wear > span { display: block; height: var(--pixel); background: #5eff00; }
+#ui .slot-placeholder { position: absolute; inset: calc(3 * var(--pixel)); color: #656565; pointer-events: none; }
+#ui .slot-placeholder svg { width: 100%; height: 100%; }
+#ui .player-slot-grid { display: grid; grid-template-columns: repeat(9, var(--slot-size)); grid-auto-rows: var(--slot-size); gap: 0; width: fit-content; }
+#ui .stack-tooltip {
+  position: fixed;
+  z-index: 100;
+  pointer-events: none;
+  max-width: min(calc(230 * var(--pixel)), calc(100vw - 16px));
+  padding: calc(3 * var(--pixel)) calc(4 * var(--pixel));
+  border: var(--pixel) solid #3b0962;
+  outline: var(--pixel) solid #130414;
+  background: #100010f5;
+  color: #fff;
+  font-size: calc(9 * var(--pixel));
+  text-shadow: var(--pixel) var(--pixel) #222;
+  line-height: 1.4;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+#ui .stack-tooltip-detail { color: #aaa; font-size: calc(8 * var(--pixel)); white-space: pre-line; }
+#ui .carried-stack, #ui .carried-stack:hover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 101;
+  width: calc(18 * var(--pixel));
+  height: calc(18 * var(--pixel));
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  pointer-events: none;
+}
+#ui .carried-stack .slot-wear { display: none; }
