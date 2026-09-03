@@ -117,9 +117,11 @@ test("groups and canonical pages cover all IDs once without collapsing shared wo
   assert.ok(ids.includes(BLOCK.OAK_SLAB) && ids.includes(BLOCK.BIRCH_SLAB));
 });
 
-test("the deterministic capture queue covers the full declared per-ID evidence matrix", () => {
+test("reference-review captures cover every ID without a mandatory blind phase", () => {
   const observed = new Map(BLOCK_CATALOG.map(({ id }) => [id, new Set()]));
-  for (const selection of captureQueue()) {
+  const queue = captureQueue();
+  assert.ok(queue.every(({ labels }) => labels === "labeled"));
+  for (const selection of queue) {
     const plan = sheetPlan(selection);
     for (const { id, key } of plan.cases)
       observed.get(id).add(keyFor({ ...selection, case: key }));
@@ -178,17 +180,17 @@ function decisionFixture(id = BLOCK.STONE) {
       },
     });
   }
-  const blindCapture = paths.find((path) => path.includes("/blind/"));
   const record = {
     id, key: `individual-${id}`, sourceFingerprint: fingerprint,
+    reference: {
+      edition: "java", version: "26.2", block: "minecraft:stone",
+      url: "https://mcasset.cloud/26.2/assets/minecraft/textures/block/stone.png",
+    },
     captures: paths, openFindings: [],
-    critics: ["blind", "adversarial"].map((role) => ({
+    critics: ["reference", "adversarial"].map((role) => ({
       reviewer: `policy-test-${role}`, role,
       reviewedAt: "2026-09-03T01:00:00Z",
-      labelsRevealedAt: "2026-09-03T02:00:00Z",
-      blindCapture, initialGuess: "Policy test only",
-      nearestConfusableId: BLOCK.COBBLESTONE,
-      comparison: "Policy schema comparison, not a real visual judgment.",
+      comparison: "Policy-schema Minecraft reference comparison, not a real visual judgment.",
       criteria: Object.fromEntries(CRITERIA.map((criterion) => [criterion, {
         verdict: "pass", note: `Policy fixture for ${criterion}; this is not visual evidence.`,
         evidence: paths,
@@ -208,9 +210,6 @@ test("individual approvals require current artifacts, independent critics and co
   fixture.record.critics[1].reviewer = fixture.record.critics[0].reviewer;
   assert.match(audit().errors.join("\n"), /independent/);
   fixture.record.critics[1].reviewer = "policy-test-second";
-  fixture.record.critics[0].labelsRevealedAt = "2026-09-03T00:30:00Z";
-  assert.match(audit().errors.join("\n"), /before label reveal/);
-  fixture.record.critics[0].labelsRevealedAt = "2026-09-03T02:00:00Z";
   fixture.record.sourceFingerprint = "stale";
   assert.match(audit().errors.join("\n"), /stale review/);
   fixture.record.sourceFingerprint = fingerprint;
@@ -223,4 +222,26 @@ test("individual approvals require current artifacts, independent critics and co
   first.snapshot.cases[0].faceParts = facePartsFor(BLOCK.STONE);
   fixture.record.captures.pop();
   assert.match(audit().errors.join("\n"), /missing repeat-2x2x2/);
+});
+
+test("approval requires a versioned Minecraft reference rather than a blind naming pass", () => {
+  const fixture = decisionFixture();
+  const audit = () => reviewAudit(fixture.rows, fixture.decisions, fixture.captures, fingerprint);
+  const reference = fixture.record.reference;
+  for (const invalid of [
+    undefined,
+    { ...reference, version: "" },
+    { ...reference, block: "" },
+    { ...reference, edition: "unknown" },
+    { ...reference, url: "javascript:alert(1)" },
+    { ...reference, url: "not-a-url" },
+  ]) {
+    fixture.record.reference = invalid;
+    assert.match(audit().errors.join("\n"), /Minecraft Java reference required/);
+  }
+  fixture.record.reference = reference;
+  fixture.record.critics[0].role = "blind";
+  assert.match(audit().errors.join("\n"), /reference\/adversarial/);
+  fixture.record.critics[0].role = "reference";
+  assert.deepEqual(audit().errors, []);
 });

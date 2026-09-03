@@ -87,8 +87,6 @@ export function pageCounts(input = {}) {
 
 export function captureQueue({ group = "all", ids = null, seed = DEFAULT_SEED } = {}) {
   const result = [];
-  for (let page = 0; page < pageCounts({ group, ids }); page++)
-    result.push({ group, ids, seed, set: "catalog", labels: "blind", light: "day", page });
   for (const light of LIGHTS)
     for (let page = 0; page < pageCounts({ group, ids }); page++)
       result.push({ group, ids, seed, set: "catalog", labels: "labeled", light, page });

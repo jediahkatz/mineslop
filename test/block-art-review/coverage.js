@@ -14,6 +14,20 @@ const nonempty = (value, minimum = 1) =>
   typeof value === "string" && value.trim().length >= minimum;
 const matrixKey = ({ case: key, light, labels }) => `${key}/${light}/${labels}`;
 
+function validReference(reference) {
+  if (
+    reference?.edition !== "java" ||
+    !nonempty(reference.version) ||
+    !nonempty(reference.block, 3)
+  ) return false;
+  try {
+    const url = new URL(reference.url);
+    return url.protocol === "https:" && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 export function parseManifest(markdown) {
   const match = markdown.match(
     /<!-- mineslop-block-art-manifest:start -->\s*```text\s*\n([\s\S]*?)\n```\s*<!-- mineslop-block-art-manifest:end -->/,
@@ -113,6 +127,8 @@ export function reviewAudit(rows, decisions, captures, fingerprint) {
     }
     if (record.sourceFingerprint !== fingerprint)
       errors.push(`${prefix}: stale review`);
+    if (!validReference(record.reference))
+      errors.push(`${prefix}: versioned Minecraft Java reference required`);
     if (!Array.isArray(record.openFindings) || record.openFindings.length)
       errors.push(`${prefix}: unresolved or undeclared findings`);
     const paths = Array.isArray(record.captures) ? record.captures : [];
@@ -129,19 +145,16 @@ export function reviewAudit(rows, decisions, captures, fingerprint) {
     if (
       critics.length < 2 ||
       new Set(critics.map(({ reviewer }) => String(reviewer).trim().toLowerCase())).size !== critics.length ||
-      !critics.some(({ role }) => role === "blind") ||
+      !critics.some(({ role }) => role === "reference") ||
       !critics.some(({ role }) => role === "adversarial")
-    ) errors.push(`${prefix}: two independent blind/adversarial critics required`);
+    ) errors.push(`${prefix}: two independent reference/adversarial critics required`);
     for (const critic of critics) {
-      if (!nonempty(critic.reviewer) || !["blind", "adversarial"].includes(critic.role))
+      if (!nonempty(critic.reviewer) || !["reference", "adversarial"].includes(critic.role))
         errors.push(`${prefix}: invalid critic identity or role`);
       if (!Number.isFinite(Date.parse(critic.reviewedAt)))
         errors.push(`${prefix}: missing review timestamp`);
-      if (
-        !Number.isSafeInteger(critic.nearestConfusableId) ||
-        !BLOCKS[critic.nearestConfusableId] || critic.nearestConfusableId === row.id ||
-        !nonempty(critic.comparison, 24)
-      ) errors.push(`${prefix}: explicit nearest-confusable comparison required`);
+      if (!nonempty(critic.comparison, 24))
+        errors.push(`${prefix}: explicit Minecraft-reference comparison required`);
       for (const criterion of CRITERIA) {
         const decision = critic.criteria?.[criterion];
         if (decision?.verdict !== "pass" || !nonempty(decision.note, 24))
@@ -150,18 +163,6 @@ export function reviewAudit(rows, decisions, captures, fingerprint) {
           !Array.isArray(decision?.evidence) || !decision.evidence.length ||
           decision.evidence.some((path) => !paths.includes(path))
         ) errors.push(`${prefix}/${critic.reviewer}: ${criterion} lacks capture references`);
-      }
-      if (critic.role === "blind") {
-        const capture = captures.get(critic.blindCapture);
-        if (
-          !paths.includes(critic.blindCapture) ||
-          capture?.snapshot?.selection?.labels !== "blind" ||
-          !capture?.snapshot?.cases?.some((entry) => entry.id === row.id) ||
-          !nonempty(critic.initialGuess, 3) ||
-          !Number.isFinite(Date.parse(critic.labelsRevealedAt)) ||
-          !(Date.parse(critic.reviewedAt) <= Date.parse(critic.labelsRevealedAt)) ||
-          !(Date.parse(capture?.createdAt) <= Date.parse(critic.reviewedAt))
-        ) errors.push(`${prefix}: blind guess must be recorded against its capture before label reveal`);
       }
     }
   }

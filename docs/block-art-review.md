@@ -4,11 +4,32 @@
 
 The catalog contains 270 block IDs: 105 historical IDs and 165 expansion IDs.
 All 270 have rendered through the real browser harness. The 19 ore IDs have
-completed a source-specific paired visual review after refinement, including
+completed a historical recognizability review after refinement, including
 controlled native-32px comparisons; see the [ore review checkpoint](ore-art-review.md).
-Their final manifest status is **blocked**, pending final combined-source
+Those passes do not establish Minecraft fidelity. Their final manifest status
+is **blocked**, pending direct Minecraft comparison, final combined-source
 evidence and live-world checks. The other 251 IDs remain **unreviewed**.
 No final approval is claimed by runtime coverage or an intermediate review.
+
+## Primary target: the actual Minecraft block
+
+Compare each Mineslop block directly with its vanilla Minecraft Java counterpart,
+then redraw our artwork toward that appearance. Blind naming exercises are not
+the primary test or a required review stage.
+
+Use versioned vanilla textures/models or genuine in-game reference views, not
+custom resource packs or another artist's interpretation. The current content
+target is [Java 26.2](https://www.minecraft.net/en-us/article/minecraft-java-edition-26-2);
+the [versioned asset browser](https://mcasset.cloud/26.2/assets/minecraft/textures/block/)
+is a useful reference mirror. Record edition, version, block name and source URL.
+Do not mix editions/versions silently.
+
+Inspect reference and Mineslop side by side: texture layout and cluster shapes,
+palette, scale, face assignment, model proportions, opacity and lighting.
+Compare raw sprites at the same pixel scale, and distinguish texture differences
+from differences in the renderers' illumination. Prioritize concrete deviations
+from Minecraft over abstract material-recognition scores. Keep the implementation
+and artwork original; reference downloads are inspection inputs, not shipped assets.
 
 The denominator is always the live `BLOCK_CATALOG`, never an ID interval,
 `BLOCKS.length`, a handpicked gallery, or the number of unique shared textures.
@@ -27,17 +48,16 @@ growth stages, furnace-lit states, or shapes that the registry does not support.
 
 Both critics must address every criterion for every ID, using specific evidence:
 
-- `identity`: Guess the material without its label first. Name the nearest
-  confusable catalog ID and the visual cue that separates them. Reject identity
-  carried only by text, hue, memorized catalog position or a numeric ID.
-  For Air, judge deliberate absence versus an accidentally invisible material.
+- `identity`: Compare with the matching vanilla Minecraft reference. Identify
+  the specific visual features that match or differ; being guessable by name
+  or color alone does not establish fidelity. For Air, verify deliberate absence.
 - `faces`: Inspect top, side and bottom, every authored texture part, opposite
   views, tiling seams, and axis/facing states. End grain must follow the axis;
   door halves and bed halves must join. Flag flipped/stretching UVs or a front
   design copied onto every face where that undermines the object.
-- `pixelArt`: Judge original pixel clusters, material structure, edges, value
-  hierarchy, scale and repetition. Reject generic seeded noise or noisy recolors
-  that technically differ in bytes but do not communicate different materials.
+- `pixelArt`: Compare cluster silhouettes, placement, density, palette, value
+  hierarchy and repetition against the vanilla sprite. Refine our original
+  pixels toward those reference features, not toward a generic material ideal.
   Intentional shared family material is acceptable; it does not waive shape QA.
 - `lighting`: Check the canonical state in daylight, real cast shadow and night.
   Does it retain material structure, useful contrast, and clear silhouette without
@@ -61,7 +81,9 @@ snow/snow block/wool/quartz; mud/podzol/mycelium; bark and plank families;
 each wood family's slab/stair/fence/gate; coral family and live/dead versions;
 chest/barrel/composter; furnace/blast furnace; smithing/cartography/crafting tables;
 anvil/chipped/damaged; glowstone/sea lantern/magma/potent sulfur; kelp/seagrass/fern.
-These are review prompts, not findings or approvals.
+These are secondary cross-material checks. The primary comparison is always
+each block against its actual Minecraft counterpart, not merely against our
+other blocks. These prompts are not findings or approvals.
 
 Record `needs-work` for visible defects and `blocked` for missing evidence.
 No family-level, sheet-level, inherited, automated or blanket visual approvals.
@@ -120,7 +142,7 @@ URL options:
 - `light=day|shadow|night`; `labels=labeled|blind`.
 - `seed=mineslop-block-art-v1`: fixed seeded permutation, identical across label
   modes. Blind plates omit ID/name/state/group labels and show only Sample A–F.
-  The URL and receipt contain the answer key: give critics the PNG only.
+  Blind mode remains available for optional diagnostics; it is not required.
 
 API: `window.__mineslopBlockArtReview` exposes `ready`, `busy`, `error`, `kind`,
 `version`, async `render(options)`, `snapshot()`, `groups()` and `dispose()`.
@@ -141,8 +163,8 @@ any source edit. The capture runner refuses a stale build or mid-capture edits.
 
 For **every** ID, require:
 
-1. Canonical state, labeled, day + shadow + night.
-2. Canonical state, blind, day; independent identity guess before label reveal.
+1. An identified, versioned Minecraft Java reference and a direct comparison.
+2. Canonical Mineslop state, labeled, day + shadow + night.
 3. Every remaining case from `casesFor(id)`, labeled, day.
 
 This is representative valid-state coverage, not the Cartesian product of every
@@ -154,16 +176,16 @@ Unknown shape kinds fail until a profile is explicitly added.
 
 Use `queue.mjs` to enumerate the whole deterministic matrix, or one group at a
 time. Do not let six readable samples become a claim that the other 264 passed.
-The coordinator keeps an outstanding-ID list and the receipt-to-sample answer
-key. Keep each critic batch to one six-card sheet; for multipart/state reviews
+The coordinator keeps an outstanding-ID list and the matching Minecraft references.
+Keep each critic batch to one six-card sheet; for multipart/state reviews
 use `ids=<one-ID>` and page through states.
 
-Capture blind sheets first. Give an independent critic only those PNGs, not
-the manifest, answer-key JSON, source names or labeled plates. Preserve its
-initial guess, comparison and timestamp. Then reveal identity and let it finish
-the rubric; a second independent adversarial critic attacks the labeled
-faces/states/lighting/presentation. Critics must disagree with an apparent
-approval when evidence warrants it. Each ID keeps separate judgments.
+Put the real Minecraft reference beside our labeled render. Record the concrete
+differences, improve our texture/model, and compare again. One reference reviewer
+and an independent adversarial reviewer check that same target and the rendering
+guardrails. Do not spend additional rounds on blind identification unless a
+specific unresolved issue genuinely requires it. Historical blind judgments
+remain preserved but are not Minecraft-fidelity approvals.
 
 After initial rendered criticism, the art owner may change textures/painters.
 Coordinate geometry/renderer/gameplay defects with their owners. Commit/push
@@ -197,7 +219,6 @@ Keep the preview running for parent/manual review. Capture/test commands use it:
 
 ```sh
 npm run test:block-art-review:browser
-node test/block-art-review/capture.mjs --group ores --labels blind --light day --page 0 --output /opt/cursor/artifacts/mineslop_ores_blind_day_01
 node test/block-art-review/capture.mjs --group ores --labels labeled --light day --page 0 --output /opt/cursor/artifacts/mineslop_ores_labeled_day_01
 node test/block-art-review/capture.mjs --group ores --labels labeled --light shadow --page 0 --output /opt/cursor/artifacts/mineslop_ores_shadow_01
 node test/block-art-review/capture.mjs --group ores --labels labeled --light night --page 0 --output /opt/cursor/artifacts/mineslop_ores_night_01
@@ -222,14 +243,13 @@ For each reviewed ID add a unique record to `reviews.json` with:
 
 - `id`, a unique `key`, current `sourceFingerprint`, `captures` (absolute
   `capture.json` paths), and `openFindings` (empty only when resolved).
-- `critics`: at least two distinct `reviewer` identifiers, one `role: "blind"`
-  and one `role: "adversarial"`; each has `reviewedAt`, `nearestConfusableId`,
-  a specific `comparison`, and all seven `criteria`.
+- `reference`: `edition: "java"`, an explicit `version`, the Minecraft `block`
+  name and an HTTPS `url` identifying the vanilla source.
+- `critics`: at least two distinct `reviewer` identifiers, one `role: "reference"`
+  and one `role: "adversarial"`; each has `reviewedAt`, a specific Minecraft
+  reference `comparison`, and all seven `criteria`.
 - Each criterion has `verdict: "pass"` only after genuine review, a substantive
   `note`, and an `evidence` array referencing that record's capture paths.
-- The blind critic additionally has `blindCapture`, preserved `initialGuess`,
-  and `labelsRevealedAt`. Its initial `reviewedAt` must precede label reveal
-  and follow the capture. Do not rewrite a mistaken initial guess.
 
 Set that exact ID's manifest status to `approved` and fourth field to its
 record `key` only when both critics pass all criteria, required captures exist,
@@ -246,7 +266,7 @@ unreviewed rows are valid checkpoint data. The second must fail until all live
 IDs have separate, current, evidence-backed approvals. The verifier checks
 actual PNG files/hashes, all required case/light/label combinations, all face
 parts and surfaces, successful GPU receipts, source freshness, individual
-criteria, independent critic identities and blind/reveal ordering. Missing
+criteria, independent critic identities and versioned reference metadata. Missing
 artifact files after moving machines are blockers, not grounds to skip the gate.
 
 This is a fail-closed accounting system, not an aesthetic oracle or proof of

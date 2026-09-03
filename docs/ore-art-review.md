@@ -1,10 +1,22 @@
 # Ore art review checkpoint
 
-The 19 ore IDs have source-specific paired visual passes at the
+## Updated target
+
+The current review target is direct comparison with actual vanilla Minecraft
+Java blocks, then redrawing our artwork toward that appearance. The historical
+recognizability study below is not a Minecraft-fidelity pass. All 19 ore IDs
+remain open for that reference-led check, alongside final-source/live-world
+verification. Preserve the previous evidence; do not substitute it for the
+new comparison.
+
+## Historical recognizability checkpoint
+
+The 19 ore IDs received source-specific paired visual passes at the
 [refinement checkpoint](https://github.com/jediahkatz/mineslop/commit/8f8f6b469f229a4aa41e9a81eb991f1af9cddec5).
 This does not approve the final combined game. Their entries in
-`block-art-review.md` remain `blocked` until final-source evidence and
-live-world checks are complete; the other 251 catalog IDs remain unreviewed.
+`block-art-review.md` remain `blocked` until the Minecraft-reference,
+final-source and live-world checks are complete; the other 251 catalog IDs
+remain unreviewed.
 
 Reviewed source fingerprint:
 `4cd82d336c03a0656fce8d1dfb2fe47bcf81852775c44b2006abc2c54cf1262e`.

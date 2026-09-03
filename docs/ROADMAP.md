@@ -21,11 +21,12 @@ loading, and has relevant regression tests and real browser verification.
 - [ ] **Gradual tunnel lighting.** Remove the sudden whole-view blackout when
   entering a tunnel. Check light falloff near the entrance, views back toward
   daylight, torch-lit interiors and transitions in both directions.
-- [ ] **Every block gets an adversarial art review.** Render the entire block
-  catalog with real game textures and geometry, record a verdict for each block,
-  and fix weak/confusable materials, bad face seams, transparency, lighting and
-  held/inventory presentation. Re-review changes rather than relying on labels
-  or a handful of attractive examples.
+- [ ] **Every block gets a Minecraft-reference art review.** Compare each block
+  directly with the actual vanilla Java block, then bring our original textures
+  and models closer in pattern, palette, proportions, faces and lighting.
+  Record the reference/version and check real placed, held and inventory views.
+  Use adversarial checks for concrete deviations; blind naming is not the main
+  test. Earlier recognizability passes do not establish Minecraft fidelity.
 - [ ] **Ore and mining-block distribution.** Validate ore abundance, vein sizes
   and depth curves across generated chunks and seeds, including deep stone and
   dimension/biome-specific resources. Keep mineral progression sensible and

@@ -239,7 +239,6 @@ export function requiredCapturesFor(id) {
   const [base, ...states] = casesFor(id);
   return [
     ...LIGHTS.map((light) => ({ case: base.key, light, labels: "labeled" })),
-    { case: base.key, light: "day", labels: "blind" },
     ...states.map(({ key }) => ({ case: key, light: "day", labels: "labeled" })),
   ];
 }
