@@ -64,11 +64,13 @@ function readSavedWorld(page) {
   }));
 }
 
-async function waitForSave(page, revision = 0) {
+async function waitForSave(page, revision = null) {
   const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
     const saved = await readSavedWorld(page);
-    if (saved?.revision > revision) return saved;
+    // WorldStorage uses opaque random revision tokens, not an ordered counter.
+    if (typeof saved?.revision === "string" && saved.revision !== revision)
+      return saved;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert.fail("The real game did not commit a new IndexedDB save");
@@ -154,7 +156,7 @@ test("Pages-path production game loads a worker and preserves a real save on rel
   }));
   await page.keyboard.up("ArrowRight");
   await page.keyboard.press("KeyP");
-  const saved = await waitForSave(page, before?.revision ?? 0);
+  const saved = await waitForSave(page, before?.revision ?? null);
   await page.keyboard.press("Escape");
   const preferences = await page.evaluate(() =>
     localStorage.getItem("voxelcraft-controls-v1")
