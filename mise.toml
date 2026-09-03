@@ -64,6 +64,10 @@ run = "npm run test:combat"
 description = "Verify real damage, GPU hurt feedback and lifecycle safety in an isolated browser"
 run = "npm run test:hurt"
 
+[tasks."test:held"]
+description = "Verify real-input hand motion, mining timing, use costs and visibility"
+run = "npm run test:held"
+
 [tasks."test:pearls"]
 description = "Verify real-input pearl flight, impact, persistence and lifecycle cleanup"
 run = "npm run test:pearls"

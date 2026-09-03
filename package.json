@@ -21,6 +21,7 @@
     "test:perspective": "node --test test/perspective.browser.integration.mjs",
     "test:combat": "node --test test/combat.browser.integration.mjs",
     "test:hurt": "node --test test/hurt.browser.integration.mjs",
+    "test:held": "node --test test/held.browser.integration.mjs",
     "test:pearls": "node --test test/pearls.browser.integration.mjs",
     "test:fluids": "node --test test/fluids.browser.integration.mjs",
     "test:fps": "node --test test/fps.browser.integration.mjs",
