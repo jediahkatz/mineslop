@@ -63,7 +63,7 @@ test("the recorded native entrance keeps daylight, deep darkness, look-back terr
   assert.ok(Math.abs(afterLabel.key - beforeLabel.key) < 0.000001);
   assert.equal(g.distant._active, oldLayer, "a label change must not discard the visible horizon");
   assert.equal(g.distant.ready, true);
-  assert.deepEqual(sampleDaylightAt(g.skyColumns, [], opening), { direct: 1, ambient: 1 });
+  assert.deepEqual(sampleDaylightAt(g.skyColumns, opening), { direct: 1, ambient: 1 });
   visit(entrance, true);
   g.camera.updateMatrixWorld(true);
   const depth = -opening.clone().applyMatrix4(g.camera.matrixWorldInverse).z;
@@ -108,7 +108,7 @@ test("the recorded native entrance keeps daylight, deep darkness, look-back terr
   assert.equal(g.atmosphere.hemi.intensity, 0.05);
   assert.equal(g.skyAccess.skyVisible, true, "the distant aperture does not imply ambient light here");
   assert.equal(g.distant.ready, true);
-  assert.deepEqual(sampleDaylightAt(g.skyColumns, g.skyAccess.sources, g.camera.position), { direct: 0, ambient: 0 });
+  assert.deepEqual(sampleDaylightAt(g.skyColumns, g.camera.position), { direct: 0, ambient: 0 });
   const deepState = state("deep-with-native-emitters");
   assert.equal(world.get(61, 16, 916), BLOCK.AIR);
   assert.equal(world.set(61, 16, 916, BLOCK.TORCH), true);

@@ -48,6 +48,14 @@ run = "npm run test:inspection"
 description = "Verify real GPU daylight shaders across quality and inspection changes"
 run = "npm run test:lighting"
 
+[tasks."test:lighting-depth"]
+description = "Verify full-depth cave surface lighting, darkness and occlusion on the GPU"
+run = "npm run test:lighting-depth"
+
+[tasks."test:lighting-native"]
+description = "Check native cave daylight continuity and bounded cold/warm work"
+run = "npm run test:lighting-native"
+
 [tasks."test:ui"]
 description = "Verify classic menus and real inventory/container interactions in a browser"
 run = "npm run test:ui"

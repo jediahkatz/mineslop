@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <title>Authored cave material readback fixture (not native terrain)</title>
+  <div id="surface-probe" style="width: 65px; height: 65px"></div>
+  <script type="module">
+    import { runSurfaceLightingProbe } from "./daylight-surface-gpu.js";
+    window.runSurfaceLightingProbe = runSurfaceLightingProbe;
+  </script>
+</html>

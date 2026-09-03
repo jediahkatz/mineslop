@@ -9,6 +9,7 @@ import {
   readGeometryCell,
 } from "./geometry-world.js";
 import { opaqueCube } from "./mesh-palette.js";
+import { SurfaceDaylight } from "./surface-daylight.js";
 import { CHUNK_SIZE } from "./terrain.js";
 
 export const SKY_COLUMN_LIMITS = Object.freeze({
@@ -46,17 +47,18 @@ export class SkyColumns {
     this.texture.magFilter = this.texture.minFilter = THREE.NearestFilter;
     this.texture.generateMipmaps = false;
     this.texture.needsUpdate = true;
+    this.surfaceLight = new SurfaceDaylight(this, SKY_COLUMN_LIMITS);
   }
 
   begin(world) {
     const spec = geometryWorldSpec(world);
-    if (
+    const reset =
       this.world !== world ||
       this.epoch !== geometryEpoch(world) ||
       this.dimension !== world.dimension ||
       this.generator !== world.generator ||
-      this.spec !== spec
-    ) {
+      this.spec !== spec;
+    if (reset) {
       this.cache.clear();
       this.fieldKey = null;
     }
@@ -68,6 +70,7 @@ export class SkyColumns {
     // Legacy scalar readers do not have incarnation/revision identities.
     this.scalars.clear();
     this.stats = { chunkBuilds: 0, cellReads: 0, scalarColumns: 0 };
+    this.surfaceLight.begin(reset);
     return this;
   }
 
@@ -199,7 +202,10 @@ export class SkyColumns {
       for (let x = -r; x <= r; x++)
         tiles.push({ x, z, chunk: this.chunk(cx + x, cz + z) });
     const key = `${cx},${cz}:${r}:${tiles.map((tile) => tile.chunk?.serial ?? 0).join(",")}`;
-    if (key === this.fieldKey) return;
+    if (key === this.fieldKey) {
+      this.surfaceLight.update(position, r);
+      return;
+    }
     this.fieldKey = key;
     this.origin.set((cx - r) * CHUNK_SIZE, (cz - r) * CHUNK_SIZE);
     this.data.fill(UNKNOWN_SKY_HEIGHT);
@@ -211,11 +217,13 @@ export class SkyColumns {
       }
     }
     this.texture.needsUpdate = true;
+    this.surfaceLight.update(position, r);
   }
 
   dispose() {
     this.cache.clear();
     this.scalars.clear();
     this.texture.dispose();
+    this.surfaceLight.dispose();
   }
 }

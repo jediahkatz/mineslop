@@ -517,7 +517,7 @@ export class GameRenderer {
     this.syncVisibleChunks();
     this.updateDaylight();
     this.atmosphere.update(dt, time, position, this.camera);
-    this.daylightMaterial?.update(this.atmosphere, this.skyAccess);
+    this.daylightMaterial?.update(this.atmosphere);
     if (
       this.skyAccess &&
       this.atmosphere.sunlight.castShadow !== this.naturalShadowsEnabled()
@@ -763,7 +763,7 @@ export class GameRenderer {
       this.camera.position,
       this.camera
     );
-    this.daylightMaterial?.update(this.atmosphere, this.skyAccess);
+    this.daylightMaterial?.update(this.atmosphere);
   }
 
   setFullbrightInspection(enabled) {
@@ -773,7 +773,7 @@ export class GameRenderer {
     this.updateLightingMode();
     const position = this.atmosphere.sunlight.target.position;
     this.atmosphere.update(0, this.waterTime.value, position, this.camera);
-    this.daylightMaterial?.update(this.atmosphere, this.skyAccess);
+    this.daylightMaterial?.update(this.atmosphere);
     this.updateLocalLights(this.waterTime.value, position);
     return next;
   }

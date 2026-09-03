@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { CAVE_DAYLIGHT_LIMITS, entranceLightWeight } from "./cave-daylight.js";
 import { UNKNOWN_SKY_HEIGHT } from "./sky-columns.js";
+import { SURFACE_DAYLIGHT_LIMITS } from "./surface-daylight.js";
 
 /** CPU equivalent of the shader's mask, for focused geometry regressions. */
-export function sampleDaylightAt(columns, sources, point) {
+export function sampleDaylightAt(columns, point) {
   const x = Math.floor(point.x) - columns.origin.x;
   const z = Math.floor(point.z) - columns.origin.y;
   if (x < 0 || z < 0 || x >= columns.size || z >= columns.size)
@@ -11,13 +11,8 @@ export function sampleDaylightAt(columns, sources, point) {
   const top = columns.data[z * columns.size + x];
   if (top === UNKNOWN_SKY_HEIGHT) return { direct: 0, ambient: 0 };
   const direct = Number(point.y >= top);
-  let ambient = direct;
-  for (const source of sources.slice(0, CAVE_DAYLIGHT_LIMITS.sources))
-    ambient = Math.max(
-      ambient,
-      entranceLightWeight(Math.hypot(point.x - source.x, point.y - source.y, point.z - source.z))
-    );
-  return { direct, ambient };
+  // Camera access is deliberately not a surface-light input.
+  return { direct, ambient: Math.max(direct, columns.surfaceLight.sample(point)) };
 }
 
 const DECLARATIONS = `
@@ -25,11 +20,12 @@ varying vec3 vDaylightPosition;
 uniform float uDaylightEnabled;
 uniform float uDaylightFogEnabled;
 uniform sampler2D uSkyCeilings;
+uniform highp sampler2DArray uSurfaceDaylight;
+uniform vec3 uSurfaceField;
 uniform vec3 uSkyField;
 uniform vec3 uDaylightKey, uDaylightSky, uDaylightGround;
 uniform vec3 uCaveSky, uCaveGround;
 uniform vec3 uCaveFog;
-uniform vec4 uDaylightOpenings[${CAVE_DAYLIGHT_LIMITS.sources}];
 
 vec2 daylightMask(vec3 point) {
   #ifdef MINESLOP_EXTERIOR_DAYLIGHT
@@ -42,9 +38,16 @@ vec2 daylightMask(vec3 point) {
     if (ceiling >= ${UNKNOWN_SKY_HEIGHT.toFixed(1)}) return vec2(0.0);
     float directSky = step(ceiling, point.y);
     float fill = directSky;
-    for (int i = 0; i < ${CAVE_DAYLIGHT_LIMITS.sources}; i++) {
-      float d = length(point - uDaylightOpenings[i].xyz);
-      fill = max(fill, uDaylightOpenings[i].w * (1.0 - smoothstep(0.0, ${CAVE_DAYLIGHT_LIMITS.lightRadius.toFixed(1)}, d)));
+    float y = floor(point.y) - uSurfaceField.x;
+    if (directSky < 0.5 && y >= 0.0 && y < uSurfaceField.y) {
+      vec2 chunk = floor(point.xz / 16.0);
+      vec2 local = mod(floor(point.xz), 16.0);
+      float slot = mod(chunk.y, uSurfaceField.z) * uSurfaceField.z + mod(chunk.x, uSurfaceField.z);
+      float index = y * 256.0 + local.y * 16.0 + local.x;
+      vec2 uv = (vec2(mod(index, ${SURFACE_DAYLIGHT_LIMITS.atlasWidth.toFixed(1)}), floor(index / ${SURFACE_DAYLIGHT_LIMITS.atlasWidth.toFixed(1)})) + 0.5)
+        / vec2(${SURFACE_DAYLIGHT_LIMITS.atlasWidth.toFixed(1)}, uSurfaceField.y * 4.0);
+      float distance = ${SURFACE_DAYLIGHT_LIMITS.radius.toFixed(1)} - texture(uSurfaceDaylight, vec3(uv, slot)).r * 255.0;
+      fill = 1.0 - smoothstep(0.0, ${SURFACE_DAYLIGHT_LIMITS.radius.toFixed(1)}, distance);
     }
     return vec2(directSky, fill);
   #endif
@@ -65,6 +68,8 @@ export class DaylightMaterial {
       uDaylightEnabled: { value: 0 },
       uDaylightFogEnabled: { value: 0 },
       uSkyCeilings: { value: columns.texture },
+      uSurfaceDaylight: { value: columns.surfaceLight.texture },
+      uSurfaceField: { value: new THREE.Vector3() },
       uSkyField: { value: new THREE.Vector3() },
       uDaylightKey: { value: new THREE.Color() },
       uDaylightSky: { value: new THREE.Color() },
@@ -72,9 +77,6 @@ export class DaylightMaterial {
       uCaveSky: { value: new THREE.Color() },
       uCaveGround: { value: new THREE.Color() },
       uCaveFog: { value: new THREE.Color() },
-      uDaylightOpenings: {
-        value: Array.from({ length: CAVE_DAYLIGHT_LIMITS.sources }, () => new THREE.Vector4()),
-      },
     };
   }
 
@@ -121,11 +123,11 @@ export class DaylightMaterial {
           )
           .replace("#include <fog_fragment>", fog);
     };
-    material.customProgramCacheKey = () => `${cacheKey()}:daylight-1:${Number(exterior)}`;
+    material.customProgramCacheKey = () => `${cacheKey()}:daylight-1:${Number(exterior)}:surface-atlas-1`;
     material.needsUpdate = true;
   }
 
-  update(atmosphere, access) {
+  update(atmosphere) {
     const u = this.uniforms;
     u.uDaylightEnabled.value = Number(
       atmosphere.dimension === "overworld" &&
@@ -140,15 +142,17 @@ export class DaylightMaterial {
     );
     u.uCaveFog.value.copy(atmosphere.dimensionHorizon);
     u.uSkyField.value.set(this.columns.origin.x, this.columns.origin.y, this.columns.size);
+    u.uSurfaceDaylight.value = this.columns.surfaceLight.texture;
+    u.uSurfaceField.value.set(this.columns.spec.minY, this.columns.surfaceLight.height, this.columns.surfaceLight.tiles);
     const lighting = atmosphere.outdoorLighting;
     u.uDaylightKey.value.copy(atmosphere.sunlight.color).multiplyScalar(lighting.keyIntensity);
     u.uDaylightSky.value.copy(atmosphere.hemi.color).multiplyScalar(lighting.hemisphereIntensity);
     u.uDaylightGround.value.copy(atmosphere.hemi.groundColor).multiplyScalar(lighting.hemisphereIntensity);
-    u.uCaveSky.value.copy(atmosphere.hemi.color).multiplyScalar(0.05);
-    u.uCaveGround.value.copy(atmosphere.hemi.groundColor).multiplyScalar(0.05);
-    u.uDaylightOpenings.value.forEach((value, index) => {
-      const source = access.sources[index];
-      value.set(source?.x ?? 0, source?.y ?? 0, source?.z ?? 0, Number(!!source));
-    });
+    // A dim, neutral material floor that survives the ACES toe on textured
+    // stone. This is linear irradiance, not a percentage of displayed light.
+    // Only roofed surfaces receive it; direct sky, albedo/AO, and tone mapping
+    // are unchanged. No camera exposure, biome, clock, or adaptation involved.
+    u.uCaveSky.value.setRGB(0.20, 0.22, 0.25);
+    u.uCaveGround.value.setRGB(0.18, 0.19, 0.21);
   }
 }

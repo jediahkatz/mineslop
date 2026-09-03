@@ -17,6 +17,8 @@
     "test:native-v4": "node --test test/native-v4-worker.browser.integration.mjs",
     "test:inspection": "node --test test/inspection.browser.integration.mjs",
     "test:lighting": "node --test test/tunnel-lighting.browser.integration.mjs",
+    "test:lighting-depth": "node --test test/cave-surface-lighting.gpu.integration.mjs",
+    "test:lighting-native": "node test/native-cave-daylight.probe.mjs",
     "test:ui": "node --test test/ui.browser.integration.mjs",
     "test:perspective": "node --test test/perspective.browser.integration.mjs",
     "test:combat": "node --test test/combat.browser.integration.mjs",

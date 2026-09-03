@@ -4,13 +4,14 @@ import * as THREE from "three";
 import { BLOCK } from "../src/blocks.js";
 import { sampleDaylightAt } from "../src/daylight-material.js";
 import { daylightRenderer, daylightTunnel } from "./daylight-fixture.js";
+import { ENTRANCE_SURFACES, surfaceAirPoint, surfaceTunnel } from "./daylight-surface-fixture.js";
 
 test("natural world shading distinguishes outdoor, entrance and deep surfaces in the same frame", (t) => {
   const fixture = daylightTunnel();
   const feet = { x: 4.5, y: 8, z: 2.5 };
   const g = daylightRenderer(t, fixture.world, feet);
   g.update(0, 1, feet);
-  const at = (x) => sampleDaylightAt(g.skyColumns, g.skyAccess.sources, fixture.position(x));
+  const at = (x) => sampleDaylightAt(g.skyColumns, fixture.position(x));
   assert.deepEqual(at(-2.5), { direct: 1, ambient: 1 });
   assert.equal(at(4.5).direct, 0);
   assert.ok(at(4.5).ambient > 0 && at(4.5).ambient < 1);
@@ -121,6 +122,8 @@ test("Lambert hooks preserve torch/emissive/ambient paths and compose with exist
   assert.match(shader.fragmentShader, /linearToOutputTexel\(vec4\(uCaveFog, 1.0\)\)/);
   assert.match(shader.fragmentShader, /mix\(caveFog, fogColor, skyMask.y\)/);
   assert.equal(shader.uniforms.uSkyCeilings.value, g.skyColumns.texture);
+  assert.equal(shader.uniforms.uSurfaceDaylight.value, g.skyColumns.surfaceLight.texture);
+  assert.equal(Object.hasOwn(shader.uniforms, "uDaylightOpenings"), false, "camera diagnostics are not shader inputs");
   const distantShader = {
     uniforms: {},
     vertexShader: THREE.ShaderLib.lambert.vertexShader,
@@ -129,4 +132,48 @@ test("Lambert hooks preserve torch/emissive/ambient paths and compose with exist
   g.distant._terrainMaterial.onBeforeCompile(distantShader, null);
   assert.match(distantShader.fragmentShader, /#define MINESLOP_EXTERIOR_DAYLIGHT/);
   assert.equal(distantShader.uniforms.uDaylightKey, shader.uniforms.uDaylightKey);
+});
+
+test("[surface-light] the surface atlas preserves the same entrance faces at deep camera exposure zero", (t) => {
+  const fixture = surfaceTunnel();
+  const feet = { x: 4.5, y: 8, z: 2.5 };
+  const g = daylightRenderer(t, fixture.world, feet, "medium");
+  const samples = [];
+  for (const x of [4.5, 15.5, 16.5, 32.5, 4.5]) {
+    g.camera.position.copy(fixture.position(x));
+    g.camera.lookAt(2.53125, 11, 2.53125);
+    g.update(0, samples.length, { ...feet, x });
+    const u = g.daylightMaterial.uniforms;
+    samples.push({
+      x,
+      cameraDiagnostics: {
+        exposure: g.skyAccess.exposure,
+        skyVisible: g.skyAccess.skyVisible,
+        sources: g.skyAccess.sources.map((source) => ({ ...source })),
+      },
+      field: u.uSkyField.value.toArray(),
+      enabled: u.uDaylightEnabled.value,
+      floor: { sky: u.uCaveSky.value.toArray(), ground: u.uCaveGround.value.toArray() },
+      surfaces: ENTRANCE_SURFACES.map((surface) => ({
+        name: surface.name,
+        ...sampleDaylightAt(g.skyColumns, surfaceAirPoint(surface)),
+      })),
+    });
+  }
+  t.diagnostic(JSON.stringify({ fixedSurfaceLighting: samples }));
+  g.setFullbrightInspection(true);
+  assert.equal(g.daylightMaterial.uniforms.uDaylightEnabled.value, 0);
+  assert.equal(g.atmosphere.inspectionLight.intensity, Math.PI);
+  g.setFullbrightInspection(false);
+  assert.equal(g.daylightMaterial.uniforms.uDaylightEnabled.value, 1);
+  assert.equal(samples[3].cameraDiagnostics.exposure, 0, "do not lift the deep camera's exposure to light the mouth");
+  assert.deepEqual(samples[3].cameraDiagnostics.sources, []);
+  for (const sample of samples) {
+    assert.ok(sample.cameraDiagnostics.skyVisible && sample.enabled);
+    for (let i = 0; i < ENTRANCE_SURFACES.length; i++)
+      assert.ok(
+        Math.abs(sample.surfaces[i].ambient - samples[0].surfaces[i].ambient) < 0.08,
+        `${sample.surfaces[i].name}: GPU input loses illumination at observer x=${sample.x}`
+      );
+  }
 });
