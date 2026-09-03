@@ -8,30 +8,30 @@ const tones = (color, amounts) => {
 
 export function paintStone(pixels) {
   const p = painter(pixels);
-  // Short, connected grains with quiet midtones; no broad contours or seams
-  // that turn into a repeating emblem when many cave faces share this tile.
+  // Original connected gray grain, informed by Java 26.2's stronger stone
+  // planes. This is a fixed authored tile, shared by plain stone and its ores.
   p.stamp(
     0,
     0,
     [
-      "2210223222333122",
-      "2312223322222112",
-      "2342222122112222",
-      "2221122223222332",
-      "1222123322322222",
-      "1122322222112232",
-      "2223321022223322",
-      "2322211223322221",
-      "2332222232222112",
-      "2222112322212222",
-      "3221122332222342",
-      "2222232221122332",
-      "2112233222212222",
-      "2221222223322012",
-      "2322221122222122",
-      "2332212222432223",
+      "2221123322212222",
+      "2110223221112332",
+      "2233222112233322",
+      "3322111223322221",
+      "1221002232221122",
+      "2223332221102233",
+      "2332222122332212",
+      "2221122011222223",
+      "1122333222212332",
+      "2332222110022222",
+      "2221112332222331",
+      "2210022221123322",
+      "2333221122332221",
+      "3222112233221102",
+      "2112233222112233",
+      "2223322112223322",
     ],
-    ["#878a8c", "#8d9092", "#949698", "#9a9c9e", "#a0a2a3"]
+    ["#6a6a6a", "#767676", "#808080", "#8e8e8e"]
   );
 }
 
@@ -282,7 +282,18 @@ function paintLeaves(pixels, block) {
 
 const ROCK_PALETTES = new Map([
   [BLOCK.OBSIDIAN, ["#211e2a", "#2d2938", "#393245", "#443b51"]],
-  [BLOCK.NETHERRACK, ["#633a38", "#74413b", "#824a43", "#93534a"]],
+  [
+    BLOCK.NETHERRACK,
+    [
+      "#421719",
+      "#4e1b1e",
+      "#572024",
+      "#652a2b",
+      "#723335",
+      "#7c3b3c",
+      "#894748",
+    ],
+  ],
   [BLOCK.END_STONE, ["#c5c393", "#d2d0a1", "#dedbb0", "#e7e3b9"]],
   [BLOCK.SULFUR, ["#a99544", "#beac52", "#d0be67", "#dfd180"]],
   [BLOCK.CINNABAR, ["#733d39", "#93483e", "#ae5b4b", "#c4755c"]],
@@ -296,6 +307,23 @@ function paintMineralRock(pixels, block) {
   if (block.id === BLOCK.OBSIDIAN) {
     p.stamp(1, 2, ["..333", ".3221", "3221.", "121.."], palette);
     p.stamp(8, 10, ["..3332", ".3221.", "1221..", ".11..."], palette);
+  } else if (block.id === BLOCK.NETHERRACK) {
+    // Java 26.2's red porous matrix, not the generic three large rock pits.
+    // The grain seed above is unchanged; these small connected cuts are fixed.
+    for (const [x, y, shape] of [
+      [0, 1, ["32.", "210", ".10"]],
+      [5, 0, ["54..", "321.", ".100"]],
+      [11, 2, ["654", "321", "10."]],
+      [3, 4, [".45", "321", "110"]],
+      [8, 6, ["43.", "210", ".10"]],
+      [14, 6, ["43", "21", "10"]],
+      [0, 9, ["54.", "321", ".10"]],
+      [5, 10, ["45..", "3210", ".11."]],
+      [11, 11, [".54", "321", "100"]],
+      [2, 14, ["43", "21"]],
+      [8, 15, [".54", "321", "10."]],
+    ])
+      p.stamp(x, y, shape, palette, true);
   } else {
     const pore =
       block.id === BLOCK.END_STONE

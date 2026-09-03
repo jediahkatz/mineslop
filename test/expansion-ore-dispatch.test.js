@@ -28,7 +28,7 @@ const ores = [
   "EMERALD",
 ];
 
-test("deep ores retain their mineral deposits over the registered deepslate host", () => {
+test("deep ores use explicit mineral variants over the canonical cube-all host", () => {
   for (const name of ores) {
     const id = BLOCK[`DEEPSLATE_${name}_ORE`];
     const legacy = BLOCK[`${name}_ORE`];
@@ -37,19 +37,30 @@ test("deep ores retain their mineral deposits over the registered deepslate host
     assert.equal(
       new Set(["side", "top", "bottom"].map((face) => tileFor(id, face))).size,
       3,
-      `${name}: directional host faces cannot share the side atlas slot`
+      `${name}: retain existing allocations even when cube-all pixels match`
     );
     for (const face of ["side", "top", "bottom"]) {
       const expected = tile();
+      // Java 26.2 ore models use cube_all, unlike plain deepslate's column.
       assert.equal(
-        paintBuildingMaterial(expected, { kind: "deepslate", face }),
+        paintBuildingMaterial(expected, { kind: "deepslate", face: "side" }),
         true
       );
-      paintOreDeposits(expected, legacy);
+      paintOreDeposits(expected, id);
       assert.deepEqual(blockTexturePixels(id, face), expected);
+      assert.deepEqual(blockTexturePixels(id, face), blockTexturePixels(id));
       assert.notDeepEqual(expected, blockTexturePixels(legacy, face));
     }
   }
+  assert.equal(BLOCKS[BLOCK.DEEPSLATE].directional, "axis");
+  assert.notDeepEqual(
+    blockTexturePixels(BLOCK.DEEPSLATE, "side"),
+    blockTexturePixels(BLOCK.DEEPSLATE, "top")
+  );
+  assert.deepEqual(
+    blockTexturePixels(BLOCK.DEEPSLATE, "top"),
+    blockTexturePixels(BLOCK.DEEPSLATE, "bottom")
+  );
 });
 
 test("Nether gold and quartz use the red host instead of ordinary stone", () => {
@@ -59,8 +70,11 @@ test("Nether gold and quartz use the red host instead of ordinary stone", () => 
     paintQuartzDeposits(quartz);
     assert.deepEqual(blockTexturePixels(BLOCK.NETHER_QUARTZ_ORE, face), quartz);
     const gold = new Uint8ClampedArray(host);
-    paintOreDeposits(gold, BLOCK.GOLD_ORE);
+    paintOreDeposits(gold, BLOCK.NETHER_GOLD_ORE);
     assert.deepEqual(blockTexturePixels(BLOCK.NETHER_GOLD_ORE, face), gold);
+    const ordinaryGold = new Uint8ClampedArray(host);
+    paintOreDeposits(ordinaryGold, BLOCK.GOLD_ORE);
+    assert.notDeepEqual(gold, ordinaryGold, "dedicated Nether nugget layout");
     assert.notDeepEqual(gold, quartz);
   }
 });

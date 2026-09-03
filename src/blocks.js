@@ -37,7 +37,7 @@ const legacyBlocks = [
   cube("Air", "#ffffff", "special", 0, { solid: false, transparent: true }),
   soil("Grass", "#78a843", "grass"),
   soil("Dirt", "#906442"),
-  rock("Stone", "#92969b", "stone", { drop: BLOCK.COBBLESTONE }),
+  rock("Stone", "#808080", "stone", { drop: BLOCK.COBBLESTONE }),
   soil("Sand", "#e4d29a", "sand"),
   log("Oak log", "#765334"),
   leaves("Oak leaves", "#578a3d"),
@@ -118,7 +118,7 @@ const legacyBlocks = [
   ore("Emerald ore", "#56c284", 3),
   ore("Lapis ore", "#4d71b8", 2),
   rock("Obsidian", "#33283f", "stone", { hardness: 50, tier: 4 }),
-  rock("Netherrack", "#85463f", "stone", { hardness: 0.4 }),
+  rock("Netherrack", "#65292b", "stone", { hardness: 0.4 }),
   soil("Soul sand", "#71604e", "sand"),
   rock("Basalt", "#54545a", "log", {
     hardness: 1.25,

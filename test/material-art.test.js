@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { BLOCK, BLOCKS } from "../src/blocks.js";
+import { BLOCK, BLOCK_CATALOG, BLOCKS } from "../src/blocks.js";
 import { paintNaturalMaterial } from "../src/material-art.js";
 import { grain, painter, rgb } from "../src/pixel-art.js";
 import { blockEmissionPixels, blockTexturePixels } from "../src/textures.js";
@@ -16,7 +16,7 @@ const oreHost = (block, face = "side") =>
       : block.oreHost === "netherrack"
         ? BLOCK.NETHERRACK
         : BLOCK.STONE,
-    face
+    block.oreHost === "deepslate" ? "side" : face
   );
 
 function components(mask) {
@@ -89,9 +89,12 @@ test("each ore keeps its declared host around bounded mineral pockets and grains
       const pixels = blockTexturePixels(block.id, face);
       const mask = mineralMask(pixels, oreHost(block, face));
       const covered = mask.reduce((sum, value) => sum + value, 0);
-      // The old independent-cell confetti also repainted the entire host.
+      // Java 26.2 Nether gold is a sparser small-nugget family (33 colored
+      // reference pixels), not the ordinary-gold pocket layout.
+      const [minimum, maximum] =
+        block.id === BLOCK.NETHER_GOLD_ORE ? [24, 48] : [36, 76];
       assert.ok(
-        covered >= 36 && covered <= 76,
+        covered >= minimum && covered <= maximum,
         `${block.name}: ${covered}/256 mineral pixels`
       );
       const groups = components(mask);
@@ -124,7 +127,8 @@ test("ore silhouettes retain distinct bounded palettes without enabling emission
   for (const block of ores) {
     const pixels = blockTexturePixels(block.id);
     const mask = mineralMask(pixels, oreHost(block));
-    const identity = block.oreArt ?? block.id;
+    const identity =
+      block.id === BLOCK.NETHER_GOLD_ORE ? block.id : (block.oreArt ?? block.id);
     const silhouette = digest(mask);
     if (minerals.has(identity))
       assert.equal(
@@ -176,42 +180,82 @@ test("ground art uses recurring connected tones rather than a new noise color pe
   }
 });
 
-test("stone stays neutral and close to its distant color without broad contrast", () => {
-  const pixels = blockTexturePixels(BLOCK.STONE);
-  const base = rgb(BLOCKS[BLOCK.STONE].color);
-  const means = [];
-  for (let channel = 0; channel < 3; channel++) {
-    const values = Array.from(
-      { length: 256 },
-      (_, i) => pixels[i * 4 + channel]
-    );
-    const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-    means.push(mean);
-    assert.ok(
-      Math.abs(mean - base[channel]) <= 8,
-      "retain the distant LOD mean"
-    );
-    assert.ok(
-      Math.max(...values) - Math.min(...values) <= 30,
-      "grain must not create high-contrast cave camouflage"
-    );
-  }
-  assert.ok(Math.max(...means) - Math.min(...means) <= 6, "neutral gray host");
-  const patches = [];
-  for (let y = 0; y < 16; y += 4) {
-    for (let x = 0; x < 16; x += 4) {
-      let brightness = 0;
-      for (let dy = 0; dy < 4; dy++)
-        for (let dx = 0; dx < 4; dx++) {
-          const color = rgbAt(pixels, (y + dy) * 16 + x + dx);
-          brightness += (color[0] + color[1] + color[2]) / 3;
-        }
-      patches.push(brightness / 16);
+test("reference host ramps stay bounded, opaque, non-emissive and coherent with distant colors", () => {
+  // Vanilla stone spans 39 gray levels and deepslate sides span 74.
+  // The old <=30 range and <=8 patch-span caps encoded our quiet-host design,
+  // not fidelity. Keep bounded ramps and the actual distant-color contract.
+  for (const id of [BLOCK.STONE, BLOCK.DEEPSLATE, BLOCK.NETHERRACK]) {
+    const base = rgb(BLOCKS[id].color);
+    assert.equal(Boolean(BLOCKS[id].emissive), false);
+    assert.ok(blockEmissionPixels(id).every((value) => value === 0));
+    for (const face of ["side", "top", "bottom"]) {
+      const pixels = blockTexturePixels(id, face);
+      assert.equal(pixels.length, 1024);
+      assert.deepEqual(pixels, blockTexturePixels(id, face));
+      const colors = new Set();
+      for (let i = 0; i < 256; i++) {
+        assert.equal(pixels[i * 4 + 3], 255);
+        const [r, g, b] = rgbAt(pixels, i);
+        colors.add(`${r},${g},${b}`);
+        if (id === BLOCK.NETHERRACK)
+          assert.ok(r > g + 32 && Math.abs(g - b) <= 8, "red host matrix");
+        else
+          assert.ok(Math.max(r, g, b) - Math.min(r, g, b) <= 8, "neutral gray");
+      }
+      assert.ok(colors.size >= 4 && colors.size <= 8, "bounded authored ramp");
+      for (let channel = 0; channel < 3; channel++) {
+        const values = Array.from(
+          { length: 256 },
+          (_, i) => pixels[i * 4 + channel]
+        );
+        const mean = values.reduce((sum, value) => sum + value, 0) / 256;
+        // Distant terrain reads BLOCKS[id].color, including exposed rock.
+        const tolerance = id === BLOCK.STONE ? 8 : 10;
+        assert.ok(
+          Math.abs(mean - base[channel]) <= tolerance,
+          `${id}/${face}: LOD mean`
+        );
+        const maximumRange = id === BLOCK.STONE ? 48 : 80;
+        assert.ok(Math.max(...values) - Math.min(...values) <= maximumRange);
+      }
     }
   }
-  assert.ok(
-    Math.max(...patches) - Math.min(...patches) <= 8,
-    "small grains must not collect into a large light/dark emblem"
+});
+
+test("stone and netherrack painters replace a bounded view deterministically", () => {
+  for (const id of [BLOCK.STONE, BLOCK.NETHERRACK]) {
+    for (const face of ["side", "top", "bottom"]) {
+      const expected = blockTexturePixels(id, face);
+      for (const BufferType of [Uint8Array, Uint8ClampedArray]) {
+        const guarded = new BufferType(1056).fill(73);
+        const target = guarded.subarray(16, 1040);
+        assert.equal(paintNaturalMaterial(target, BLOCKS[id], face), true);
+        assert.deepEqual([...target], [...expected]);
+        assert.equal(paintNaturalMaterial(target, BLOCKS[id], face), true);
+        assert.deepEqual([...target], [...expected], "idempotent full-tile paint");
+        assert.ok(guarded.subarray(0, 16).every((value) => value === 73));
+        assert.ok(guarded.subarray(1040).every((value) => value === 73));
+      }
+    }
+  }
+});
+
+test("host refinements leave every unrelated natural-material face byte-identical", () => {
+  const hash = createHash("sha256");
+  let faces = 0;
+  for (const block of BLOCK_CATALOG) {
+    if ([BLOCK.STONE, BLOCK.NETHERRACK].includes(block.id)) continue;
+    for (const face of ["side", "top", "bottom"]) {
+      const pixels = new Uint8ClampedArray(1024);
+      if (!paintNaturalMaterial(pixels, block, face)) continue;
+      hash.update(`${block.id}/${face}:`).update(pixels);
+      faces++;
+    }
+  }
+  assert.equal(faces, 108);
+  assert.equal(
+    hash.digest("hex"),
+    "175d393e7e11cc596ee3ab316de443a4da5059c903b243652a2bfd433a58533b"
   );
 });
 

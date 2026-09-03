@@ -211,6 +211,11 @@ test("ancient debris retains distinct side/end dispatch while quartz stays pale 
   });
   assert.notDeepEqual(side, top);
   assert.deepEqual(top, bottom);
+  assert.equal(
+    digest(top),
+    "0193d6a774b5fa923d0a89ac18dd0987e9a1bfce843f9c47754f6c12e7a4b548",
+    "this continuation changes debris side courses, not the first-pass end"
+  );
   // Vanilla has long side bands and an angular winding end. The old <=8-pixel
   // bright-component rule rejected that structure; keep safety/dispatch guards,
   // and let direct reference comparison judge the authored layers instead.
@@ -246,9 +251,11 @@ test("quartz seams retain bounded connected fragments and leave most host pixels
   // The Java 26.2 texture has several slim seams, not three broad white lumps.
   assert.ok(groups.length >= 3 && groups.length <= 8);
   for (const group of groups) {
+    // Varied reference seam lengths allow a short five-pixel fragment;
+    // retain a connected-fragment floor without requiring equal long sticks.
     assert.ok(
-      group.length >= 6 && group.length <= 24,
-      "clusters, not confetti"
+      group.length >= 4 && group.length <= 24,
+      "bounded connected quartz cuts"
     );
     const values = group.map((at) =>
       brightness(deposits.subarray(at * 4, at * 4 + 3))
@@ -267,7 +274,11 @@ test("quartz seams retain bounded connected fragments and leave most host pixels
   const colors = new Set(
     visibleColors(deposits).map((color) => color.join(","))
   );
-  assert.ok(colors.size >= 4 && colors.size <= 5);
+  assert.deepEqual(
+    [...colors].sort(),
+    ["115,88,72", "173,126,115", "186,169,148", "212,203,187", "236,229,219"].sort(),
+    "seam-layout changes retain the first-pass palette"
+  );
 });
 
 test("quartz overlay preserves every untouched host byte and never writes outside its view", () => {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { BLOCK, BLOCKS } from "../src/blocks.js";
 import { paintBuildingMaterial } from "../src/expansion-building-art.js";
@@ -92,6 +93,35 @@ test("building registries dispatch actual face and multipart artwork", () => {
         assert.deepEqual(blockTexturePixels(id, face, part), expected);
       }
     }
+  }
+});
+
+test("host display-color changes preserve IDs and every non-color block property", () => {
+  // Captured before this host correction. No state, collision, mining, loot,
+  // directional flag or other gameplay field is part of the authorized delta.
+  const unchanged = [
+    [
+      BLOCK.STONE,
+      "025f50f8b6efeed0fd940773a0b4a0d2219cb7c2ba8d824b1116a2d96fe7f58b",
+    ],
+    [
+      BLOCK.DEEPSLATE,
+      "d8ce2fec6b0b3264336cfd3c756abfbd0b936637689ef3ea82f895c69f99b5d2",
+    ],
+    [
+      BLOCK.NETHERRACK,
+      "527666aa8f7bcd3e595ad372118dda3eb3e07ea7579c9e233ee8bd1413ea07f2",
+    ],
+  ];
+  assert.deepEqual(unchanged.map(([id]) => id), [3, 1036, 70]);
+  for (const [id, expected] of unchanged) {
+    const properties = { ...BLOCKS[id] };
+    delete properties.color;
+    const hash = createHash("sha256")
+      .update(JSON.stringify(properties))
+      .digest("hex");
+    assert.equal(hash, expected, `${id}: unchanged non-color metadata`);
+    assert.equal(blockBatch[id], "opaque");
   }
 });
 

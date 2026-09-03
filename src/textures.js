@@ -254,13 +254,14 @@ export function blockTexturePixels(id, face = "side", part) {
     return pixels;
   }
   if (block.texture === "ore") {
+    // Vanilla deepslate ores use cube_all, not plain deepslate's cut end.
     if (block.oreHost === "deepslate")
-      paintBuildingMaterial(pixels, { kind: "deepslate", face });
+      paintBuildingMaterial(pixels, { kind: "deepslate", face: "side" });
     else if (block.oreHost === "netherrack")
       pixels.set(blockTexturePixels(BLOCK.NETHERRACK, face));
     else paintStone(pixels);
     if (block.oreArt === "quartz") paintQuartzDeposits(pixels);
-    else paintOreDeposits(pixels, block.oreArt ?? id);
+    else paintOreDeposits(pixels, id);
     return pixels;
   }
   if (paintNaturalMaterial(pixels, block, face)) return pixels;

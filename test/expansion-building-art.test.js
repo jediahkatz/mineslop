@@ -151,37 +151,49 @@ test("only ladders, upper door windows, and trapdoor panels contain optical hole
   }
 });
 
-test("deepslate keeps quiet neutral grains instead of broad camouflage contours", () => {
+test("deepslate retains neutral layered contrast and a distinct finer cut end", () => {
+  // Java 26.2 has a 74-level side range, a 55-level end range, and no
+  // >=100-pixel dominant shade. The earlier quiet/camouflage caps rejected
+  // that reference structure rather than protecting a runtime invariant.
   for (const face of BUILDING_MATERIAL_FACES) {
     const pixels = render({ kind: "deepslate", face });
     const colors = colorsOf(pixels);
-    assert.ok(Math.max(...colors.values()) >= 100, "quiet dominant midtone");
+    assert.ok(colors.size >= 4 && colors.size <= 6, "bounded layered ramp");
     for (let channel = 0; channel < 3; channel++) {
       const values = Array.from(
         { length: COUNT },
         (_, i) => pixels[i * 4 + channel]
       );
-      assert.ok(Math.max(...values) - Math.min(...values) <= 30);
+      const span = Math.max(...values) - Math.min(...values);
+      assert.ok(span >= (face === "side" ? 60 : 40) && span <= 80);
     }
-    const patchMeans = [];
-    for (let y = 0; y < SIZE; y += 4) {
-      for (let x = 0; x < SIZE; x += 4) {
-        let sum = 0;
-        for (let dy = 0; dy < 4; dy++)
-          for (let dx = 0; dx < 4; dx++)
-            sum += brightness(pixel(pixels, x + dx, y + dy));
-        patchMeans.push(sum / 16);
-      }
-    }
-    assert.ok(Math.max(...patchMeans) - Math.min(...patchMeans) < 12);
     for (const color of colors.keys()) {
       const channels = color.split(",").map(Number);
-      assert.ok(Math.max(...channels) - Math.min(...channels) <= 16);
+      assert.ok(Math.max(...channels) - Math.min(...channels) <= 8);
     }
   }
   assert.notDeepEqual(
     render({ kind: "deepslate", face: "side" }),
     render({ kind: "deepslate", face: "top" })
+  );
+  assert.deepEqual(
+    render({ kind: "deepslate", face: "top" }),
+    render({ kind: "deepslate", face: "bottom" })
+  );
+});
+
+test("the host correction leaves every other building descriptor byte-identical", () => {
+  const hash = createHash("sha256");
+  let faces = 0;
+  for (const descriptor of BUILDING_MATERIAL_DESCRIPTORS) {
+    if (descriptor.kind === "deepslate") continue;
+    hash.update(JSON.stringify(descriptor)).update(render(descriptor));
+    faces++;
+  }
+  assert.equal(faces, 282);
+  assert.equal(
+    hash.digest("hex"),
+    "119f05428297518cef25ce8aae89514ddd19b2c6fa23b4b22eb79b514995baa1"
   );
 });
 

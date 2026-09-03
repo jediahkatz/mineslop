@@ -33,10 +33,14 @@ const ORES = [
     {
       id: BLOCK[`DEEPSLATE_${mineral}_ORE`],
       host: BLOCK.DEEPSLATE,
-      deposit: BLOCK[`${mineral}_ORE`],
+      deposit: BLOCK[`DEEPSLATE_${mineral}_ORE`],
     },
   ]),
-  { id: BLOCK.NETHER_GOLD_ORE, host: BLOCK.NETHERRACK, deposit: BLOCK.GOLD_ORE },
+  {
+    id: BLOCK.NETHER_GOLD_ORE,
+    host: BLOCK.NETHERRACK,
+    deposit: BLOCK.NETHER_GOLD_ORE,
+  },
   { id: BLOCK.NETHER_QUARTZ_ORE, host: BLOCK.NETHERRACK, deposit: "quartz" },
 ];
 const ORE_IDS = [
@@ -52,12 +56,15 @@ const MINERAL_IDS = [
   BLOCK.EMERALD_ORE,
   BLOCK.REDSTONE_ORE,
   BLOCK.LAPIS_ORE,
+  BLOCK.NETHER_GOLD_ORE,
 ];
 const digest = (pixels) => createHash("sha256").update(pixels).digest("hex");
 const brightness = (color) => (color[0] + color[1] + color[2]) / 3;
 const mean = (values) =>
   values.reduce((sum, value) => sum + value, 0) / values.length;
 const pixel = (pixels, at) => pixels.subarray(at * 4, at * 4 + 4);
+const oreHostPixels = (host, face) =>
+  blockTexturePixels(host, host === BLOCK.DEEPSLATE ? "side" : face);
 
 function paintDeposit(pixels, deposit) {
   if (deposit === "quartz") paintQuartzDeposits(pixels);
@@ -78,7 +85,7 @@ function mineralColors(deposit) {
 }
 
 function hostContrast(id, host, deposit, face) {
-  const original = blockTexturePixels(host, face);
+  const original = oreHostPixels(host, face);
   const pixels = blockTexturePixels(id, face);
   const mask = depositPixels(deposit);
   const differences = [];
@@ -122,8 +129,8 @@ function componentSizes(pixels) {
 }
 
 test("all 19 ore catalog entries retain their host, mineral and face dispatch", () => {
-  // Preserve the current caller contract, not a claim of vanilla face fidelity:
-  // Nether gold still shares gold, and deepslate ores still use host face art.
+  // Java 26.2 ore models are cube_all. The existing atlas slots remain;
+  // deepslate ores no longer inherit the directional plain host's end.
   assert.equal(TEXTURE_SIZE, 16);
   assert.deepEqual(
     [...ORES.map(({ id }) => id), BLOCK.ANCIENT_DEBRIS].sort((a, b) => a - b),
@@ -137,9 +144,10 @@ test("all 19 ore catalog entries retain their host, mineral and face dispatch", 
   );
   for (const { id, host, deposit } of ORES) {
     for (const face of FACES) {
-      const expected = blockTexturePixels(host, face);
+      const expected = oreHostPixels(host, face);
       paintDeposit(expected, deposit);
       assert.deepEqual(blockTexturePixels(id, face), expected, `${id}/${face}`);
+      assert.deepEqual(blockTexturePixels(id, face), blockTexturePixels(id));
     }
   }
   for (const face of FACES) {
@@ -192,8 +200,12 @@ test("deposit overlays are deterministic, opaque, bounded and preserve every hos
         assert.deepEqual([...pixel(target, at)], [...expected]);
         if (!ink) hostPixels++;
       }
+      // The reference Nether-gold texture has 33 colored nugget pixels.
+      // A separate, sparser family must not inherit ordinary gold's minimum.
+      const [minimum, maximum] =
+        deposit === BLOCK.NETHER_GOLD_ORE ? [208, 232] : [180, 220];
       assert.ok(
-        hostPixels >= 180 && hostPixels <= 220,
+        hostPixels >= minimum && hostPixels <= maximum,
         `${deposit}: bounded coverage`
       );
       const once = new BufferType(target);
@@ -228,19 +240,69 @@ test("mineral families keep distinct bounded masks that allow small grains", () 
   assert.equal(masks.size, MINERAL_IDS.length, "not one recolored ore template");
 });
 
-test("coal remains a predominantly dark near-neutral mineral over unchanged hosts", () => {
-  const colors = mineralColors(BLOCK.COAL_ORE);
-  for (const [r, g, b] of colors)
-    assert.ok(Math.max(r, g, b) - Math.min(r, g, b) <= 16, "near-neutral tones");
+test("Nether gold uses a separate, sparser small-nugget mask", () => {
+  const nuggets = depositPixels(BLOCK.NETHER_GOLD_ORE);
+  const ordinary = depositPixels(BLOCK.GOLD_ORE);
+  const sizes = componentSizes(nuggets);
   assert.ok(
-    colors.filter((color) => brightness(color) < 60).length >= colors.length * 0.7
+    sizes.reduce((sum, size) => sum + size, 0) <
+      componentSizes(ordinary).reduce((sum, size) => sum + size, 0)
   );
+  assert.ok(Math.max(...sizes) <= 12, "small nuggets, not ordinary gold pockets");
+  assert.ok(sizes.filter((size) => size <= 4).length >= 3);
+  for (const [r, g, b] of mineralColors(BLOCK.NETHER_GOLD_ORE))
+    assert.ok(r >= g && g > b + 32, "warm gold remains diffuse pigment");
+});
+
+test("explicit deepslate variants retain mineral masks and bright facets", () => {
+  const adjusted = new Set([
+    BLOCK.DEEPSLATE_COAL_ORE,
+    BLOCK.DEEPSLATE_GOLD_ORE,
+    BLOCK.DEEPSLATE_REDSTONE_ORE,
+    BLOCK.DEEPSLATE_DIAMOND_ORE,
+  ]);
+  for (const { id } of ORES.filter(({ host }) => host === BLOCK.DEEPSLATE)) {
+    const mineral = BLOCKS[id].oreArt;
+    const ordinary = depositPixels(mineral);
+    const deep = depositPixels(id);
+    const colors = mineralColors(mineral);
+    const peak = Math.max(...colors.map(brightness));
+    for (let at = 0; at < COUNT; at++) {
+      assert.equal(pixel(deep, at)[3], pixel(ordinary, at)[3], `${id}: same mask`);
+      if (pixel(ordinary, at)[3] && brightness(pixel(ordinary, at)) === peak)
+        assert.deepEqual(
+          pixel(deep, at),
+          pixel(ordinary, at),
+          `${id}: retain facets`
+        );
+    }
+    if (adjusted.has(id)) {
+      assert.notDeepEqual(deep, ordinary, `${id}: explicit host-facing shades`);
+      assert.ok(
+        mean(mineralColors(id).map(brightness)) < mean(colors.map(brightness))
+      );
+    } else {
+      assert.deepEqual(deep, ordinary, `${id}: no unsupported palette change`);
+    }
+  }
+});
+
+test("coal remains a predominantly dark near-neutral mineral over its declared hosts", () => {
+  const coalIds = [BLOCK.COAL_ORE, BLOCK.DEEPSLATE_COAL_ORE];
+  for (const id of coalIds) {
+    const colors = mineralColors(id);
+    for (const [r, g, b] of colors)
+      assert.ok(Math.max(r, g, b) - Math.min(r, g, b) <= 16, "near-neutral tones");
+    assert.ok(
+      colors.filter((color) => brightness(color) < 60).length >= colors.length * 0.7
+    );
+  }
   // The reference has dark grains, not mandatory bright silver fractures.
-  for (const { id, host } of ORES.filter(
-    (entry) => entry.deposit === BLOCK.COAL_ORE
+  for (const { id, host, deposit } of ORES.filter(
+    (entry) => coalIds.includes(entry.deposit)
   )) {
     for (const face of FACES) {
-      const differences = hostContrast(id, host, BLOCK.COAL_ORE, face);
+      const differences = hostContrast(id, host, deposit, face);
       assert.ok(
         mean(differences) < -12,
         `${id}/${face}: dark mineral, not a lifted host`
@@ -280,48 +342,70 @@ test("bright minerals keep local value separation from their dark geological hos
   for (const { id, host, deposit } of ORES.filter(
     (entry) =>
       entry.host !== BLOCK.STONE &&
-      [BLOCK.GOLD_ORE, BLOCK.DIAMOND_ORE, BLOCK.EMERALD_ORE].includes(
-        entry.deposit
-      )
+      [
+        BLOCK.DEEPSLATE_GOLD_ORE,
+        BLOCK.DEEPSLATE_DIAMOND_ORE,
+        BLOCK.DEEPSLATE_EMERALD_ORE,
+        BLOCK.NETHER_GOLD_ORE,
+      ].includes(entry.deposit)
   )) {
     for (const face of FACES) {
+      // Stronger reference-gray host planes lower emerald's RGB-mean gap;
+      // do not brighten its green body just to retain the old quiet-host rule.
+      const minimum = id === BLOCK.DEEPSLATE_EMERALD_ORE ? 20 : 30;
       assert.ok(
-        mean(hostContrast(id, host, deposit, face)) > 30,
+        mean(hostContrast(id, host, deposit, face)) > minimum,
         `${id}/${face}: mineral/host separation`
       );
     }
   }
 });
 
-test("shared plain hosts and the unrelated quartz block stay byte-identical", () => {
-  // Java 26.2 comparison reopened iron, lapis and quartz ore; their old pixels
-  // are no longer scope guards. Plain hosts and quartz block remain untouched.
+test("ordinary mineral overlays and the unrelated quartz block stay byte-identical", () => {
+  // Host correction is now authorized; the former plain-host hashes describe
+  // the intentionally replaced low-contrast art. Protect the first mineral
+  // pass itself, independently of the host underneath it.
   const unchanged = [
     [
-      BLOCK.STONE,
-      "8600b998fabd8d9342caab329889a79fefb50f96d650102ace895dd0c15a04e2",
+      BLOCK.COAL_ORE,
+      "fc7d77e4f84dc80a12a6586e70501b8faf6df4fe570985446627a9a3668b655f",
     ],
     [
-      BLOCK.DEEPSLATE,
-      "15c855711b153148c2aea21267a978342725f6dbab3bbfe2e17392b983cefead",
-      "8363f938b7dbbc70eb257066c9a32d09cb33936d7739b4db5543caa1907b4cc4",
+      BLOCK.IRON_ORE,
+      "f7d5bb4d05e3132ca0363ee033cafa6427ad2e2f1a6b3448ca9cc9a65910b877",
     ],
     [
-      BLOCK.NETHERRACK,
-      "172ce8e1afe913dc289ed5a0c749b33b0f48af91c4c5a1ae8c766e06e8e745c3",
+      BLOCK.GOLD_ORE,
+      "770b3b5f8b1cc45fa8f27c506f53dd682bbc119485383487655e4a8d2ccb1211",
     ],
     [
-      BLOCK.QUARTZ_BLOCK,
-      "7f89c3e63cae6c0c333dd02a189ad07083b60e49a3d912b66f83ac9c2b2ad60a",
+      BLOCK.DIAMOND_ORE,
+      "04fefbefa856e10921e4d8aa4f3d7c6c98c800edfe961cf97026105bb0305aba",
+    ],
+    [
+      BLOCK.COPPER_ORE,
+      "8e248ff5b732f933ac8f57ed46d562be58e4fee1f5e3f69cb96063a21c16e882",
+    ],
+    [
+      BLOCK.REDSTONE_ORE,
+      "ca4ed36434ef2757e09a50f32d5420d7b4a25cbd03f9a5f44c2c57e4ecc2b89d",
+    ],
+    [
+      BLOCK.EMERALD_ORE,
+      "e5fb2b45f76edaad4bbcea0d5663f209d92f7cee7fda1bcaabe77edb9d2a1c25",
+    ],
+    [
+      BLOCK.LAPIS_ORE,
+      "08e57270f6b42939bf514e9af761b1598e657a80ec9115e0e4f711a2c15e2375",
     ],
   ];
-  for (const [id, side, end = side] of unchanged)
-    for (const face of FACES)
-      assert.equal(
-        digest(blockTexturePixels(id, face)),
-        face === "side" ? side : end,
-        `${id}/${face}`
-      );
+  for (const [id, expected] of unchanged)
+    assert.equal(digest(depositPixels(id)), expected, `${id}: ordinary mineral`);
+  for (const face of FACES)
+    assert.equal(
+      digest(blockTexturePixels(BLOCK.QUARTZ_BLOCK, face)),
+      "7f89c3e63cae6c0c333dd02a189ad07083b60e49a3d912b66f83ac9c2b2ad60a"
+    );
 });
 
 test("the ore refinement keeps the existing face allocations and 320 by 580 atlas budget", () => {

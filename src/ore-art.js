@@ -57,6 +57,24 @@ const DEPOSITS = new Map([
     },
   ],
   [
+    BLOCK.NETHER_GOLD_ORE,
+    {
+      // The Java 26.2 Nether texture has sparse small nuggets, not the
+      // ordinary-gold pocket mask. Warm orange edges sit inside red host rock.
+      palette: ["#aa481f", "#cc7425", "#f2b436", "#f8e45d", "#fff3af"],
+      patches: [
+        [2, 2, ["34.", "421", ".10"]],
+        [10, 1, ["32", "10"]],
+        [12, 5, ["43", "21", "10"]],
+        [7, 7, ["21", "10"]],
+        [1, 10, ["32", "10"]],
+        [8, 12, [".3", "42", "10"]],
+        [13, 11, ["2", "0"]],
+        [5, 5, ["1"]],
+      ],
+    },
+  ],
+  [
     BLOCK.DIAMOND_ORE,
     {
       // Short cyan cuts and scattered chips replace a few large rounded masses.
@@ -148,6 +166,30 @@ const DEPOSITS = new Map([
     },
   ],
 ]);
+
+// Explicit host-specific ramps retain the authored masks. Java 26.2 references
+// darken coal and selected host-facing shades; selection uses IDs, never RGB.
+// Unlisted shades, including the bright facets, retain the ordinary palette.
+for (const [id, mineral, shadows] of [
+  [
+    BLOCK.DEEPSLATE_COAL_ORE,
+    BLOCK.COAL_ORE,
+    ["#090b0d", "#1b1d1d", "#292c2b"],
+  ],
+  [BLOCK.DEEPSLATE_IRON_ORE, BLOCK.IRON_ORE],
+  [BLOCK.DEEPSLATE_COPPER_ORE, BLOCK.COPPER_ORE],
+  [BLOCK.DEEPSLATE_GOLD_ORE, BLOCK.GOLD_ORE, ["#94601e"]],
+  [BLOCK.DEEPSLATE_REDSTONE_ORE, BLOCK.REDSTONE_ORE, ["#805658"]],
+  [BLOCK.DEEPSLATE_DIAMOND_ORE, BLOCK.DIAMOND_ORE, ["#506d70", "#1b898e"]],
+  [BLOCK.DEEPSLATE_LAPIS_ORE, BLOCK.LAPIS_ORE],
+  [BLOCK.DEEPSLATE_EMERALD_ORE, BLOCK.EMERALD_ORE],
+]) {
+  const { palette, patches } = DEPOSITS.get(mineral);
+  DEPOSITS.set(id, {
+    patches,
+    palette: shadows ? [...shadows, ...palette.slice(shadows.length)] : palette,
+  });
+}
 
 export function paintOreDeposits(pixels, id) {
   const deposit = DEPOSITS.get(id);

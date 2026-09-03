@@ -71,7 +71,7 @@ export function expansionBlocks({ cube, rock, plant }) {
     ),
     entry(
       B.DEEPSLATE,
-      rock("Deepslate", "#53535b", "stone", {
+      rock("Deepslate", "#555559", "stone", {
         hardness: 3,
         drop: B.COBBLED_DEEPSLATE,
         directional: "axis",

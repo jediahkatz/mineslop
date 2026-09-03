@@ -162,13 +162,14 @@ function paintAncientDebris(p, face) {
   // Java 26.2 has broad side strata and a winding end, not isolated ore chips.
   // The paths and interruptions here are hand-authored, not sampled bitmaps.
   if (face === "side") {
+    // Unequal folded courses and a thicker side plate, as in the reference;
+    // retain strata rather than replacing them with isolated mineral flecks.
     for (const [x, y, shape] of [
-      [-2, 0, ["...45554....", ".455665432..", "43233322110.", ".210001112.."]],
-      [8, 1, ["..4544...", "45665321.", "332221100", ".110012.."]],
-      [1, 6, ["...4554.....", ".456655432..", "43233322210.", ".210001110.."]],
-      [11, 6, [".454.", "56654", "33321", ".1100"]],
-      [-1, 11, ["..4554.....", ".456654321.", "4333221110.", ".110001223."]],
-      [8, 12, ["..4554..", ".4566543", "43332221", ".2100011"]],
+      [-2, 0, ["..45566543..", ".43223332210", "43223322110.", ".210011112.."]],
+      [9, -2, [".4554.", "456654", "433221", "321110", ".112.."]],
+      [3, 5, ["...45443..", ".456655321", "4323322210", "322233210.", ".211110..."]],
+      [-2, 9, [".4544...", "5665432.", "43333221", "32223321", "2100011.", ".1122..."]],
+      [11, 7, ["..454.", ".45654", "432332", "322232", "322321", "223210", ".2110."]],
     ])
       p.stamp(x, y, shape, DEBRIS, true);
     return;
@@ -266,13 +267,15 @@ export function paintQuartzDeposits(pixels) {
   if (pixels.length !== TEXTURE_SIZE * TEXTURE_SIZE * 4)
     throw new RangeError("Quartz deposits need exactly 16 × 16 RGBA pixels");
   const p = painter(pixels);
+  // The reference mixes bent, short and near-vertical cuts, not equal
+  // parallel sticks. Keep the existing quartz/host transition palette.
   for (const [x, y, shape] of [
-    [5, 1, ["..32", "..42", ".321", "210."]],
-    [1, 5, ["..3.", ".432", "321.", "10.."]],
-    [10, 5, ["..34", ".321", "210.", "10.."]],
-    [6, 8, ["..3", ".42", "321", "210"]],
-    [3, 11, ["..3", ".42", "321", "10."]],
-    [12, 11, [".3", "42", "21", "10"]],
+    [4, 1, ["...32", "..431", ".321.", "210.."]],
+    [1, 6, [".343", "3210"]],
+    [10, 5, ["...3", "..42", ".321", ".10."]],
+    [5, 8, ["..32", ".421", ".31.", "210.", "10.."]],
+    [2, 12, [".3", "42", "10"]],
+    [11, 11, [".32", ".41", "321", "10."]],
   ])
     p.stamp(x, y, shape, QUARTZ_ORE);
   return true;
