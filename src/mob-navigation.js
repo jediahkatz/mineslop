@@ -93,6 +93,7 @@ export function groundAt(
     stepHeight = spec.stepHeight ?? 1,
     maxDrop = 1,
     natural = false,
+    avoidHazards = false,
   } = {}
 ) {
   if (!footprintLoaded(world, x, z, spec.radius)) return null;
@@ -108,6 +109,7 @@ export function groundAt(
   if (!Number.isFinite(surface)) return null;
   const filter = ({ cell }) =>
     cell.id !== BLOCK.CACTUS &&
+    (!avoidHazards || cell.id !== BLOCK.MAGMA_BLOCK) &&
     (!natural || !["leaves", "log"].includes(BLOCKS[cell.id]?.texture));
   const candidates = supportContacts(
     world,
@@ -182,7 +184,7 @@ function clearSweep(world, from, to, spec) {
   return true;
 }
 
-export function moveMob(world, entity, dx, dz, dy = 0) {
+export function moveMob(world, entity, dx, dz, dy = 0, { avoidHazards = false } = {}) {
   const { spec, position } = entity;
   if (![dx, dz, dy].every(Number.isFinite)) return false;
   const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz, dy) / 0.2));
@@ -197,7 +199,10 @@ export function moveMob(world, entity, dx, dz, dy = 0) {
       if (!clearSweep(world, position, { x, y, z }, spec)) break;
       position.set(x, y, z);
     } else {
-      const y = groundAt(world, x, z, spec, { nearY: entity.groundY });
+      const y = groundAt(world, x, z, spec, {
+        nearY: entity.groundY,
+        avoidHazards,
+      });
       if (y === null) break;
       const feet = Math.max(y, position.y);
       if (
@@ -213,6 +218,124 @@ export function moveMob(world, entity, dx, dz, dy = 0) {
     moved = true;
   }
   return moved;
+}
+
+export const ANIMAL_NAVIGATION_LIMITS = Object.freeze({
+  directions: 3,
+  recheck: 0.9,
+  retry: 0.8,
+  maxRetry: 2.4,
+  lookAhead: 1.6,
+  step: 0.2,
+  maxSpeed: 6,
+});
+const angleDifference = (angle) => Math.atan2(Math.sin(angle), Math.cos(angle));
+
+export function createAnimalNavigation(side = 1) {
+  return {
+    yaw: 0,
+    goalYaw: 0,
+    recheckIn: 0,
+    retryIn: 0,
+    failures: 0,
+    side: side < 0 ? -1 : 1,
+  };
+}
+
+/** Non-mutating route probe. Uses the SAME swept body, exact support shapes and
+ * loaded-footprint checks as movement. Partial progress is not a clear route.
+ */
+export function animalRouteClear(world, entity, yaw, distance) {
+  if (!Number.isFinite(yaw) || !Number.isFinite(distance) || distance <= 0 ||
+    distance > ANIMAL_NAVIGATION_LIMITS.lookAhead || !finitePosition(entity.position) ||
+    !Number.isFinite(entity.groundY) || entity.spec.aquatic || entity.spec.flying ||
+    !footprintLoaded(world, entity.position.x, entity.position.z, entity.spec.radius))
+    return false;
+  const position = {
+    x: entity.position.x, y: entity.position.y, z: entity.position.z,
+    set(x, y, z) { this.x = x; this.y = y; this.z = z; },
+  };
+  const dx = Math.sin(yaw) * distance, dz = Math.cos(yaw) * distance;
+  const probe = { spec: entity.spec, position, groundY: entity.groundY };
+  return moveMob(world, probe, dx, dz, 0, { avoidHazards: true }) &&
+    Math.hypot(position.x - entity.position.x - dx,
+      position.z - entity.position.z - dz) < 1e-6;
+}
+
+/**
+ * Passive-only steering: retain a chosen detour, turn before walking, and rest
+ * after a failed probe. No frame-by-frame five-way shuffling against a fence.
+ * `navigation` is ephemeral per-animal state; callers own control authority.
+ */
+export function stepAnimalNavigation(world, entity, navigation, intent, dt) {
+  const result = { moved: false, blocked: false, probes: 0 };
+  if (!Number.isFinite(dt) || dt <= 0 || !Number.isFinite(intent.yaw) ||
+    !Number.isFinite(intent.speed) || intent.speed < 0 ||
+    !finitePosition(entity.position) || !Number.isFinite(entity.root?.rotation?.y) ||
+    entity.spec.aquatic || entity.spec.flying ||
+    !footprintLoaded(world, entity.position.x, entity.position.z, entity.spec.radius))
+    return result;
+  dt = Math.min(dt, ANIMAL_NAVIGATION_LIMITS.step);
+  entity.moving = false;
+  navigation.recheckIn = Math.max(0, navigation.recheckIn - dt);
+  navigation.retryIn = Math.max(0, navigation.retryIn - dt);
+  const turn = (yaw) => {
+    const difference = angleDifference(yaw - entity.root.rotation.y);
+    const amount = (intent.mode === "flee" ? 7 : 3.5) * dt;
+    entity.root.rotation.y = angleDifference(
+      entity.root.rotation.y + Math.max(-amount, Math.min(amount, difference))
+    );
+    return Math.abs(angleDifference(yaw - entity.root.rotation.y));
+  };
+  if (intent.speed === 0) {
+    navigation.recheckIn = 0;
+    if (intent.mode === "follow") turn(intent.yaw);
+    return result;
+  }
+  if (navigation.retryIn > 0) return result;
+  const backoff = () => {
+    navigation.failures = Math.min(3, navigation.failures + 1);
+    navigation.retryIn = Math.min(ANIMAL_NAVIGATION_LIMITS.maxRetry,
+      ANIMAL_NAVIGATION_LIMITS.retry * navigation.failures);
+    navigation.recheckIn = 0;
+    navigation.side *= -1;
+    result.blocked = true;
+  };
+  if (navigation.recheckIn <= 0 ||
+    Math.abs(angleDifference(intent.yaw - navigation.goalYaw)) > 0.65) {
+    const distance = Math.min(ANIMAL_NAVIGATION_LIMITS.lookAhead, 0.65 + intent.speed * 0.3);
+    let chosen = null;
+    // Tangential alternatives allow a deliberate walk along walls, not a
+    // series of short forward probes that can never clear the same obstacle.
+    for (const offset of [0, navigation.side * 1.6, -navigation.side * 1.6]) {
+      result.probes++;
+      const yaw = intent.yaw + offset;
+      if (animalRouteClear(world, entity, yaw, distance)) {
+        chosen = yaw;
+        break;
+      }
+    }
+    if (chosen === null) {
+      backoff();
+      return result;
+    }
+    navigation.yaw = chosen;
+    navigation.goalYaw = intent.yaw;
+    navigation.recheckIn = ANIMAL_NAVIGATION_LIMITS.recheck;
+  }
+  if (turn(navigation.yaw) > 0.2) return result;
+  const travel = Math.min(ANIMAL_NAVIGATION_LIMITS.maxSpeed, intent.speed) * dt;
+  const beforeX = entity.position.x, beforeZ = entity.position.z;
+  result.moved = moveMob(world, entity,
+    Math.sin(entity.root.rotation.y) * travel,
+    Math.cos(entity.root.rotation.y) * travel, 0, { avoidHazards: true });
+  // A newly placed obstacle can invalidate the cached route. Do not count a
+  // tiny partial advance as success and repeatedly churn against its face.
+  if (Math.hypot(entity.position.x - beforeX, entity.position.z - beforeZ) < travel * 0.95)
+    backoff();
+  else navigation.failures = 0;
+  entity.moving = result.moved;
+  return result;
 }
 
 export function applyGravity(world, entity, dt) {

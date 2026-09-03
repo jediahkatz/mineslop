@@ -1,8 +1,26 @@
 import {
+  ANIMAL_BEHAVIOR_LIMITS,
+  animalCanGraze,
+  createAnimalBehavior,
+  hasAnimalBehavior,
+  planAnimalBehavior,
+  planAnimalVocalization,
+} from "./animal-behavior.js";
+import { readGeometryCell } from "./geometry-world.js";
+import {
+  difficultyPolicy,
+  mobDifficultyAction,
+  peacefulMobCombatReset,
+} from "./mob-difficulty.js";
+import {
   applyGravity,
+  createAnimalNavigation,
   exposedToSun,
+  finitePosition,
+  footprintLoaded,
   hasLineOfSight,
   moveMob,
+  stepAnimalNavigation,
 } from "./mob-navigation.js";
 import { isDaylight, isHostileSpecies, MOB_SPECIES } from "./mob-species.js";
 
@@ -79,8 +97,71 @@ function wander(mob, dt, ctx) {
   steer(mob, mob.targetYaw, speed, dt, ctx, dy);
 }
 
-function wolfCompanion(mob, dt, ctx, distance, toward) {
-  const target = ctx.wolfTarget(mob);
+function animalState(mob) {
+  mob.animalBehavior ??= createAnimalBehavior(
+    mob.id ?? `${mob.kind}:${mob.phase}`, mob.root.rotation.y,
+  );
+  return mob.animalBehavior;
+}
+
+function animalAudible(mob, ctx) {
+  return ctx.health > 0 && finitePosition(ctx.player) &&
+    Math.hypot(mob.position.x - ctx.player.x, mob.position.y - ctx.player.y,
+      mob.position.z - ctx.player.z) <= ANIMAL_BEHAVIOR_LIMITS.callRange;
+}
+
+function observeAnimalEvent(mob, event, ctx) {
+  if (!event || typeof ctx.onAnimalEvent !== "function" ||
+    !footprintLoaded(ctx.world, mob.position.x, mob.position.z, mob.spec.radius))
+    return;
+  ctx.onAnimalEvent(mob, event);
+}
+
+function animalVoice(mob, dt, ctx) {
+  if (!hasAnimalBehavior(mob.kind)) return;
+  const voice = planAnimalVocalization(animalState(mob), {
+    audible: animalAudible(mob, ctx),
+    alarm: mob.fleeTime > 0 || mob.attacking,
+  }, dt);
+  // Commit the cooldown before the optional audio observer. A refused/muted
+  // call still consumes its opportunity and cannot be retried each substep.
+  mob.animalBehavior = voice.state;
+  observeAnimalEvent(mob, voice.event, ctx);
+}
+
+function animalMotion(mob, dt, ctx, lineOfSight) {
+  animalState(mob);
+  mob.animalNavigation ??= createAnimalNavigation(mob.phase < Math.PI ? 1 : -1);
+  const ground = readGeometryCell(ctx.world,
+    Math.floor(mob.position.x), Math.floor(mob.groundY - 0.001), Math.floor(mob.position.z));
+  const decision = planAnimalBehavior(mob.animalBehavior, {
+    kind: mob.kind,
+    position: mob.position,
+    home: mob.home,
+    yaw: mob.root.rotation.y,
+    speed: mob.spec.speed,
+    player: ctx.player,
+    playerVisible: lineOfSight && ctx.health > 0,
+    daylight: isDaylight(ctx.timeOfDay),
+    attracted: mob.followTime > 0 || ctx.isAnimalTempted?.(mob) === true,
+    fleeTime: mob.fleeTime,
+    threat: mob.threat,
+    canGraze: animalCanGraze(mob.kind, ground?.id),
+    audible: animalAudible(mob, ctx),
+  }, dt);
+  mob.animalBehavior = decision.state;
+  mob.animalIntent = decision.intent.mode;
+  mob.grazing = decision.intent.mode === "graze";
+  mob.walking = decision.intent.speed > 0;
+  mob.targetYaw = decision.intent.yaw;
+  stepAnimalNavigation(ctx.world, mob, mob.animalNavigation, decision.intent, dt);
+  // Optional post-decision observation. The audio owner supplies voices, range
+  // attenuation and a global voice budget; AI never creates audio or items.
+  observeAnimalEvent(mob, decision.event, ctx);
+}
+
+function wolfCompanion(mob, dt, ctx, distance, toward, canAttack) {
+  const target = canAttack ? ctx.wolfTarget(mob) : null;
   if (target) {
     const dx = target.position.x - mob.position.x,
       dz = target.position.z - mob.position.z;
@@ -148,8 +229,38 @@ function fight(mob, dt, ctx, distance, toward, lineOfSight) {
 
 /** Fixed, bounded substeps; all callbacks are supplied by Wildlife. No rendering. */
 export function stepMob(mob, dt, ctx) {
-  if (mob.dead || mob.dormant) return;
+  if (mob.dead || mob.dormant || !Number.isFinite(dt) || dt <= 0) return;
+  dt = Math.min(dt, ANIMAL_BEHAVIOR_LIMITS.step);
   const spec = mob.spec;
+  const policy = difficultyPolicy(ctx.difficulty);
+  // Motion authority includes bareback/untamed rides AND this frame's dismount.
+  // It is independent of tamed/saddled/retained state and must precede gravity,
+  // knockback, relocation, hopping, turning and the generic movement flags.
+  if (mob.kind === "horse" && ctx.ownsMotionThisFrame?.(mob) === true) {
+    if (mob.animalIntent !== "controlled" && mob.animalBehavior) {
+      mob.animalBehavior = {
+        ...mob.animalBehavior, mode: "idle", remaining: 1.5, approaching: false,
+      };
+    }
+    mob.grazing = false;
+    mob.animalIntent = "controlled";
+    mob.animalNavigation = null;
+    animalVoice(mob, dt, ctx);
+    return;
+  }
+  const retained = ctx.retainsMob?.(mob) === true;
+  if (!policy.mobCombat) {
+    Object.assign(mob, peacefulMobCombatReset(spec));
+    // Retention also covers persistent encounters; it is not proof of taming
+    // and cannot turn a suspended hostile into a freely killable passive mob.
+    if (mobDifficultyAction(mob, ctx.difficulty) === "suspend") {
+      mob.moving = mob.grazing = false;
+      return;
+    }
+  }
+  // The owner decides dormancy/removal. AI never reads or searches missing
+  // columns, and never relocates a retained horse to simulate wolf following.
+  if (!footprintLoaded(ctx.world, mob.position.x, mob.position.z, spec.radius)) return;
   for (const key of [
     "attackCooldown",
     "fleeTime",
@@ -162,10 +273,11 @@ export function stepMob(mob, dt, ctx) {
     "pacified",
   ])
     mob[key] = Math.max(0, mob[key] - dt);
-  mob.moving = false;
-  sunlight(mob, dt, ctx);
+  mob.moving = mob.grazing = false;
+  if (policy.mobCombat) sunlight(mob, dt, ctx);
   if (mob.dead) return;
   if (!applyGravity(ctx.world, mob, dt)) {
+    if (retained) return;
     if (!ctx.relocate(mob, mob.position, 1, 5)) ctx.cull(mob);
     return;
   }
@@ -180,6 +292,7 @@ export function stepMob(mob, dt, ctx) {
   const distance = Math.hypot(dx, dz);
   const toward = Math.atan2(dx, dz);
   const canAttack =
+    policy.mobCombat &&
     !spec.harmless &&
     !ctx.spawnProtected &&
     ctx.mode !== "creative" &&
@@ -199,8 +312,15 @@ export function stepMob(mob, dt, ctx) {
       (spec.temperament === "hostile" &&
         !(spec.dayNeutral && isDaylight(ctx.timeOfDay))));
   mob.attacking = aggro;
+  const fighting = aggro && distance < spec.vision && (lineOfSight || mob.angry > 0);
+  let plannedAnimal = false;
   if (mob.tamed && mob.kind === "wolf") {
-    wolfCompanion(mob, dt, ctx, distance, toward);
+    wolfCompanion(mob, dt, ctx, distance, toward, canAttack);
+  } else if (hasAnimalBehavior(mob.kind) && (mob.fleeTime > 0 || !fighting)) {
+    mob.fuse = Math.max(0, mob.fuse - dt * 2);
+    mob.fusing = false;
+    animalMotion(mob, dt, ctx, lineOfSight);
+    plannedAnimal = true;
   } else if (mob.fleeTime > 0 || (spec.shy && distance < 4)) {
     const yaw =
       mob.fleeTime > 0
@@ -210,11 +330,7 @@ export function stepMob(mob, dt, ctx) {
           )
         : toward + Math.PI;
     steer(mob, yaw, spec.speed * 2.6, dt, ctx);
-  } else if (
-    aggro &&
-    distance < spec.vision &&
-    (lineOfSight || mob.angry > 0)
-  ) {
+  } else if (fighting) {
     fight(mob, dt, ctx, distance, toward, lineOfSight);
   } else {
     mob.fuse = Math.max(0, mob.fuse - dt * 2);
@@ -223,6 +339,7 @@ export function stepMob(mob, dt, ctx) {
       steer(mob, toward, spec.speed * 1.4, dt, ctx);
     else wander(mob, dt, ctx);
   }
+  if (!plannedAnimal) animalVoice(mob, dt, ctx);
   if (!canAttack) {
     mob.fuse = 0;
     mob.fusing = false;
