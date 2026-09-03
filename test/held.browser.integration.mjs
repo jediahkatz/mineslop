@@ -324,7 +324,9 @@ test("frozen real Game: trusted hand motion, use costs, caller timing and visibi
       if (window.__voxelHeld.status().error) throw new Error(window.__voxelHeld.status().error);
       return !game.useActions.use.active && !game.useActions.held && !game.heldAction &&
         !game.player.moving && [game.effects, game.effects.offhand].every((view) =>
-          view.motion.channels.every((channel) => channel.value < 0.0002));
+          // Selection raises the leading stage before the rendered value moves.
+          view.motion.channels.every((channel) =>
+            channel.lead < 0.0002 && channel.value < 0.0002));
     });
     const choose = async (slot) => {
       await page.keyboard.press(String(slot + 1));
