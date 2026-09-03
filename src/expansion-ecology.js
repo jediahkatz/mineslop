@@ -802,13 +802,24 @@ export class ExpansionEcology {
    * one-shot ledger, loot retention and XP all publish in one coordinator plan.
    * `prepareDrops` resolves names; unsupported content/capacity must return null.
    */
-  prepareDeath(mob, ctx, {
+  prepareDeath(mob, ctx, options = {}) {
+    return this._prepareDeath(mob, ctx, options, false);
+  }
+
+  /** Internal owner/resource parts, not a standalone action. The host adds the
+   * real base removal and hides these parts behind an incomplete batch token.
+   */
+  _prepareDeathContribution(mob, ctx, options = {}) {
+    return this._prepareDeath(mob, ctx, options, true);
+  }
+
+  _prepareDeath(mob, ctx, {
     playerKill = false, prepareRemoval, prepareDrops, prepareExperience, prepareUniqueCompletion,
-  } = {}) {
+  }, contribution) {
     const state = this.state(mob?.id), guard = this._capture(mob, ctx);
     if (!guard || typeof playerKill !== "boolean") return null;
     const reward = ecologyDeathReward(mob.kind, playerKill);
-    const participants = [prepareHook(prepareRemoval, mob)];
+    const participants = contribution ? [] : [prepareHook(prepareRemoval, mob)];
     if (reward.drops.length)
       participants.push(prepareHook(prepareDrops, reward.drops, ecologyPoint(mob.position), state.dimension));
     if (reward.experience)
@@ -823,6 +834,14 @@ export class ExpansionEcology {
       changes.push({ store: "elders", value: { ...elder, status: "defeated" } });
     }
     const source = this._prepare(changes, ctx, guard);
+    if (contribution) {
+      const peers = [source, ...participants];
+      if (peers.some((part) => !part) ||
+        new Set(peers.map((part) => part.owner)).size !== peers.length ||
+        peers.some((part) => this.coordinator.usage(part.owner) !== part.beforeBytes)) return null;
+      return Object.freeze({ complete: false, peers: Object.freeze(peers),
+        outcome: freeze({ reward, clearEffectSource: mob.id }) });
+    }
     return this._plan(source, participants, { ok: true, reward, clearEffectSource: mob.id });
   }
 

@@ -4,13 +4,15 @@ import {
 import {
   findHorseDeathExit, horseBounds, horseBoxes, horseDeathExitValid, horseExitValid,
 } from "./horse-collision.js";
-import { cloneHorseRecord } from "./horse-save.js";
+import { cloneHorseRecord, horseDataArray } from "./horse-save.js";
 import { applyHorseSlotAction } from "./horse-slots.js";
 import { horseStableDraw } from "./horse-taming.js";
 import { ownedSlot } from "./inventory-domain.js";
 import { cloneStack, isValidStack } from "./inventory-slots.js";
 import { ITEM } from "./items.js";
 import { captureAquaticArea, finitePoint } from "./vehicle-water.js";
+import { contributeResidentEditBatch, RESIDENT_EDIT_LIMITS } from "./wildlife-resident-batch.js";
+import { horseResidentEdit } from "./wildlife-resident-edit.js";
 
 const fail = (reason) => ({ ok: false, handled: true, reason });
 const clamp = (value, bound) => Math.max(-bound, Math.min(bound, value));
@@ -152,12 +154,37 @@ export function prepareHorseInteraction(domain, id, {
  * with health/death in the SAME transaction. No reset-fall-then-veto loophole.
  * Player attacks supply their one prepared Gameplay wear/cost participant.
  */
-export function prepareHorseHit(domain, id, amount, direction, {
+export function prepareHorseHit(domain, id, amount, direction, options = {}, advance = null) {
+  const batch = domain.wildlife?.beginResidentEditBatch();
+  if (!batch) return fail("unavailable");
+  const contribution = contributeHorseHit(domain, batch, id, amount, direction, options, advance);
+  if (contribution.ok === false) return contribution;
+  const plan = domain.wildlife.finalizeResidentEditBatch(batch, {
+    contributions: [contribution], participants: contribution.peers,
+  });
+  return plan ? domain._plan("hit", id, plan.participants, plan.results[0]) : fail("invalid-resident-batch");
+}
+
+/** Incomplete until the caller finalizes Wildlife with this token and EVERY
+ * peer token. Failure poisons that batch even when the caller ignores this result.
+ * This is the existing direct-player/environment policy, not distant credit.
+ */
+export function contributeHorseHit(domain, batch, id, amount, direction, options = {}, advance = null) {
+  let failure;
+  const contribution = contributeResidentEditBatch(domain.wildlife, batch, (add) => {
+    const prepared = prepareHorseHitParts(domain, id, amount, direction, options, advance, add);
+    if (prepared.ok === false) { failure = prepared; return null; }
+    return prepared;
+  });
+  return contribution ?? failure ?? fail("invalid-resident-batch");
+}
+
+function prepareHorseHitParts(domain, id, amount, direction, {
   ownerId = "player", playerKill = false, retaliate = true, validate, participants = [],
-} = {}, advance = null) {
+} = {}, advance, add) {
   if (!domain._ready()) return fail("unavailable");
   if (!Number.isFinite(amount) || amount <= 0 || typeof playerKill !== "boolean" ||
-    typeof retaliate !== "boolean" || !Array.isArray(participants) ||
+    typeof retaliate !== "boolean" || !horseDataArray(participants, RESIDENT_EDIT_LIMITS.peers) ||
     !currentAction(validate) || (playerKill && !horseSynchronous(validate))) return fail("invalid-hit");
   const mob = domain._base(id), actor = playerKill ? domain._actor(ownerId) : null;
   if (!mob || (playerKill && !domain._reachable(actor, mob))) return fail("inactive-or-out-of-reach");
@@ -222,15 +249,16 @@ export function prepareHorseHit(domain, id, amount, direction, {
     input: advance?.input, stride: advance?.stride,
     environment: advance ? { grounded: movement.motion.grounded, water: movement.water } : undefined,
   });
-  const base = domain.wildlife.prepareHorseEdit(mob, {
+  const base = horseResidentEdit(domain.wildlife, mob, {
     health: killed ? mob.health : mob.health - damage,
     remove: killed, retain: !killed, motion: movement, direction, retaliate,
   });
-  return domain._plan("hit", id, [own, base, ...sinks, ...participants], {
+  if (!base || !add("horse", base)) return fail("invalid-resident-edit");
+  return { peers: [own, ...sinks, ...participants], result: {
     hit: true, killed, damage, entityId: id, kind: "horse",
     drops: drops.map((stack) => cloneStack(stack, domain.context)), experience,
     dropsCommitted: true, experienceCommitted: true,
     handCostCommitted: participants.some((part) => part?.owner === domain.gameplay),
     ...(exit ? { exit: structuredClone(exit) } : {}),
-  });
+  } };
 }

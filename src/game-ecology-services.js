@@ -30,7 +30,7 @@ import {
   ExpansionEcology,
 } from "./expansion-ecology.js";
 import { readGeometryCell } from "./geometry-world.js";
-import { horseDataRecord, normalizeHorseSnapshot, sameHorseBase } from "./horse-save.js";
+import { horseDataArray, horseDataRecord, normalizeHorseSnapshot, sameHorseBase } from "./horse-save.js";
 import { Horses } from "./horses.js";
 import { getItem, ITEM } from "./items.js";
 import { finitePosition } from "./mob-navigation.js";
@@ -43,6 +43,8 @@ import {
 } from "./npc-ai.js";
 import { TransactionCoordinator, TransactionInvariantError } from "./transactions.js";
 import { Wildlife } from "./wildlife.js";
+import { contributeResidentEditBatch, RESIDENT_EDIT_LIMITS } from "./wildlife-resident-batch.js";
+import { residentDamage } from "./wildlife-resident-edit.js";
 import { createWorldContext, DIMENSIONS } from "./world-spec.js";
 
 export { ECOLOGY_HOST_LIMITS } from "./ecology-population.js";
@@ -176,8 +178,9 @@ const sameBase = (a, b) => {
  * work occurs here. Keep this owner through dimension travel; suspend BEFORE
  * changing World.dimension, then restore/activate the new Wildlife renderer.
  *
- * All prepared public methods return {participants,result}|null. Compose those
- * participants with the real action/tool-cost plan and commit ONCE. In particular
+ * Standalone prepare methods return {participants,result}|null; contributeHit
+ * instead returns an incomplete token with required peer tokens for Wildlife.
+ * Compose complete participants with the action/tool-cost plan and commit ONCE. In particular
  * do not call legacy Wildlife.interact/damage then debit a hand or grant XP.
  * prepareDrops(EcologyDropPayload) returns ONE participant owned by `overflow`;
  * prepareExperience(EcologyExperiencePayload) returns ONE owned by `experienceOrbs`.
@@ -546,6 +549,7 @@ export class GameEcologyServices {
   }
 
   commit(plan) {
+    if (plan?.complete === false) return refuse("incomplete-resident-contribution");
     if (!this.active || !plan) return refuse("invalid-ecology-plan");
     const committed = this.coordinator.commit(plan.participants);
     if (!committed.ok) return committed;
@@ -638,10 +642,10 @@ export class GameEcologyServices {
     return populateEcology(this);
   }
 
-  canWake(mob) {
+  canWake(mob, ctx = this.wildlife?.context) {
     if (!this.active || !mob || mob.dead ||
       !this.ecology.canRestore(mob.id, mob.kind, this.world.dimension)) return false;
-    const ctx = this.wildlife.context, collider = ecologyCollider(mob.kind, this.ecology.state(mob.id));
+    const collider = ecologyCollider(mob.kind, this.ecology.state(mob.id));
     return ecologyDistance(mob.position, ctx.player) <= 58 &&
       (!mob.dormant || this._spawnAllowed(mob.kind, mob.position, true)) &&
       !(ctx.spawnProtected && mob.spec.temperament === "hostile" &&
@@ -728,36 +732,63 @@ export class GameEcologyServices {
    * Player attacks pass their prepared tool/wear participant here. Environmental
    * damage calls hurt(), never the old damage-then-drop callback path.
    */
-  prepareHit(entityId, amount, direction, {
+  prepareHit(entityId, amount, direction, options = {}) {
+    const batch = this.wildlife?.beginResidentEditBatch();
+    if (!batch) return null;
+    const contribution = this.contributeHit(batch, entityId, amount, direction, options);
+    if (!contribution) return null;
+    const plan = this.wildlife.finalizeResidentEditBatch(batch, {
+      contributions: [contribution], participants: contribution.peers,
+    });
+    return plan && Object.freeze({ participants: plan.participants, result: plan.results[0] });
+  }
+
+  /** Explicitly incomplete: this token and all its peer tokens must join the caller's
+   * one finalized Wildlife batch. Existing playerKill guards/loot policy stay
+   * unchanged; this does not authorize distant combat or activate new callers.
+   */
+  contributeHit(batch, entityId, amount, direction, options = {}) {
+    return contributeResidentEditBatch(this.wildlife, batch, (add) =>
+      this._prepareHitParts(entityId, amount, direction, options, add));
+  }
+
+  _prepareHitParts(entityId, amount, direction, {
     playerKill = false, retaliate = true, hit = null, participants = [], validate,
-  } = {}) {
-    this._syncPlayer();
+  }, add) {
     const guard = this._guard(), mob = this.wildlife?.byId.get(entityId);
     if (!guard || !mob || !mob.spec.ecology || mob.dead || mob.dormant ||
       !Number.isFinite(amount) || amount <= 0 || typeof playerKill !== "boolean" ||
-      !Array.isArray(participants) ||
+      typeof retaliate !== "boolean" || !horseDataArray(participants, RESIDENT_EDIT_LIMITS.peers) ||
       ((playerKill || validate !== undefined) && !synchronousEcologyHook(validate))) return null;
     const currentAction = validate ?? (() => true);
     const player = playerKill ? this._playerGuard() : () => true;
     if (!player || invoke(currentAction) !== true) return null;
     const dealt = Math.min(mob.health, Math.min(1000, amount));
     const loaded = this._loadedGuard(mob.position);
-    const ctx = this.wildlife.context;
+    // Read current physical player facts without writing the shared AI context
+    // or Wildlife's player vector during a detached preparation.
+    const ctx = this._readContext(), killed = dealt === mob.health;
+    const validateBase = () => guard() && loaded() && player() && currentAction() === true &&
+      (killed || this.canWake(mob, this._readContext()));
     const afterHit = () => {
       this.ecology.invalidateAvailability();
       this._dirty = true;
-      if (hit && !mob.dead) this.ecology.retaliate(mob, { ...hit, dealt }, ctx);
+      if (hit && !mob.dead && guard() && player()) {
+        // Keep the standalone reflection bridge's current player context, but
+        // only synchronize after commit, never while preparing the base edit.
+        this._syncPlayer();
+        this.ecology.retaliate(mob, { ...hit, dealt }, this.wildlife.context);
+      }
       if (mob.dead) this.clearIntent(mob);
     };
     let plan;
-    if (dealt < mob.health) {
-      const source = this.wildlife.prepareEcologyDamage(mob, dealt, direction, {
-        retaliate, validate: () => this.canWake(mob), notify: afterHit,
-      });
-      plan = source && { participants: [source], result: { ok: true } };
-    } else plan = this.ecology.prepareDeath(mob, ctx, {
+    if (!add("ecology", killed ? { remove: mob, validate: validateBase, notify: afterHit } : {
+      damage: residentDamage(ctx.player, mob, dealt, direction, retaliate),
+      validate: validateBase, notify: afterHit,
+    })) return null;
+    if (!killed) plan = { peers: [], outcome: {} };
+    else plan = this.ecology._prepareDeathContribution(mob, ctx, {
       playerKill,
-      prepareRemoval: () => this.wildlife.prepareEcologyRemoval(mob, { notify: afterHit }),
       prepareDrops: (drops, at, dimension) => this._drops(drops, at, dimension, "ecology-death"),
       prepareExperience: (xp, at, dimension) => this._experience(xp, at, dimension),
       prepareUniqueCompletion: (elder) => {
@@ -772,8 +803,9 @@ export class GameEcologyServices {
         return participant(source) && source.owner === this.exploration ? source : null;
       },
     });
+    if (!plan) return null;
     const extra = [...participants];
-    if (plan && dealt === mob.health && mob.kind === "villager" &&
+    if (killed && mob.kind === "villager" &&
       this.trading?.readRuntime(mob.id)?.jobsite && !extra.some((part) => part?.owner === this.trading)) {
       const release = invoke(this.hooks.prepareVillagerDeath, Object.freeze({
         entityId: mob.id, memberId: this.ecology.state(mob.id).memberId, dimension: this.world.dimension,
@@ -781,10 +813,11 @@ export class GameEcologyServices {
       if (!participant(release) || release.owner !== this.trading) return null;
       extra.push(release);
     }
-    return this._plan(plan, () => guard() && loaded() && player() && currentAction() === true, extra, {
-      handled: true, hit: true, killed: dealt === mob.health, damage: dealt, entityId: mob.id,
+    return { peers: [...plan.peers, ...extra], result: {
+      ok: true, ...plan.outcome,
+      handled: true, hit: true, killed, damage: dealt, entityId: mob.id,
       dropsCommitted: true, experienceCommitted: true,
-    });
+    } };
   }
 
   hurt(mob, amount, direction, options = {}) {

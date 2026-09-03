@@ -10,7 +10,7 @@ import {
   cloneHorseRecord, emptyHorseSnapshot, normalizeHorseRecord, normalizeHorseSnapshot,
 } from "./horse-save.js";
 import {
-  prepareHorseFeed, prepareHorseHit, prepareHorseInteraction, prepareHorseSlotAction,
+  contributeHorseHit, prepareHorseFeed, prepareHorseHit, prepareHorseInteraction, prepareHorseSlotAction,
 } from "./horse-actions.js";
 import {
   prepareHorseDismount, prepareHorseMount, prepareHorsePassengerRelease, updateHorses,
@@ -54,6 +54,8 @@ export function freezeHorseValue(value) {
  * {ok:false,handled:true,reason}. commit(plan) removes participants and returns
  * that receipt plus {ok,observerErrors}. Parent may instead compose the list
  * with other owners and commit ONCE. Never run legacy Wildlife actions first.
+ * contributeHit(batch,...) returns an incomplete token and opaque peer tokens,
+ * not a plan; finalize them with Wildlife before attempting a complete commit.
  *
  * Load sidecar while detached, restore Wildlife ONCE with {horses:serialize()},
  * then bindWildlife(). No base snapshots are stored in this leaf.
@@ -416,6 +418,7 @@ export class Horses {
   }
 
   commit(plan) {
+    if (plan?.complete === false) return horseRefused("incomplete-resident-contribution");
     if (!plan?.ok || !Array.isArray(plan.participants)) return plan ?? horseRefused("invalid-plan");
     const result = this.coordinator.commit(plan.participants);
     if (!result.ok) return { ...result, handled: true };
@@ -450,6 +453,9 @@ export class Horses {
   prepareSlotAction(id, action, options) { return prepareHorseSlotAction(this, id, action, options); }
   slotAction(id, action, options) { return this.commit(this.prepareSlotAction(id, action, options)); }
   prepareHit(id, amount, direction, options) { return prepareHorseHit(this, id, amount, direction, options); }
+  contributeHit(batch, id, amount, direction, options) {
+    return contributeHorseHit(this, batch, id, amount, direction, options);
+  }
   hurt(mob, amount, direction, options = {}) {
     const result = this.commit(this.prepareHit(typeof mob === "string" ? mob : mob.id, amount,
       direction, { ...options, playerKill: false }));

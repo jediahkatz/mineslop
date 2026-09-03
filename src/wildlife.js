@@ -1,14 +1,12 @@
 import * as THREE from "three";
-import { ecologyCanOccupy, ecologyDistance, synchronousEcologyHook } from "./aquatic-ai.js";
+import { ecologyCanOccupy } from "./aquatic-ai.js";
 import { BLOCK } from "./blocks.js";
-import { captureEntityContext, entityContextFor, matchesEntityContext } from "./entity-context.js";
+import { entityContextFor, matchesEntityContext } from "./entity-context.js";
 import { ecologyCollider, ecologyVisualScale } from "./expansion-ecology.js";
 import { ECOLOGY_HOST_LIMITS } from "./ecology-population.js";
-import { createHorseView, HORSE_ACTIVE_DISTANCE, MAX_LIVING_HORSES } from "./horse-definitions.js";
+import { createHorseView, HORSE_ACTIVE_DISTANCE } from "./horse-definitions.js";
 import { horseEnvironment } from "./horse-collision.js";
-import {
-  horseBaseProjection, normalizeHorseSnapshot, sameHorseBase, validHorseMotion,
-} from "./horse-save.js";
+import { horseDataRecord, normalizeHorseSnapshot } from "./horse-save.js";
 import { ITEM } from "./items.js";
 import { createMobState, mobEye, stepMob } from "./mob-ai.js";
 import {
@@ -60,6 +58,11 @@ import {
 } from "./mob-sulfur.js";
 import { CHUNK_SIZE } from "./terrain.js";
 import { TransactionCoordinator } from "./transactions.js";
+import {
+  beginResidentEditBatch, contributeResidentEditBatch, finalizeResidentEditBatch,
+  prepareStandaloneResidentEdit,
+} from "./wildlife-resident-batch.js";
+import { horseResidentEdit, residentDamage } from "./wildlife-resident-edit.js";
 import { isWorldPose } from "./world-spec.js";
 
 const CELL_SIZE = 8;
@@ -333,127 +336,52 @@ export class Wildlife {
     return this._prepareResidentEdit("ecology", options);
   }
 
-  /** One base-owner participant for either borrower. Publication never calls a
-   * borrower or releases its registration; the paired domain owns the bytes.
+  /** Compatibility wrappers finalize their own one-entry base batch. The
+   * paired borrower remains responsible for domain state and resource peers.
    */
-  _prepareResidentEdit(domain, {
-    spawn, remove, damage, mob = remove ?? damage?.mob, heal = 0, motion,
-    retain = false, nextId = this.nextId, validate = () => true, notify,
-  } = {}) {
-    const key = domain === "horse" ? "horseServices" : "ecologyServices";
-    const dormantKey = domain === "horse" ? "dormantHorses" : "dormantEcology";
-    const host = this[key], coordinator = this.coordinator;
-    if (this.disposed || !host?.active || coordinator !== host.coordinator ||
-      !this._ownsRegistration || coordinator.usage(this) !== 0 ||
-      !synchronousEcologyHook(validate) || (notify !== undefined && !synchronousEcologyHook(notify)) ||
-      !Number.isSafeInteger(nextId) || nextId < this.nextId || nextId >= Number.MAX_SAFE_INTEGER)
-      return null;
-    const revision = this._ecologyRevision, priorId = this.nextId;
-    const entities = this.entities, byId = this.byId, dormant = this[dormantKey];
-    const retained = this._retainedHorseIds;
-    if (mob && ((domain === "horse" ? mob.kind !== "horse" : !mob.spec.ecology) || mob.dead || mob.dormant ||
-      byId.get(mob.id) !== mob || !entities.includes(mob))) return null;
-    const health = mob?.health, position = mob && positionData(mob.position);
-    const base = domain === "horse" && mob ? horseBaseProjection(mob) : null;
-    const wasRetained = mob && retained.has(mob.id);
-    const current = captureEntityContext(this.world, this.worldContext);
-    if (retain && !wasRetained && retained.size >= MAX_LIVING_HORSES) return null;
-    if (spawn && (entities.length >= this.maxEntities || byId.has(spawn.id) || this.killed.has(spawn.id) ||
-      this.horseServices?.identityReserved(spawn.id) ||
-      dormant.size + entities.filter((entry) => entry.spec.ecology).length >= MAX_ECOLOGY_RESIDENTS)) return null;
-    let used = false;
-    return Object.freeze({
-      owner: this, beforeBytes: 0, afterBytes: 0,
-      validate: () => !used && !this.disposed && this[key] === host && host.active &&
-        this.coordinator === coordinator && this._ownsRegistration && coordinator.usage(this) === 0 &&
-        this._ecologyRevision === revision && this.nextId === priorId &&
-        this.entities === entities && this.byId === byId && this[dormantKey] === dormant &&
-        this._retainedHorseIds === retained && current() &&
-        (!mob || (byId.get(mob.id) === mob && entities.includes(mob) && !mob.dead && !mob.dormant &&
-          mob.health === health && ecologyDistance(mob.position, position) === 0 &&
-          (!base || (sameHorseBase(base, horseBaseProjection(mob)) && retained.has(mob.id) === wasRetained)))) &&
-        (!spawn || (!byId.has(spawn.id) && !this.killed.has(spawn.id) &&
-          !this.horseServices?.identityReserved(spawn.id) && entities.length < this.maxEntities)) &&
-        validate() === true,
-      publish: () => {
-        used = true;
-        if (spawn) {
-          entities.push(spawn);
-          byId.set(spawn.id, spawn);
-        }
-        if (remove) {
-          entities.splice(entities.indexOf(remove), 1);
-          dormant.delete(remove.id);
-          byId.delete(remove.id);
-          if (domain === "horse") retained.delete(remove.id);
-          remove.health = 0;
-          remove.dead = true;
-        }
-        if (retain) retained.add(mob.id);
-        if (heal) {
-          mob.health = health + heal;
-          mob.fleeTime = 0;
-        }
-        if (damage) {
-          mob.health = health - damage.amount;
-          mob.hitFlash = 0.24;
-          mob.threat = damage.threat;
-          mob.knockback.x = damage.knockback.x;
-          mob.knockback.z = damage.knockback.z;
-          if (damage.retaliate) {
-            if (mob.spec.temperament === "passive") mob.fleeTime = 5;
-            else mob.angry = 20;
-          }
-        }
-        if (motion && !remove) {
-          mob.position.copy(motion.position);
-          mob.root.rotation.y = mob.targetYaw = motion.yaw;
-          mob.velocityY = motion.motion.vy;
-          mob.moving = Math.hypot(motion.position.x - position.x, motion.position.z - position.z) > 1e-6;
-          mob.speed = Math.hypot(motion.motion.vx, motion.motion.vz);
-          if (motion.motion.grounded) mob.groundY = motion.position.y;
-          if (domain === "horse") {
-            // The generic planner resumes around the dismount location, not
-            // the old spawning site. Riding already owns any hit impulse.
-            mob.home.copy(motion.position);
-            mob.knockback.x = mob.knockback.z = 0;
-          }
-        }
-        this.nextId = nextId;
-        this._ecologyRevision++;
-      },
-      ...(notify ? { notify } : {}),
+  _prepareResidentEdit(domain, options = {}) {
+    return prepareStandaloneResidentEdit(this, domain, options);
+  }
+
+  beginResidentEditBatch() { return beginResidentEditBatch(this); }
+
+  finalizeResidentEditBatch(batch, options) {
+    return finalizeResidentEditBatch(this, batch, options);
+  }
+
+  /** Guarded base-field editing only, NOT launch/contact authorization. No
+   * normal attack caller uses this inactive composition API.
+   */
+  contributeSourceEdit(batch, mob, fields, options = {}) {
+    return contributeResidentEditBatch(this, batch, (add) => {
+      if (!horseDataRecord(options, ["validate"], [])) return null;
+      return add("source", { mob, fields, validate: options.validate }) ? {
+        peers: [], result: { type: "source-edit", entityId: mob.id },
+      } : null;
     });
   }
 
-  prepareHorseEdit(mob, {
-    health = mob?.health, remove = false, retain = false, motion,
-    direction, retaliate = true, validate, notify,
-  } = {}) {
-    if (mob?.kind !== "horse" || mob.tamed || typeof remove !== "boolean" ||
-      typeof retain !== "boolean" || (remove && retain) || typeof retaliate !== "boolean" ||
-      (!remove && (!Number.isFinite(health) || health <= 0 || health > mob.spec.health))) return null;
-    let movement;
-    if (motion) {
-      if (!validMobPosition(motion.position, mob.spec, this.worldContext, this.dimension) ||
-        !Number.isFinite(motion.yaw) || !validHorseMotion(motion.motion)) return null;
-      movement = { position: positionData(motion.position),
-        yaw: normalizeMobHeading(motion.yaw), motion: { ...motion.motion } };
-    }
-    const length = finitePosition(direction) ? Math.hypot(direction.x, direction.z) : 0;
-    const amount = mob.health - health, strength = Math.min(7, 2.5 + Math.max(0, amount) * 0.4);
-    return this._prepareResidentEdit("horse", {
-      mob, remove: remove ? mob : undefined, retain, motion: movement,
-      heal: !remove && amount < 0 ? -amount : 0,
-      damage: !remove && amount > 0 ? {
-        mob, amount, retaliate,
-        knockback: length ? { x: direction.x / length * strength, z: direction.z / length * strength }
-          : { x: 0, z: 0 },
-        threat: length ? { x: mob.position.x - direction.x / length * 3,
-          z: mob.position.z - direction.z / length * 3 } : { x: this.player.x, z: this.player.z },
-      } : undefined,
-      validate, notify,
+  /** Legacy nonlethal only. All horses (including untracked wild horses) and
+   * ecology victims must contribute through their borrower. Lethal legacy
+   * rewards remain gated on the unresolved retry-stable RNG/quote contract.
+   */
+  contributeLegacyDamage(batch, mob, amount, direction, options = {}) {
+    return contributeResidentEditBatch(this, batch, (add) => {
+      if (!horseDataRecord(options, ["retaliate", "validate", "notify"], [])) return null;
+      const { retaliate = true, validate, notify } = options;
+      if (!mob || !mob.spec || mob.kind === "horse" || mob.spec.ecology ||
+        !Number.isFinite(amount) || amount <= 0 || typeof retaliate !== "boolean") return null;
+      const damage = Math.min(1000, amount);
+      if (damage >= mob.health || !add("legacy", {
+        damage: residentDamage(this.player, mob, damage, direction, retaliate, true), validate, notify,
+      })) return null;
+      return { peers: [], result: { hit: true, killed: false, damage, entityId: mob.id } };
     });
+  }
+
+  prepareHorseEdit(mob, options) {
+    const edit = horseResidentEdit(this, mob, options);
+    return edit && this._prepareResidentEdit("horse", edit);
   }
 
   prepareEcologySpawn(proposal, { nextId, validate } = {}) {
@@ -486,16 +414,8 @@ export class Wildlife {
 
   prepareEcologyDamage(mob, amount, direction, { retaliate = true, validate, notify } = {}) {
     if (!mob?.spec.ecology || !Number.isFinite(amount) || amount <= 0 || amount >= mob.health) return null;
-    const length = finitePosition(direction) ? Math.hypot(direction.x, direction.z) : 0;
-    const strength = Math.min(7, 2.5 + amount * 0.4);
     return this._prepareEcologyEdit({
-      damage: {
-        mob, amount, retaliate,
-        knockback: length ? { x: direction.x / length * strength, z: direction.z / length * strength } : { x: 0, z: 0 },
-        threat: length ? {
-          x: mob.position.x - direction.x / length * 3, z: mob.position.z - direction.z / length * 3,
-        } : { x: this.player.x, z: this.player.z },
-      },
+      damage: residentDamage(this.player, mob, amount, direction, retaliate),
       validate, notify,
     });
   }
