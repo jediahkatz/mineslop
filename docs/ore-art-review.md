@@ -41,9 +41,35 @@ Visual correction remains open: the new deepslate tone is closer to the
 reference, but its conspicuous diagonal bands differ from the reference's
 irregular fractured plates. A deepslate-only refinement is requested; these
 captures must remain tied to their original source. No individual review
-approval is advanced by this checkpoint. Independent visual review,
-final-combined-source capture and actual native-world near/far coherence remain
-separate gates.
+approval is advanced by this checkpoint. Final-combined-source capture and
+actual native-world near/far coherence remain separate gates.
+
+### Independent reference and rendered reviews
+
+Two reviews cover the same frozen checkpoint: one assesses all 24 direct
+reference comparisons; the other also reads all eight day/shadow production
+galleries. Their relative dispositions do not grant final approvals:
+
+- Both find `3`, `70`, `14`, `65` and `1068` closer, while retaining grain or
+  mineral-boundary refinements.
+- `62`, `63`, `67` and `68` remain mixed: the improved host does not resolve
+  overly tidy, isolated mineral silhouettes.
+- `66` and `1069` receive closer/mixed judgments; their straight runs and
+  transitions still need refinement.
+- `64` receives mixed/correction-needed judgments. Its cyan coverage and
+  connected fractured cuts remain insufficient.
+- `1036`, `1060`–`1067` and `1070` require correction. Both reviews confirm the
+  shared deepslate ribbons and debris's overly simplified layered/winding forms.
+
+The first corrective pass targets deepslate's irregular stepped plates and
+end-face mosaic, preserving neutrality and ore `cube_all` routing. Next priorities
+are diamond (`64`/`1065`), iron (`62`/`1061`) and emerald (`67`/`1067`) coverage/
+silhouettes, followed by chipped layered detail on both debris faces. Do not
+compensate for shape deficiencies by globally brightening minerals.
+
+The isolated cubes do not establish multi-block seams or native-world distance
+transitions. Normal darkness in the shadow views is not an emission defect,
+and these screenshots do not establish exact Java held-item pose/scale parity.
 
 ## Historical recognizability checkpoint
 
