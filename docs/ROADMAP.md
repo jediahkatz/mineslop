@@ -42,6 +42,11 @@ loading, and has relevant regression tests and real browser verification.
   species weights, biome/time/light/habitat gates, group sizes, population caps,
   spawn distances and replenishment. Avoid nearby pop-in, overcrowding and
   save/reload or pause/resume spawn bursts.
+- [ ] **World difficulty.** Add saved Peaceful/Easy/Normal/Hard rules, with
+  legacy saves defaulting to Normal. Keep passive-animal populations governed
+  by habitats and separate caps; difficulty controls hostile danger and the
+  Peaceful rules, not an indiscriminate multiplier on all spawning. Changes
+  must not grant loot/XP or lose owned creatures and equipment.
 - [ ] **Steadier first-person hands.** Smooth walking, mining and held-use
   transitions, including eating, bows and shields. Keep physical aiming,
   cooldowns and inventory transactions unchanged.
