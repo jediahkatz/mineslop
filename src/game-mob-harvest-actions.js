@@ -14,7 +14,8 @@ export class GameMobHarvestActions extends GameHarvestActions {
     const game = this.game, world = game.world;
     const progression = game.progressionIntegration?.services;
     const trading = progression?.trading;
-    const villager = trading?.jobsiteOwnerAt(world.dimension, hit);
+    const position = { x: hit.x, y: hit.y, z: hit.z };
+    const villager = trading?.jobsiteOwnerAt(world.dimension, position);
     if (!villager) return source;
     // A composter/lectern and an escrow-bearing station use the same claimed
     // jobsite ledger. Removing the actual cell must release its claim together
@@ -24,7 +25,7 @@ export class GameMobHarvestActions extends GameHarvestActions {
       validate: () => game.world === world &&
         game.progressionIntegration?.services === progression &&
         progression.trading === trading &&
-        trading.jobsiteOwnerAt(world.dimension, hit) === villager &&
+        trading.jobsiteOwnerAt(world.dimension, position) === villager &&
         source.participants.every((part) => part.validate() === true),
     });
     return release?.participants ? {

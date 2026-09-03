@@ -129,7 +129,7 @@ test("native Game villagers work, open through physical entity use, pay finite t
   assert.deepEqual(f.ownership(), retained);
   assert.equal(f.game.harvestActions.commit(removal).ok, true);
   assert.equal(f.world.get(hit.x, hit.y, hit.z), BLOCK.AIR);
-  assert.equal(trading.jobsiteOwnerAt(f.world.dimension, hit), null);
+  assert.equal(trading.jobsiteOwnerAt(f.world.dimension, f.site.position), null);
   assert.equal(trading.get(f.id).jobsite, null);
   assert.equal(f.mobs.markers.getMarker(f.site.id), null);
   assert.equal(f.wildlife.byId.get(f.id), f.mob);

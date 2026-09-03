@@ -32,6 +32,25 @@ function turtle(f, position) {
   return mob;
 }
 
+test("ordinary block mining projects rich ray hits before consulting the strict jobsite ledger", async (t) => {
+  const f = await gameMobFixture(t);
+  const tool = f.hold("IRON_PICKAXE");
+  const position = { x: 8, y: 65, z: 9 };
+  f.put(position.x, position.y, position.z, BLOCK.STONE);
+  const hit = {
+    ...position, ...f.world.getCell(position.x, position.y, position.z),
+    dimension: f.world.dimension, normal: { x: 0, y: 0, z: 1 }, distance: 1.5,
+  };
+  const before = f.ownership();
+  const plan = f.game.harvestActions.prepareBreak(hit);
+  assert.ok(plan);
+  assert.deepEqual(f.ownership(), before, "jobsite lookup cannot publish the harvest");
+  assert.equal(f.game.harvestActions.commit(plan).ok, true);
+  assert.equal(f.world.get(position.x, position.y, position.z), BLOCK.AIR);
+  assert.equal(f.gameplay.getHandStack().durability, tool.durability - 1);
+  assert.equal(f.progression.services.trading.jobsiteOwnerAt(f.world.dimension, position), null);
+});
+
 test("the actual Game frame runs Ecology beside a bareback horse with one shared base registration", async (t) => {
   const f = await gameMobFixture(t, { generatorFactory: beachGenerator });
   const horse = f.spawn(), base = point(horse.position);
