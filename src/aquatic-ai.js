@@ -11,6 +11,7 @@ import {
   sampleFluid as sharedSampleFluid,
   sampleFluidAtPoint as sharedSampleFluidAtPoint,
 } from "./fluid-sampling.js";
+import { createFluidQueryView } from "./fluid-query-view.js";
 import {
   geometryWorldSpec,
   validBodyPosition,
@@ -57,6 +58,16 @@ export const synchronousEcologyHook = (hook) =>
 const clamp = (n, low, high) => Math.max(low, Math.min(high, n));
 const wrap = (n) => Math.atan2(Math.sin(n), Math.cos(n));
 const brains = new WeakMap();
+const fluidViews = new WeakMap();
+
+function fluidView(world) {
+  let view = fluidViews.get(world);
+  if (!view) {
+    view = createFluidQueryView(world);
+    fluidViews.set(world, view);
+  }
+  return view;
+}
 
 function brainFor(mob) {
   let brain = brains.get(mob);
@@ -105,7 +116,7 @@ export function ecologyBodySample(world, position, collider, provider = sharedSa
     !synchronousEcologyHook(provider) ||
     !footprintLoaded(world, position.x, position.z, collider.radius)
   ) return null;
-  const sample = provider(world, position, collider);
+  const sample = provider(fluidView(world), position, collider);
   if (
     !sample || sample.valid === false || sample.loaded === false || sample.eyeLoaded === false ||
     ![sample.waterImmersion, sample.lavaImmersion].every(
@@ -192,6 +203,32 @@ export function isTurtleBeach(world, position, collider, sampleFluid) {
   );
 }
 
+/** Swimming has no grounded step. Land only on a real nearby support top,
+ * sweeping upward, across and down with the ordinary collision solver.
+ * Partial immersion includes the last wet fraction before reaching a bank.
+ */
+function shoreLanding(world, from, delta, collider, normal) {
+  const projected = { x: from.x + delta.x, y: from.y, z: from.z + delta.z };
+  const heights = [...new Set(supportContacts(world, projected, {
+    radius: collider.radius, maxRise: 0.6, maxDrop: 0,
+    filter: ({ cell }) => cell?.id !== BLOCK.CACTUS,
+  }).map(({ height }) => height))].sort((a, b) => a - b);
+  const travel = (at) => (at.x - from.x) ** 2 + (at.z - from.z) ** 2;
+  const options = { ...collider, stepHeight: 0 };
+  for (const y of heights) {
+    const rise = y - from.y;
+    if (rise <= 0 || rise > 0.6) continue;
+    const lifted = moveBody(world, from, { x: 0, y: rise, z: 0 }, options);
+    if (lifted.blocked.y) continue;
+    const across = moveBody(world, lifted.position, { x: delta.x, y: 0, z: delta.z }, options);
+    if (travel(across.position) <= travel(normal.position) + 1e-8) continue;
+    const landed = moveBody(world, across.position, { x: 0, y: -0.05, z: 0 }, options);
+    if (landed.grounded && ecologyCanOccupy(world, landed.position, collider))
+      return { ...landed, stepped: landed.position.y - from.y };
+  }
+  return normal;
+}
+
 /** Bounded physical movement, independent of neutral visual/picking bounds.
  * amphibious permits supported dry steps, swimming and shore transitions.
  * swimmer permits partial immersion (a dolphin's blowhole can reach air).
@@ -240,10 +277,13 @@ export function moveEcologyMob(world, mob, displacement, {
         if (!landing.length) delta.x = delta.z = 0;
       }
     }
-    const result = moveBody(world, from, delta, {
+    let result = moveBody(world, from, delta, {
       ...collider,
       stepHeight: locomotion === "amphibious" ? 0.6 : 0,
     });
+    if (locomotion === "amphibious" && current.waterImmersion > 0 &&
+      (result.blocked.x || result.blocked.z))
+      result = shoreLanding(world, from, delta, collider, result);
     if (!ecologyCanOccupy(world, result.position, collider)) break;
     const next = ecologyBodySample(world, result.position, collider, sampleFluid);
     if (
@@ -352,9 +392,25 @@ export function admitEcologySpawn(kind, position, collider, ctx) {
   const dimension = ctx.world.dimension;
   const biome = ctx.biomeId ?? "";
   const ocean = /(^|_)ocean$/.test(biome);
-  const depth = kind === "elder_guardian" ? 3 : 2;
+  if (kind === "elder_guardian") {
+    // A unique encounter needs its entire REAL body underwater and three
+    // blocks of habitat depth in its marker column. Inflating the body to
+    // that depth also widens the overhead query into neighboring decoration
+    // (the native crown lantern), even though the elder never occupies it.
+    // Keep the depth/source-cap requirement; do not treat clipped host water
+    // or a merely wet foot as a flooded chamber.
+    return dimension === "overworld" && isElderMarker(ctx.structure, ctx.marker) &&
+      pointInEcologyRegion(position, ctx.marker.bounds) &&
+      ecologyDistance(position, {
+        x: ctx.marker.position.x + 0.5, y: ctx.marker.position.y, z: ctx.marker.position.z + 0.5,
+      }) < 0.01 &&
+      sample.waterImmersion >= 1 - 1e-8 &&
+      ecologyWaterColumn(ctx.world, position, {
+        ...collider, radius: Math.min(collider.radius, 0.5),
+      }, 3, ctx.sampleFluid);
+  }
   const water = sample.waterImmersion >= 0.8 && (kind === "turtle" ||
-    ecologyWaterColumn(ctx.world, position, collider, depth, ctx.sampleFluid));
+    ecologyWaterColumn(ctx.world, position, collider, 2, ctx.sampleFluid));
   if (kind === "dolphin")
     return dimension === "overworld" && ocean && !/frozen/.test(biome) && water;
   if (kind === "turtle")
@@ -373,12 +429,6 @@ export function admitEcologySpawn(kind, position, collider, ctx) {
       ctx.structure?.kind === "ocean_monument" &&
       ctx.structure.dimension === dimension &&
       pointInEcologyRegion(position, ctx.structure.bounds);
-  if (kind === "elder_guardian")
-    return dimension === "overworld" && water && isElderMarker(ctx.structure, ctx.marker) &&
-      pointInEcologyRegion(position, ctx.marker.bounds) &&
-      ecologyDistance(position, {
-        x: ctx.marker.position.x + 0.5, y: ctx.marker.position.y, z: ctx.marker.position.z + 0.5,
-      }) < 0.01;
   return false;
 }
 
@@ -435,7 +485,7 @@ function surfaceGoal(mob, ctx, collider) {
   for (let i = 1; i <= AQUATIC_AI_LIMITS.surfaceProbes; i++) {
     const point = { ...eye, y: eye.y + i * 0.5 };
     if (point.y >= geometryWorldSpec(ctx.world).maxY) break;
-    const sample = sampler(ctx.world, point);
+    const sample = sampler(fluidView(ctx.world), point);
     if (!sample || sample.valid === false || sample.loaded === false || sample.eyeLoaded === false) break;
     if (sample.fluid !== FLUID.NONE) continue;
     const goal = { ...mob.position, y: point.y - collider.eyeHeight + 0.02 };

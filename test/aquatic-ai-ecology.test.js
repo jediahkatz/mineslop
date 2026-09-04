@@ -5,13 +5,14 @@ import {
   ecologyBodySample,
   ecologyCanOccupy,
   ecologySupportAt,
+  ecologyWaterColumn,
   findDolphinGuide,
   guardianRetaliation,
   moveEcologyMob,
   stepAquaticMob,
 } from "../src/aquatic-ai.js";
 import { BLOCK } from "../src/blocks.js";
-import { FLUID } from "../src/block-state.js";
+import { BLOCK_STATE, FLUID } from "../src/block-state.js";
 import { ecologyCollider, ECOLOGY_LIMITS } from "../src/expansion-ecology.js";
 import { sampleFluid } from "../src/fluid-sampling.js";
 import {
@@ -71,6 +72,45 @@ test("the injectable rich sampler preserves shared partial-water shapes and fail
     assert.equal(ecologyBodySample(world, position, body, () => ({ ...sample, [field]: false })), null);
 });
 
+test("elder marker depth excludes overhead decoration but never substitutes for a flooded real body", () => {
+  const { structure, markers } = monumentFixture();
+  const marker = markers[2], collider = ecologyCollider("elder_guardian");
+  const position = { x: 0.5, y: 4, z: 0.5 };
+  for (const guard of ["open", "shallow", "dry-side", "body-wall", "clipped-column", "lava", "frontier"]) {
+    const world = ecologyWorld({
+      ground: () => 3,
+      water: () => guard === "shallow" ? 5 : 6,
+      loaded: (x) => guard !== "frontier" || x >= 0,
+    });
+    world.setCell(1, 6, 0, { id: BLOCK.SEA_LANTERN });
+    if (guard === "dry-side") world.setCell(1, 5, 0, { id: BLOCK.AIR });
+    if (guard === "body-wall") world.setCell(1, 5, 0, { id: BLOCK.STONE });
+    if (guard === "clipped-column") world.setCell(0, 6, 0, {
+      id: BLOCK.OAK_SLAB, state: BLOCK_STATE.TOP, fluid: FLUID.WATER_SOURCE,
+    });
+    if (guard === "lava") world.setCell(1, 5, 0, { id: BLOCK.LAVA });
+    let samples = 0;
+    const ctx = { world, structure, marker, sampleFluid: (...args) => {
+      samples++;
+      return sampleFluid(...args);
+    } };
+    const body = ecologyBodySample(world, position, collider);
+    if (guard === "open") {
+      assert.equal(body.waterImmersion, 1);
+      assert.equal(ecologyWaterColumn(world, position, collider, 3), false,
+        "decoration overlaps only the inflated body, not the actual elder");
+      assert.equal(ecologyWaterColumn(world, position, { ...collider, radius: 0.5 }, 3), true);
+    }
+    if (guard === "dry-side") assert.ok(body.waterImmersion > 0.8 && body.waterImmersion < 1);
+    assert.equal(admitEcologySpawn("elder_guardian", position, collider, ctx), guard === "open", guard);
+    assert.ok(samples <= 4, "one body sample and at most the existing three depth alignments");
+    assert.equal(world.unloadedReads, 0);
+    assert.equal(admitEcologySpawn("elder_guardian", position, collider, {
+      ...ctx, marker: { ...marker, unique: false },
+    }), false, "column geometry cannot grant an invented encounter");
+  }
+});
+
 test("amphibious support uses a slab top and does not step into a cliff or missing column", () => {
   const world = ecologyWorld({ water: () => -1 });
   const collider = ecologyCollider("turtle", { scuteClaimed: false });
@@ -90,7 +130,7 @@ test("amphibious support uses a slab top and does not step into a cliff or missi
   assert.deepEqual(swimmer.position, before);
 });
 
-test("a gravid turtle climbs from water to its actual supported home beach without drowning", () => {
+test("a gravid turtle climbs from water to its actual supported home beach without drowning", (t) => {
   const world = ecologyWorld({
     water: (x) => x < 0 ? 3 : -1,
     ground: (x) => x < 0 ? 0 : 3,
@@ -106,6 +146,54 @@ test("a gravid turtle climbs from water to its actual supported home beach witho
   assert.ok(mob.position.y >= 3.99);
   assert.equal(mob.swimming, false);
   assert.equal(f.hurt.length, 0, "turtles have no drowning timer on either shore");
+  t.diagnostic(JSON.stringify({ shoreLanding: mob.position, swimming: mob.swimming }));
+});
+
+test("wet bank landing sweeps real slab tops and refuses headroom, tall walls and frontiers", () => {
+  for (const guard of ["open", "headroom", "wall", "frontier"]) {
+    const world = ecologyWorld({
+      water: (x) => x < 0 ? 3 : -1,
+      ground: (x) => x < 0 ? 0 : guard === "wall" ? 4 : 2,
+      loaded: (x) => guard !== "frontier" || x < 0,
+    });
+    for (let z = -1; z <= 1; z++) {
+      if (guard !== "wall")
+        world.setCell(0, 3, z, { id: BLOCK.OAK_SLAB, state: 0, fluid: FLUID.NONE });
+      if (guard === "headroom")
+        for (let x = -2; x <= 1; x++)
+          world.setCell(x, 4, z, { id: BLOCK.STONE });
+    }
+    const mob = ecologyMob("turtle", `slab-${guard}`, { x: -0.7, y: 3.2, z: 0.5 });
+    const collider = ecologyCollider("turtle");
+    moveEcologyMob(world, mob, { x: 0.2, y: 0, z: 0 }, { collider });
+    assert.equal(ecologyCanOccupy(world, mob.position, collider), true);
+    if (guard === "open") {
+      assert.ok(mob.position.x > -0.6);
+      assert.equal(mob.position.y, 3.5, "lands on the slab, not its voxel's top");
+    } else {
+      assert.ok(mob.position.x + collider.radius <= 1e-8, guard);
+      assert.equal(mob.position.y, 3.2, "rejected landing never leaves a partial lift");
+    }
+    assert.equal(world.unloadedReads, 0);
+  }
+});
+
+test("ecology fluid views preserve frontier coverage and follow live World identity", () => {
+  let loaded = true;
+  const world = ecologyWorld({ loaded: (x) => loaded && x < 1 });
+  const collider = ecologyCollider("dolphin");
+  const position = { x: 0.2, y: 2, z: 0.5 };
+  const sample = ecologyBodySample(world, position, collider);
+  assert.equal(sample.loaded, true, "missing current neighbor is not a missing body");
+  assert.deepEqual(sample.current, { x: 0, y: 0, z: 0 });
+  loaded = false;
+  assert.equal(ecologyBodySample(world, position, collider), null);
+  loaded = true;
+  assert.ok(ecologyBodySample(world, position, collider));
+  const dry = ecologyWorld({ water: () => -1 });
+  assert.equal(ecologyBodySample(dry, position, collider).waterImmersion, 0);
+  assert.equal(ecologyBodySample(world, { ...position, x: 0.8 }, collider), null);
+  assert.equal(world.unloadedReads, 0);
 });
 
 test("dolphins deplete air, surface through shared water geometry and breathe", () => {
@@ -124,7 +212,29 @@ test("dolphins deplete air, surface through shared water geometry and breathe", 
   assert.equal(world.unloadedReads, 0);
 });
 
-test("a roof cancels a dolphin's air-pocket route; suffocation is bounded, not a teleport", () => {
+test("a waterlogged top-slab seal keeps the blowhole submerged and drowning bounded", (t) => {
+  const world = ecologyWorld({ water: () => 3 });
+  for (let x = -2; x <= 2; x++)
+    for (let z = -2; z <= 2; z++) {
+      world.setCell(x, 4, z, { id: BLOCK.STONE, state: 0, fluid: FLUID.NONE });
+      // Water fills exactly to the slab underside at 3.5; unlike a source
+      // under a full block this geometry has no breathable 0.12-block cap.
+      world.setCell(x, 3, z, { id: BLOCK.OAK_SLAB, state: BLOCK_STATE.TOP, fluid: FLUID.WATER_SOURCE });
+    }
+  const state = ecologyState(world, "dolphin", "roof-dolphin", { x: 0.5, y: 2.8, z: 0.5 }, { air: 0 });
+  const f = ecologyFixture({ world, entries: [state] });
+  const mob = f.mobs.get(state.id);
+  for (let i = 0; i < 8; i++) f.owner.update(mob, 0.1, f.ctx);
+  assert.equal(f.hurt.length, 1);
+  assert.ok(mob.position.y + mob.spec.height <= 3.50001);
+  const sample = ecologyBodySample(world, mob.position, ecologyCollider("dolphin"));
+  assert.equal(sample.surfaceY, 3.5);
+  assert.equal(sample.canBreathe, false);
+  assert.equal(f.owner.state(mob.id).air, 0);
+  t.diagnostic(JSON.stringify({ sealedRoof: mob.position, air: f.owner.state(mob.id).air, sample }));
+});
+
+test("a source-water cap below a full roof is a genuine breathable gap", (t) => {
   const world = ecologyWorld({ water: () => 3 });
   for (let x = -2; x <= 2; x++)
     for (let z = -2; z <= 2; z++)
@@ -133,9 +243,14 @@ test("a roof cancels a dolphin's air-pocket route; suffocation is bounded, not a
   const f = ecologyFixture({ world, entries: [state] });
   const mob = f.mobs.get(state.id);
   for (let i = 0; i < 8; i++) f.owner.update(mob, 0.1, f.ctx);
-  assert.equal(f.hurt.length, 1);
+  const sample = ecologyBodySample(world, mob.position, ecologyCollider("dolphin"));
+  assert.equal(sample.surfaceY, 3.88);
+  assert.equal(sample.canBreathe, true);
+  assert.ok(mob.position.y + mob.spec.eyeHeight > sample.surfaceY);
   assert.ok(mob.position.y + mob.spec.height <= 4.00001);
-  assert.equal(f.owner.state(mob.id).air, 0);
+  assert.equal(f.owner.state(mob.id).air, ECOLOGY_LIMITS.dolphinAir);
+  assert.equal(f.hurt.length, 1, "only the initial out-of-air tick damages");
+  t.diagnostic(JSON.stringify({ breathableRoof: mob.position, air: f.owner.state(mob.id).air, sample }));
 });
 
 test("guidance rejects invented kinds and is bounded and deterministic over descriptors", () => {

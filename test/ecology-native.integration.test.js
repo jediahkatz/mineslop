@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ecologyCanOccupy, ecologyDistance } from "../src/aquatic-ai.js";
+import {
+  admitEcologySpawn, ecologyBodySample, ecologyCanOccupy, ecologyDistance,
+  ecologyWaterColumn,
+} from "../src/aquatic-ai.js";
 import { BLOCK } from "../src/blocks.js";
 import { ECOLOGY_HOST_LIMITS } from "../src/ecology-population.js";
 import { ecologyCollider } from "../src/expansion-ecology.js";
@@ -33,21 +36,35 @@ function nativeWorld(t, seed = SEEDS[0], dimension = "overworld") {
   return world;
 }
 
-function loadArea(world, area) {
+async function loadArea(world, area) {
   const minCX = Math.floor(area.minX / 16), maxCX = Math.floor((area.maxX - 1) / 16);
   const minCZ = Math.floor(area.minZ / 16), maxCZ = Math.floor((area.maxZ - 1) / 16);
   assert.ok((maxCX - minCX + 1) * (maxCZ - minCZ + 1) <= 16);
   const before = world.generator.counters.chunkGenerations;
+  const columns = [];
   for (let cz = minCZ; cz <= maxCZ; cz++)
-    for (let cx = minCX; cx <= maxCX; cx++) world._generateSync(cx, cz);
+    for (let cx = minCX; cx <= maxCX; cx++) columns.push({ cx, cz });
+  const centerCX = Math.floor((minCX + maxCX) / 2);
+  const centerCZ = Math.floor((minCZ + maxCZ) / 2);
+  // Request precisely the selected rectangle, with normal admission pins.
+  // The last request leaves retention centered on it, not on the origin or
+  // its far corner. No extra chunks or private World safety overrides.
+  columns.sort((a, b) =>
+    Math.max(Math.abs(b.cx - centerCX), Math.abs(b.cz - centerCZ)) -
+    Math.max(Math.abs(a.cx - centerCX), Math.abs(a.cz - centerCZ)));
+  await Promise.all(columns.map(({ cx, cz }) =>
+    world.ensureArea({ x: cx * 16 + 8, z: cz * 16 + 8 }, 0)));
   assert.equal(world.generator.counters.chunkGenerations - before,
     (maxCX - minCX + 1) * (maxCZ - minCZ + 1));
+  assert.equal(world.chunks.size, (maxCX - minCX + 1) * (maxCZ - minCZ + 1));
+  assert.equal(world.removedChunks.size, 0, "all selected native columns remain resident");
+  assert.equal(world._pins.size, 0, "staging releases its admission pins");
   assert.ok([...world.chunks.values()].every((chunk) => chunk.blocks instanceof Uint16Array &&
     Number.isSafeInteger(chunk.incarnation) && chunk.minY === world.spec.minY));
 }
 
-function loadPoints(world, points) {
-  loadArea(world, {
+async function loadPoints(world, points) {
+  await loadArea(world, {
     minX: Math.floor(Math.min(...points.map((p) => p.x))) - 2,
     maxX: Math.floor(Math.max(...points.map((p) => p.x))) + 3,
     minZ: Math.floor(Math.min(...points.map((p) => p.z))) - 2,
@@ -55,7 +72,7 @@ function loadPoints(world, points) {
   });
 }
 
-function discover(t, kind, dimension) {
+async function discover(t, kind, dimension) {
   const attempts = [];
   for (const seed of SEEDS) {
     const world = nativeWorld(t, seed, dimension), generator = world.generator;
@@ -73,7 +90,7 @@ function discover(t, kind, dimension) {
       assert.ok(described);
       assert.equal(described.id, located.target.id);
       const b = described.bounds;
-      loadArea(world, { minX: b.minX - 2, maxX: b.maxX + 2, minZ: b.minZ - 2, maxZ: b.maxZ + 2 });
+      await loadArea(world, { minX: b.minX - 2, maxX: b.maxX + 2, minZ: b.minZ - 2, maxZ: b.maxZ + 2 });
       // Use the actual transported/admitted descriptor, not the discovery object.
       const descriptor = [...world.chunks.values()]
         .flatMap((chunk) => chunk.structures ?? []).find((entry) => entry.id === described.id);
@@ -96,7 +113,7 @@ function nativeHost(t, world, descriptor) {
   return f;
 }
 
-test("native ocean cells admit a naturally scheduled dolphin without a generated-height or raw-WATER shortcut", (t) => {
+test("native ocean cells admit a naturally scheduled dolphin without a generated-height or raw-WATER shortcut", async (t) => {
   const world = nativeWorld(t), generator = world.generator;
   const column = findNaturalColumn(generator, (col) =>
     /(^|_)ocean$/.test(col.id) && !col.frozen && !/frozen/.test(col.id) &&
@@ -104,7 +121,7 @@ test("native ocean cells admit a naturally scheduled dolphin without a generated
   "deep non-frozen dolphin habitat");
   const at = { x: column.x + 0.5, y: world.spec.seaLevel - 3, z: column.z + 0.5 };
   const player = { ...at, z: at.z - 26 }; // Natural scheduler's first candidate, not a forced spawn.
-  loadPoints(world, [at, player]);
+  await loadPoints(world, [at, player]);
   const f = nativeHost(t, world);
   f.player.position = player;
   const before = generator.counters, edits = world.serialize();
@@ -123,7 +140,7 @@ test("native ocean cells admit a naturally scheduled dolphin without a generated
   assert.deepEqual(world.serialize(), edits);
 });
 
-test("native beach sand admits the scheduled turtle using full-footprint dry support", (t) => {
+test("native beach sand admits the scheduled turtle using full-footprint dry support", async (t) => {
   const world = nativeWorld(t), generator = world.generator;
   const column = findNaturalColumn(generator, (col) => {
     if (col.id !== "beach" || col.waterLevel !== null || col.top < 60 || col.top > 68) return false;
@@ -138,7 +155,7 @@ test("native beach sand admits the scheduled turtle using full-footprint dry sup
   const at = { x: column.x + 0.5, y: column.top + 1, z: column.z + 0.5 };
   const player = { x: at.x - Math.sin(2.399963229728653) * 33, y: at.y,
     z: at.z - Math.cos(2.399963229728653) * 33 };
-  loadPoints(world, [at, player]);
+  await loadPoints(world, [at, player]);
   const f = nativeHost(t, world);
   f.player.position = player;
   f.player.swimming = false;
@@ -153,15 +170,32 @@ test("native beach sand admits the scheduled turtle using full-footprint dry sup
   assert.deepEqual(generator.counters, before);
 });
 
-test("native monument markers admit exactly three distinct elders and ordinary region-bound guardians", (t) => {
-  const { world, descriptor } = discover(t, "ocean_monument", "overworld");
+test("native monument markers admit exactly three distinct elders and ordinary region-bound guardians", async (t) => {
+  const { world, descriptor } = await discover(t, "ocean_monument", "overworld");
   const f = nativeHost(t, world, descriptor);
   f.player.position = feet(descriptor.entries[0]);
   const before = world.generator.counters, edits = world.serialize();
-  assert.equal(f.host.populate().admitted, 3);
+  const admission = f.host.populate();
   const elders = f.wildlife.entities.filter((mob) => mob.kind === "elder_guardian");
   const markers = descriptor.markers.filter((marker) => marker.entity === "elder_guardian");
+  const crown = markers.find((marker) => marker.key === "elder_crown");
+  const collider = ecologyCollider("elder_guardian"), position = feet(crown.position);
+  const lantern = structurePoint(descriptor, 0, 11, -10);
+  assert.equal(world.get(lantern.x, lantern.y, lantern.z), BLOCK.SEA_LANTERN);
+  assert.equal(ecologyCanOccupy(world, position, collider), true);
+  assert.equal(ecologyBodySample(world, position, collider).waterImmersion, 1);
+  assert.equal(ecologyWaterColumn(world, position, collider, 3), false,
+    "the native overhead lantern intersects the inflated query, not the elder");
+  assert.equal(ecologyWaterColumn(world, position, { ...collider, radius: 0.5 }, 3), true,
+    "the real marker column still meets the unchanged three-block depth requirement");
+  assert.equal(admitEcologySpawn("elder_guardian", position, collider, {
+    world, structure: descriptor, marker: crown,
+  }), true);
+  assert.equal(admission.admitted, 3);
   assert.equal(elders.length, 3);
+  t.diagnostic(JSON.stringify({ nativeElders: elders.length, crown: position,
+    bodyImmersion: ecologyBodySample(world, position, collider).waterImmersion,
+    columnImmersion: ecologyBodySample(world, position, { ...collider, radius: 0.5, height: 3 }).waterImmersion }));
   assert.deepEqual(new Set(elders.map((mob) => f.host.ecology.state(mob.id).markerId)),
     new Set(markers.map((marker) => marker.id)));
   for (const marker of markers) {
@@ -181,8 +215,8 @@ test("native monument markers admit exactly three distinct elders and ordinary r
   assert.deepEqual(world.serialize(), edits);
 });
 
-test("native village residents keep canonical home/jobsite IDs and reach a real librarian work site", (t) => {
-  const { world, descriptor } = discover(t, "village", "overworld");
+test("native village residents keep canonical home/jobsite IDs and reach a real librarian work site", async (t) => {
+  const { world, descriptor } = await discover(t, "village", "overworld");
   const f = nativeHost(t, world, descriptor);
   f.player.position = feet(descriptor.entries[0]);
   f.player.swimming = false;
@@ -219,8 +253,8 @@ test("native village residents keep canonical home/jobsite IDs and reach a real 
   assert.deepEqual(world.serialize(), edits);
 });
 
-test("native fortress spawner produces a real blaze whose player-credited death retains brewing input and XP", (t) => {
-  const { world, descriptor } = discover(t, "nether_fortress", "nether");
+test("native fortress spawner produces a real blaze whose player-credited death retains brewing input and XP", async (t) => {
+  const { world, descriptor } = await discover(t, "nether_fortress", "nether");
   const f = nativeHost(t, world, descriptor);
   const marker = descriptor.markers.find((entry) => entry.entity === "blaze");
   f.player.position = feet(structurePoint(descriptor, 13, 4, 2));
