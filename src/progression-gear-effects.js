@@ -45,12 +45,12 @@ export class ProgressionGearEffects {
   }
   bowDamage(base, bow, context = this.gameplay.context) { return bowDamage(base, bow, context); }
   waterMovement(options) {
-    return waterMovement(this.gameplay.equipment.feet, {
+    return waterMovement(this.gameplay.getEquipmentStack("feet"), {
       context: this.gameplay.context, ...options,
     });
   }
   respirationAirLoss(roll) {
-    return respirationAirLoss(this.gameplay.equipment.head, roll, this.gameplay.context);
+    return respirationAirLoss(this.gameplay.getEquipmentStack("head"), roll, this.gameplay.context);
   }
   breathing(air, dt, options) { return this.effects.advanceBreathing(air, dt, options); }
   visualLight(light) { return this.effects.applyNightVisionLight(light); }

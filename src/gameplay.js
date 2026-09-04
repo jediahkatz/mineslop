@@ -52,6 +52,7 @@ import { sameStackKind } from "./item-stack-data.js";
 import { FUEL_ITEMS, getItem, ITEM } from "./items.js";
 import { getRecipe, RECIPES } from "./recipes.js";
 import { encodedBytes } from "./save-budget.js";
+import { advancePlayerAir, AIR_TICK_SECONDS } from "./player-air-clock.js";
 import {
   TransactionCoordinator,
   TransactionInvariantError,
@@ -82,6 +83,7 @@ const VITAL_FIELDS = [
   "health",
   "hunger",
   "air",
+  "airPhase",
   "saturation",
   "exhaustion",
   "dead",
@@ -114,6 +116,8 @@ function validVitals(state, mode) {
         Number.isFinite(state[key]) && state[key] >= 0 && state[key] <= 20
     ) &&
     Number.isFinite(state.exhaustion) &&
+    Number.isFinite(state.airPhase) &&
+    state.airPhase >= 0 && state.airPhase < AIR_TICK_SECONDS &&
     state.exhaustion >= 0 &&
     state.exhaustion < 4 &&
     typeof state.dead === "boolean" &&
@@ -188,12 +192,15 @@ export class Gameplay {
     this.onChange = onChange;
     this.onHurt = onHurt;
     // Installed only by the live progression composition boundary. A detached
-    // or stale host refuses damage; it must never fall back to legacy armor.
+    // or stale host refuses damage/air edits, never falling back to unguarded
+    // legacy behavior. airPhase is saved only when a fractional tick is pending.
     this.damageHost = null;
+    this.airHost = null;
     this.random = random;
     this.health = 20;
     this.hunger = 20;
     this.air = 20;
+    this.airPhase = 0;
     this.saturation = 5;
     this.exhaustion = 0;
     this.dead = false;
@@ -261,6 +268,13 @@ export class Gameplay {
     return cloneOwnedInventory(this._owned, this.context).equipment;
   }
 
+  /** Detached single-slot observation; hot physics must not clone the backpack. */
+  getEquipmentStack(slot) {
+    return EQUIPMENT_SLOTS.includes(slot)
+      ? cloneStack(this._owned.equipment[slot], this.context)
+      : null;
+  }
+
   get selectedItem() {
     return getItem(this.getHandStack()?.id);
   }
@@ -270,6 +284,7 @@ export class Gameplay {
     if (mode === this.mode) return true;
     this.mode = mode;
     this.health = this.hunger = this.air = 20;
+    this.airPhase = 0;
     this.saturation = 5;
     this.exhaustion = 0;
     this.dead = false;
@@ -1230,6 +1245,7 @@ export class Gameplay {
   respawn() {
     if (this._disposed || this._inventoryBusy) return false;
     this.health = this.hunger = this.air = 20;
+    this.airPhase = 0;
     this.saturation = 5;
     this.exhaustion = 0;
     this.dead = false;
@@ -1494,6 +1510,7 @@ export class Gameplay {
       inLava = false,
       airKnown = true,
       restoreAir = false,
+      protectedAirSeconds = 0,
       fallDistance = 0,
     } = {}
   ) {
@@ -1503,7 +1520,8 @@ export class Gameplay {
       !Number.isFinite(dt) ||
       dt <= 0 ||
       typeof airKnown !== "boolean" ||
-      typeof restoreAir !== "boolean"
+      typeof restoreAir !== "boolean" ||
+      !Number.isFinite(protectedAirSeconds) || protectedAirSeconds < 0
     )
       return;
     this._revision++;
@@ -1525,18 +1543,21 @@ export class Gameplay {
             (inWater && moving ? 0.08 : 0))
       );
       if (airKnown) {
-        if (restoreAir) {
-          this.air = 20;
-          this._timers.drowning = 0;
-        } else if (underwater) {
-          const breathing = Math.min(step, this.air / (20 / 15));
-          this.air = Math.max(0, this.air - step * (20 / 15));
-          this._hazard("drowning", Math.max(0, step - breathing), 2);
-        } else {
-          this.air = Math.min(20, this.air + step * 4);
-          this._timers.drowning = 0;
+        const options = {
+          underwater, restoreAir,
+          protectedSeconds: Math.min(step, protectedAirSeconds),
+        };
+        const state = { air: this.air, airPhase: this.airPhase, timers: this._timers };
+        const hits = this.airHost
+          ? this.airHost.advanceAir(step, options)
+          : advancePlayerAir(state, step, options);
+        if (!this.airHost) {
+          this.air = state.air;
+          this.airPhase = state.airPhase;
         }
+        for (let i = 0; i < hits && !this.dead; i++) this.damage(2, "drowning");
       }
+      protectedAirSeconds = Math.max(0, protectedAirSeconds - step);
       if (inLava) this._hazard("lava", step, 4);
       else this._timers.lava = 0;
       if (this.hunger === 0) this._hazard("starvation", step, 1);
@@ -1623,6 +1644,7 @@ export class Gameplay {
       air: this.air,
       saturation: this.saturation,
       exhaustion: this.exhaustion,
+      ...(this.airPhase > 0 ? { airPhase: this.airPhase } : {}),
       dead: this.dead,
       deathCause: this.deathCause,
       // Optional compatibility projections are validated against canonical
@@ -1650,6 +1672,9 @@ export class Gameplay {
       return false;
     const next = parseGameplaySave(data, context);
     if (!next) return false;
+    const airPhase = data.airPhase === undefined ? 0 : data.airPhase;
+    if (!Number.isFinite(airPhase) || airPhase < 0 || airPhase >= AIR_TICK_SECONDS)
+      return false;
     const recordBytes = stackRecords(next.owned).map(encodedBytes);
     const bytes = reservationBytes(recordBytes);
     if (!this.coordinator.register(this, bytes, { allowOverBudget }))
@@ -1662,6 +1687,7 @@ export class Gameplay {
     this.health = next.health;
     this.hunger = next.hunger;
     this.air = next.air;
+    this.airPhase = airPhase;
     this.saturation = next.saturation;
     this.exhaustion = next.exhaustion;
     this.dead = next.dead;

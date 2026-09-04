@@ -1619,9 +1619,18 @@ export class VoxelGame {
       ecology.wildlife === this.wildlife
         ? ecology.modifiers().swimSpeedMultiplier
         : 1;
+    const movementHost = this.progressionIntegration;
+    const hasMovementHost = movementHost?.active === true &&
+      movementHost.world === this.world && movementHost.gameplay === this.gameplay;
     if (this.active || riderPose || exitPose)
       this.player.update(dt, {
         recoverFromVoid: this.gameplay.mode === "creative",
+        ...(hasMovementHost ? {
+          waterMovement: (onGround) =>
+            movementHost === this.progressionIntegration &&
+            movementHost.world === this.world && movementHost.gameplay === this.gameplay
+              ? movementHost.waterMovement(onGround) : null,
+        } : null),
         ...(swimSpeedMultiplier !== 1 ? { swimSpeedMultiplier } : null),
         ...(riderPose || exitPose ? { riderPose, exitPose } : null),
       });
@@ -1632,6 +1641,10 @@ export class VoxelGame {
     }
     this.useActions.update(this.active ? dt : 0);
     this.projectileServices?.frame(dt, { simulating: this.simulating });
+    const breathingHost = this.progressionIntegration;
+    const protectedAirSeconds =
+      breathingHost?.world === this.world && breathingHost?.gameplay === this.gameplay
+        ? breathingHost.breathingProtection(dt) : 0;
     this.progressionIntegration?.frame(dt, { simulating: this.simulating });
     this.ui.updateCombat?.(
       this.combatFeedback.view({
@@ -1655,6 +1668,9 @@ export class VoxelGame {
       const environment = this.player.gameplayEnvironment(
         (this.playerEnvironment ??= {})
       );
+      if (this.progressionIntegration === breathingHost && protectedAirSeconds > 0)
+        environment.protectedAirSeconds = protectedAirSeconds;
+      else delete environment.protectedAirSeconds;
       this.gameplay.update(dt, environment);
       if (this.settlement.update(dt, this.world)) this.scheduleSave();
       if (environment.inVoid) this.gameplay.damage(20, "the void", "void");

@@ -732,6 +732,7 @@ export class Player {
       riderPose = null,
       exitPose = null,
       swimSpeedMultiplier = 1,
+      waterMovement = null,
     } = {}
   ) {
     this._fluidQueries = this._fluidCells = 0;
@@ -871,15 +872,36 @@ export class Player {
         !this.flying &&
         climbContact(this.world, this.position, HALF_WIDTH, this.height);
       this.climbing = !!ladder;
-      const horizontalBlend = 1 - Math.exp(-18 * stepDt);
+      let horizontalRate = 18;
+      let waterTarget = 1;
+      if (inWater && fluid.lavaImmersion === 0 && !this.flying && !ladder &&
+          typeof waterMovement === "function") {
+        const movement = waterMovement(this.grounded);
+        if (movement?.waterMovementEfficiency > 0 &&
+            movement.waterMovementEfficiency <= 1 &&
+            Number.isFinite(movement.drag) && movement.drag >= 0.54600006 && movement.drag < 0.8 &&
+            Number.isFinite(movement.acceleration) &&
+            movement.acceleration >= 0.02 && movement.acceleration <= 0.1) {
+          // Calibrate Java's interpolated drag/acceleration to this controller's
+          // exponential target: dv/dt = inputAcceleration - decay*v. Keep the
+          // existing rate=18 and target exactly for unenchanted water. Normalize
+          // decay by log(.8), acceleration by .02, then target = accel / decay.
+          // Immersion fades both; sprint and Dolphin's Grace multiply input.
+          const decay = 1 + waterWeight * (Math.log(movement.drag) / Math.log(0.8) - 1);
+          const acceleration = 1 + waterWeight * (movement.acceleration / 0.02 - 1);
+          horizontalRate *= decay;
+          waterTarget = acceleration / decay;
+        }
+      }
+      const horizontalBlend = 1 - Math.exp(-horizontalRate * stepDt);
       const waterSlow = !this.flying ? 1 - waterWeight * 0.5 : 1;
       // Recheck physical swimming each substep, including water exits. Only
       // the horizontal input target changes, never buoyancy/current forces.
       const swimBoost = swimming && !this.flying && !ladder ? swimMultiplier : 1;
       this.velocity.x +=
-        (targetX * waterSlow * swimBoost - this.velocity.x) * horizontalBlend;
+        (targetX * waterSlow * swimBoost * waterTarget - this.velocity.x) * horizontalBlend;
       this.velocity.z +=
-        (targetZ * waterSlow * swimBoost - this.velocity.z) * horizontalBlend;
+        (targetZ * waterSlow * swimBoost * waterTarget - this.velocity.z) * horizontalBlend;
       if (this.flying) {
         this.fallDistance = 0;
         const down = keys.has("ShiftLeft") || keys.has("ShiftRight");

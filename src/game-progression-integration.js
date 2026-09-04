@@ -7,11 +7,13 @@ import { normalizeProgressionArchive } from "./game-progression-state.js";
 import { GameProjectileServices } from "./game-projectile-services.js";
 import { Gameplay } from "./gameplay.js";
 import { playerDamageKind } from "./player-damage-kind.js";
+import { advancePlayerAir, airTickCount } from "./player-air-clock.js";
+import { PLAYER_WIDTH } from "./player.js";
 import { progressionPlan } from "./progression-station-interactions.js";
 import { progressionStationKind } from "./progression-station-state.js";
 import { TransactionInvariantError } from "./transactions.js";
 import { ProgressionUI } from "./ui/progression-panel.js";
-import { World } from "./world.js";
+import { CHUNK_SIZE, World } from "./world.js";
 
 export { normalizeProgressionArchive } from "./game-progression-state.js";
 
@@ -113,6 +115,8 @@ export class GameProgressionIntegration {
       return refusal("progression_host_owned");
     if (this.gameplay.damageHost && this.gameplay.damageHost !== this)
       return refusal("damage_host_owned");
+    if (this.gameplay.airHost && this.gameplay.airHost !== this)
+      return refusal("air_host_owned");
     if (this.services.potions.projectiles.some((potion) => potion.life !== this.pearls.life))
       return refusal("stale_progression_stage");
     if (typeof headless !== "boolean" || (!root && !headless) ||
@@ -169,6 +173,7 @@ export class GameProgressionIntegration {
       this._game = game;
       this._player = game.player;
       this.gameplay.damageHost = this;
+      this.gameplay.airHost = this;
       this.ui = ui;
       this.feedback.reset();
       return activated;
@@ -221,6 +226,85 @@ export class GameProgressionIntegration {
     const plan = this.prepareDamage(amount, cause, kind);
     const result = plan && this.commit(plan);
     return result?.ok ? result.damage : 0;
+  }
+
+  /** Read PRE-status-tick protection; Gameplay alone consumes the elapsed time. */
+  breathingProtection(dt) {
+    return this.running
+      ? this.services.gear.breathing(this.gameplay.air, dt).protectedSeconds
+      : 0;
+  }
+
+  /** Re-read live boots and the physical grounded flag every physics substep. */
+  waterMovement(onGround) {
+    return this.running && !this._player.seated
+      ? this.services.gear.waterMovement({ onGround })
+      : null;
+  }
+
+  prepareAir(dt, options) {
+    const current = this._captureRewardHost();
+    if (!current || this.gameplay.airHost !== this ||
+        !Number.isFinite(dt) || dt <= 0 || dt > 0.25 ||
+        !options || typeof options.underwater !== "boolean" ||
+        typeof options.restoreAir !== "boolean" ||
+        !Number.isFinite(options.protectedSeconds) ||
+        options.protectedSeconds < 0 || options.protectedSeconds > dt)
+      return null;
+    // A proven no-change air step needs neither equipment observations nor an
+    // inventory draft. Never take this path for ANY exposed underwater time:
+    // even a sub-tick step must save its fractional clock (and later its RNG).
+    if (this.gameplay.air === 20 && this.gameplay.airPhase === 0 &&
+        this.gameplay._timers.drowning === 0 &&
+        (!options.underwater || options.restoreAir || options.protectedSeconds === dt))
+      return null;
+    const playerRef = this._player, poseRevision = playerRef.poseRevision;
+    const columns = new Map();
+    for (const dx of [-PLAYER_WIDTH / 2, PLAYER_WIDTH / 2])
+      for (const dz of [-PLAYER_WIDTH / 2, PLAYER_WIDTH / 2]) {
+        const key = `${Math.floor((playerRef.position.x + dx) / CHUNK_SIZE)},${Math.floor((playerRef.position.z + dz) / CHUNK_SIZE)}`;
+        const chunk = this.world.chunks.get(key);
+        if (!chunk) return null;
+        columns.set(key, { chunk, revision: chunk.revision });
+      }
+    // Capture here, AFTER Game's pre-tick protection observation and status
+    // advancement. Later effect or fluid-cell publication invalidates the plan.
+    const effects = this.services.effects, effectsRevision = effects.revision;
+    const gear = this.services.gear;
+    const exposed = options.underwater && !options.restoreAir
+      ? Math.max(0, dt - options.protectedSeconds) : 0;
+    const respiration = exposed > 0 &&
+      gear.enchantmentLevel(this.gameplay.getEquipmentStack("head"), "respiration") > 0;
+    const draws = respiration
+      ? airTickCount(options.protectedSeconds > 0 ? 0 : this.gameplay.airPhase, exposed)
+      : 0;
+    const valid = () => this.gameplay.airHost === this && current() &&
+      playerRef.poseRevision === poseRevision &&
+      this.services.effects === effects && effects.revision === effectsRevision &&
+      [...columns].every(([key, { chunk, revision }]) =>
+        this.world.chunks.get(key) === chunk && chunk.revision === revision);
+    const random = draws ? this.services.stations.prepareRandom(draws, { validate: valid }) : null;
+    if (draws && !random) return null;
+    let hits = 0;
+    const player = this.gameplay._prepareState((draft) => {
+      hits = advancePlayerAir(draft, dt, {
+        ...options, respiration,
+        losesAir: (index) => gear.respirationAirLoss(random.rolls[index]) === 1,
+      });
+      return true;
+    }, { notify: false });
+    return player ? progressionPlan(this.coordinator, [
+      { ...player, validate: () => valid() && player.validate() },
+      ...(random ? [random.participant] : []),
+    ], { ok: true, hits }) : null;
+  }
+
+  // Called ONLY inside Gameplay.update's sole air clock. A stale host freezes
+  // air instead of falling back to unguarded/unenchantable breathing.
+  advanceAir(dt, options) {
+    const plan = this.prepareAir(dt, options);
+    const result = plan && this.commit(plan);
+    return result?.ok ? result.hits : 0;
   }
 
   prepareShieldBlock(hand, amount, validate) {
