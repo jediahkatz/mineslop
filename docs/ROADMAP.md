@@ -8,22 +8,33 @@ loading, and has relevant regression tests and real browser verification.
 
 - [ ] **Farther, better-looking views.** Improve distant terrain and forest
   silhouettes, increase useful viewing range within measured CPU/GPU and memory
-  budgets, and avoid gaps or abrupt transitions during chunk streaming.
+  budgets, and avoid gaps or abrupt transitions during chunk streaming. Distant
+  LOD surfaces must retain blocky, stepped silhouettes rather than smooth hills.
 - [ ] **More interesting worlds.** Richer landforms, coherent scenery and
   decoration, varied oceans, and discoverable structures with useful rewards.
 - [ ] **Biome size and rarity.** Audit multiple seeds and large regions; common
   biomes should form substantial coherent areas, rare biomes should actually be
-  uncommon, and neighboring climates should make sense.
+  uncommon, and neighboring climates should make sense. Reproduce unnatural
+  boundary seams and cliffs before changing versioned generation.
 - [ ] **Square sun.** Make the visible sun unmistakably square without breaking
   the day/night cycle, lighting, underground views or inspection settings.
 - [ ] **Better lighting.** Improve daylight, dusk/night and local-light
   readability while preserving cave darkness, material identity and performance.
-- [x] **Gradual tunnel lighting.** The complete native cave walk now keeps
+- [ ] **Gradual tunnel lighting.** The complete native cave walk now keeps
   entrance surfaces lit through deep look-backs and retains faint detail in
   darkness. Verified locally with 15 GUI views, Fullbright off, no terrain
   edits, and GPU return/torch/context-recovery checks. See
   [cave lighting verification](cave-lighting.md) for scope and remaining
-  inherited test/performance limits. Deployment is separate from local proof.
+  inherited test/performance limits. The deployed fix still has a reported
+  white-looking interior when viewed from the top of an entrance, potentially
+  excessive cave brightness, and changing light on fixed inside/outside mobs
+  as the observer crosses the entrance. Reproduce and correct each symptom
+  without reintroducing deep-cave blackouts or merely darkening the whole scene.
+- [ ] **World-anchored clouds and weather.** Clouds must drift independently of
+  player movement. Add rain/weather with bounded rendering/audio, appropriate
+  biome/dimension/roof behavior, and coherent time, pause and save semantics.
+- [ ] **Sand and gravel gravity.** Unsupported blocks must actually fall and
+  settle, without item duplication, unloaded-world reads or unbounded cascades.
 - [ ] **Every block gets a Minecraft-reference art review.** Compare each block
   directly with the actual vanilla Java block, then bring our original textures
   and models closer in pattern, palette, proportions, faces and lighting.
@@ -40,6 +51,10 @@ loading, and has relevant regression tests and real browser verification.
 - [ ] **Better footsteps and action sounds.** Replace harsh repetitive walking
   noise with softer material-specific variation; improve other action sounds
   without excessive volume, repeated buffer allocation or unbounded voices.
+  Cover water entry/splashes, different walked surfaces and real menu clicks.
+- [ ] **Original ambient music.** Compose sparse, mellow ambient pieces with
+  original melodies and recordings; respect mute, pause and audio resource
+  budgets rather than copying Minecraft music.
 - [ ] **Animal noises.** Distinct original species voices with sensible timing,
   distance attenuation, mute behavior and limits on overlapping calls.
 - [ ] **Animal behavior.** More believable idle, grazing, roaming, following and
@@ -61,6 +76,9 @@ loading, and has relevant regression tests and real browser verification.
   keep kill/loot/XP attribution single and correct. The
   [pure combat foundations](combat-foundations.md) pass their checks but are
   not wired into gameplay; live friendly fire remains unchecked.
+- [ ] **Enderman encounter behavior.** Verify eye-contact aggression, freezing
+  under a player's gaze, pursuit when looking away and purposeful teleports,
+  alongside fair melee timing, collision and actual damage feedback.
 - [x] **Steadier first-person hands.** Smooth walking, mining and held-use
   transitions, including eating, bows and shields. Keep physical aiming,
   cooldowns and inventory transactions unchanged. Verified locally with 13
@@ -68,6 +86,9 @@ loading, and has relevant regression tests and real browser verification.
   for evidence and scope. Deployment is separate from local verification.
 - [ ] **Reliable water exits.** Fix jumping out of water and climbing ordinary
   shores while respecting ledge/headroom collisions and unloaded boundaries.
+- [ ] **Swimming animation and underwater visibility.** Add readable swimming
+  poses without destabilizing held-item actions or physical aim, and calibrate
+  underwater visibility while preserving depth, lighting and cave readability.
 - [ ] **Better boat controls.** Diagnose and improve steering, acceleration and
   camera/rider behavior, preserving Minecraft-style input, safe dismounting,
   collision and save/pearl/travel ownership.
