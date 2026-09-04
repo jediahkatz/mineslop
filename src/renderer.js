@@ -16,6 +16,7 @@ import {
   sectionYs,
 } from "./mesh-snapshot.js";
 import { createMiningTextures } from "./mining-art.js";
+import { playerWaterFogFar } from "./player-visual-effects.js";
 import { raycast } from "./raycast.js";
 import { RenderScaleController } from "./render-scale.js";
 import {
@@ -254,6 +255,7 @@ export class GameRenderer {
     this.atmosphere.update(0, 0, this.camera.position, this.camera);
     this.contextResourceOwners = new Set();
     this.contextLostHandler = () => {
+      this.setPlayerVisualEffects();
       releaseLostContextResources(
         this.renderer, this.scene, [
           this.atlas.texture, this.atlas.emissiveTexture, ...this.miningTextures,
@@ -266,6 +268,7 @@ export class GameRenderer {
       if (this.renderer.getContext().isContextLost()) this.blockLight?.restoreGPU();
     };
     this.contextRestoredHandler = () => {
+      this.setPlayerVisualEffects();
       this.shadowDirty = true;
       this.blockLight?.restoreGPU();
     };
@@ -307,11 +310,14 @@ export class GameRenderer {
     const cz = Math.floor(this.camera.position.z / CHUNK_SIZE);
     const center = `${cx},${cz}:${this.renderRadius}:${this.world.dimension}`;
     const changedWorld =
+      (this.atmosphere?.world && this.atmosphere.world !== this.world) ||
       this.dimension !== this.world.dimension ||
       this.chunkGenerator !== this.world.generator ||
       this.chunkEpoch !== geometryEpoch(this.world);
     if (center === this.viewCenter && !changedWorld) return;
     if (changedWorld) {
+      this.setPlayerVisualEffects();
+      if (this.atmosphere) this.atmosphere.world = this.world;
       clearSectionJobs(this);
       for (const key of this.chunks.keys()) this.removeChunk(key);
       this.dimension = this.world.dimension;
@@ -627,7 +633,11 @@ export class GameRenderer {
     this.scene.fog.far = inLava
       ? 4
       : underwater
-        ? Math.min(20, horizontalFar)
+        ? playerWaterFogFar(
+            this.atmosphere.cameraMediumKnown === true && this.atmosphere.underwater
+              ? this.atmosphere.playerVision : 0,
+            Math.min(horizontalFar, nearFog)
+          )
         : fog.far * dimensionScale;
     const cameraFar = Math.max(
       512,
@@ -775,6 +785,19 @@ export class GameRenderer {
     this.daylightMaterial?.update(this.atmosphere);
   }
 
+  /** Fresh gameplay projection only; never changes inspection or world light. */
+  setPlayerVisualEffects(effects) {
+    if (this.disposed || !this.atmosphere) return;
+    this.atmosphere.setPlayerVisualEffects?.(effects);
+    if (this.atmosphere.underwater && this.scene.fog)
+      this.scene.fog.far = playerWaterFogFar(this.atmosphere.playerVision, this.scene.fog.far);
+    // Invalid/default input clears already compiled and lazily bound materials
+    // immediately, including before the next frame or a context restoration.
+    if (this.daylightMaterial)
+      this.daylightMaterial.uniforms.uPlayerVision.value =
+        this.fullbrightInspection ? 0 : this.atmosphere.playerVision;
+  }
+
   setFullbrightInspection(enabled) {
     const next = enabled === true;
     if (this.fullbrightInspection === next) return next;
@@ -900,6 +923,8 @@ export class GameRenderer {
   }
 
   dispose() {
+    this.setPlayerVisualEffects();
+    this.disposed = true;
     clearSectionJobs(this);
     this.distant?.dispose();
     this.daylightMaterial?.dispose();

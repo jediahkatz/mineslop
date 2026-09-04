@@ -1093,8 +1093,8 @@ export class Gameplay {
         };
   }
 
-  miningDuration(blockId) {
-    return miningDuration(this, blockId);
+  miningDuration(blockId, options) {
+    return miningDuration(this, blockId, options);
   }
 
   /** {participant,drops}; combine with World, retained loot and XP before commit. */

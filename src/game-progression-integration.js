@@ -3,6 +3,7 @@ import { refusal, synchronous } from "./enchantment-domain.js";
 import { ExperienceFeedback } from "./experience-feedback.js";
 import { isValidExperience } from "./experience.js";
 import { GameProgressionServices } from "./game-progression-services.js";
+import { currentConduitServices, updatePlayerVisualEffects } from "./game-conduit-services.js";
 import { normalizeProgressionArchive } from "./game-progression-state.js";
 import { GameProjectileServices } from "./game-projectile-services.js";
 import { Gameplay } from "./gameplay.js";
@@ -251,6 +252,12 @@ export class GameProgressionIntegration {
         !Number.isFinite(options.protectedSeconds) ||
         options.protectedSeconds < 0 || options.protectedSeconds > dt)
       return null;
+    // Conduit is a current resident observation, never a saved StatusEffect.
+    // Potion seconds were observed PRE-tick by Game; combine, don't add.
+    const conduit = options.underwater && !options.restoreAir && options.protectedSeconds < dt
+      ? currentConduitServices(this._game)?.observePlayer() : null;
+    if (conduit?.validate())
+      options = { ...options, protectedSeconds: Math.max(options.protectedSeconds, dt) };
     // A proven no-change air step needs neither equipment observations nor an
     // inventory draft. Never take this path for ANY exposed underwater time:
     // even a sub-tick step must save its fractional clock (and later its RNG).
@@ -279,6 +286,7 @@ export class GameProgressionIntegration {
       ? airTickCount(options.protectedSeconds > 0 ? 0 : this.gameplay.airPhase, exposed)
       : 0;
     const valid = () => this.gameplay.airHost === this && current() &&
+      (!conduit || conduit.validate()) &&
       playerRef.poseRevision === poseRevision &&
       this.services.effects === effects && effects.revision === effectsRevision &&
       [...columns].every(([key, { chunk, revision }]) =>
@@ -513,17 +521,22 @@ export class GameProgressionIntegration {
 
   /** Parent renews pearl life once; this hook never increments a separate life. */
   onDeath() {
+    if (this._game) currentConduitServices(this._game)?.reset();
+    if (this._game) updatePlayerVisualEffects(this._game, { reset: true });
     this.resetFeedback();
     return this.active && this.services.onDeath();
   }
 
   onRespawn() {
+    if (this._game) currentConduitServices(this._game)?.reset();
     this.resetFeedback();
     return this.close("respawn");
   }
 
   /** Call BEFORE teleport/dimension mutation, and honor a refusal. */
   beforeTravel() {
+    if (this._game) currentConduitServices(this._game)?.reset();
+    if (this._game) updatePlayerVisualEffects(this._game, { reset: true });
     this.resetFeedback();
     return this.active ? this.services.onDimensionChange() : refusal("stale_progression_host");
   }

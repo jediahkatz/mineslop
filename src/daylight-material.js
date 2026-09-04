@@ -3,6 +3,7 @@ import { UNKNOWN_SKY_HEIGHT } from "./sky-columns.js";
 import { SURFACE_DAYLIGHT_LIMITS } from "./surface-daylight.js";
 import { BlockLightField } from "./block-light-field.js";
 import { BLOCK_LIGHT_DECLARATIONS, blockLightUniforms, updateBlockLightUniforms } from "./block-light-material.js";
+import { visualStrength } from "./player-visual-effects.js";
 
 const sceneDaylight = new WeakMap();
 const installations = new WeakMap();
@@ -41,6 +42,7 @@ const DECLARATIONS = `
 varying vec3 vDaylightPosition;
 uniform float uDaylightEnabled;
 uniform float uDaylightFogEnabled;
+uniform float uPlayerVision;
 uniform sampler2D uSkyCeilings;
 uniform highp sampler2DArray uSurfaceDaylight;
 uniform vec3 uSurfaceField;
@@ -94,6 +96,7 @@ export class DaylightMaterial {
       ...blockLightUniforms(this.blockLight),
       uDaylightEnabled: { value: 0 },
       uDaylightFogEnabled: { value: 0 },
+      uPlayerVision: { value: 0 },
       uSkyCeilings: { value: columns.texture },
       uSurfaceDaylight: { value: columns.surfaceLight.texture },
       uSurfaceField: { value: new THREE.Vector3() },
@@ -108,7 +111,7 @@ export class DaylightMaterial {
   }
 
   install(material, exterior = false) {
-    if (!material?.isMeshLambertMaterial || this.installed.has(material)) return;
+    if (this.disposed || !material?.isMeshLambertMaterial || this.installed.has(material)) return;
     const existing = installations.get(material);
     existing?.owner.installed.delete(material);
     this.installed.add(material);
@@ -145,7 +148,16 @@ export class DaylightMaterial {
             skyLight.skyColor = mix(uCaveSky, uDaylightSky, skyMask.y);
             skyLight.groundColor = mix(uCaveGround, uDaylightGround, skyMask.y);
           }
-          irradiance += getHemisphereLightIrradiance( skyLight, geometryNormal );`
+          if (uPlayerVision > 0.0) {
+            vec3 naturalFill = getHemisphereLightIrradiance( skyLight, geometryNormal );
+            // A floor, not a multiplier: retain albedo/AO and add voxel light
+            // once. Emissive maps and direct lights keep their original path.
+            vec3 visionFill = max(naturalFill, vec3(2.4) -
+              blockLightAt(vDaylightPosition + daylightNormal * 0.02));
+            irradiance += mix(naturalFill, visionFill, uPlayerVision);
+          } else {
+            irradiance += getHemisphereLightIrradiance( skyLight, geometryNormal );
+          }`
         );
       const fog = THREE.ShaderChunk.fog_fragment.replace(
         "gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );",
@@ -166,11 +178,13 @@ export class DaylightMaterial {
           )
           .replace("#include <fog_fragment>", fog);
     };
-    material.customProgramCacheKey = () => `${cacheKey()}:daylight-2:${Number(exterior)}:surface-atlas-1:block-light-2:${this.binding}`;
+    material.customProgramCacheKey = () => `${cacheKey()}:daylight-2:${Number(exterior)}:surface-atlas-1:block-light-2:player-vision-1:${this.binding}`;
     material.needsUpdate = true;
   }
 
   dispose() {
+    this.disposed = true;
+    this.uniforms.uPlayerVision.value = 0;
     this.uniforms.uBlockLightEnabled.value = 0;
     this.blockLight.dispose();
     if (this.scene && sceneDaylight.get(this.scene) === this)
@@ -178,7 +192,9 @@ export class DaylightMaterial {
   }
 
   update(atmosphere) {
+    if (this.disposed) return;
     const u = this.uniforms;
+    u.uPlayerVision.value = atmosphere.fullbrightInspection ? 0 : visualStrength(atmosphere.playerVision);
     updateBlockLightUniforms(this.blockLight, u, atmosphere.fullbrightInspection);
     u.uDaylightEnabled.value = Number(
       atmosphere.dimension === "overworld" &&

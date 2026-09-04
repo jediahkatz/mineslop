@@ -18,6 +18,7 @@ import { Fuses } from "./fuses.js";
 import { FrameRate } from "./frame-rate.js";
 import { GameArchive } from "./game-archive.js";
 import { GameBuildingServices } from "./game-building-services.js";
+import { GameConduitServices, currentConduitServices, gameMiningDuration, updatePlayerVisualEffects } from "./game-conduit-services.js";
 import { bindGameControls } from "./game-controls.js";
 import { GameExplorationServices } from "./game-exploration-services.js";
 import { GameFluidServices } from "./game-fluid-services.js";
@@ -527,6 +528,8 @@ export class VoxelGame {
     if (!(await this.closeScreens()))
       throw new Error("Close the inventory safely before replacing this world");
     this.building = true;
+    currentConduitServices(this)?.reset();
+    updatePlayerVisualEffects(this, { reset: true });
     audioOperation(this.audioEngine, "setPaused", true);
     this.resetSwimmingPresentation();
     this.resetFrameRate();
@@ -593,7 +596,7 @@ export class VoxelGame {
     this.unbindWorldEvents = null;
     const seen = new Set();
     for (const key of [
-      "weatherServices", "gravityServices", "vehicleServices", "mobIntegration",
+      "weatherServices", "gravityServices", "vehicleServices", "mobIntegration", "conduitServices",
       "progressionIntegration", "explorationServices", "player", "wildlife",
       "pickups", "experienceOrbs", "playerVisual", "effects", "projectileServices",
       "graphics", "fluidServices", "buildingServices", "gameplay", "settlement",
@@ -652,6 +655,8 @@ export class VoxelGame {
     // Required terrain and a collision-checked pose exist before live teardown.
     this.unbindWorldEvents?.();
     this.unbindWorldEvents = null;
+    this.conduitServices?.dispose();
+    this.conduitServices = null;
     this.weatherServices?.dispose();
     this.weatherServices = null;
     this.renderedWeather = null;
@@ -827,6 +832,7 @@ export class VoxelGame {
         this.player.position.y
       )
     );
+    updatePlayerVisualEffects(this);
     this.graphics.update(0, this.elapsed, this.player.position);
     this.renderWeather();
     this.graphics.render();
@@ -862,6 +868,10 @@ export class VoxelGame {
 
   bindWorldServiceEvents() {
     this.unbindWorldEvents?.();
+    if (!currentConduitServices(this)) {
+      if (this.conduitServices?.game === this) this.conduitServices.dispose();
+      this.conduitServices = new GameConduitServices(this);
+    }
     this.unbindWorldEvents = bindWorldServiceEvents(this);
   }
 
@@ -1321,8 +1331,7 @@ export class VoxelGame {
       this.elapsed - this.lastAction < 0.2
     )
       return;
-    const duration = this.gameplay.miningDuration(this.target.id) /
-      (this.ecologyServices?.modifiers().miningSpeedMultiplier ?? 1);
+    const duration = gameMiningDuration(this, this.target.id);
     this.miningProgress += dt / Math.max(0.05, duration);
     requestHeldItemMining(this.effects);
     if (this.miningProgress < 1) return;
@@ -1582,11 +1591,13 @@ export class VoxelGame {
       hidden: document.hidden,
     });
     if (!this.graphics || this.building || this.failed || document.hidden) {
+      updatePlayerVisualEffects(this);
       this.resetSwimmingPresentation();
       this.resetFrameRate();
       return;
     }
     this.elapsed += dt;
+    currentConduitServices(this)?.frame(dt);
     const vehicleFrame = (this.vehicleFrame = (this.vehicleFrame ?? 0) + 1);
     this.vehicleServices?.beginFrame(vehicleFrame);
     this.portalCooldown -= dt;
@@ -1743,6 +1754,7 @@ export class VoxelGame {
     // Snapshot daylight and cut LOD only after final poses, mutations and mesh
     // admission: an earlier snapshot can overlap new detail or hide fallback
     // for a row culled by a late dismount.
+    updatePlayerVisualEffects(this);
     this.graphics.update(0, this.elapsed, this.player.position);
     this.pickups.update(
       this.simulating ? dt : 0,

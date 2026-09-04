@@ -32,9 +32,15 @@ export class ProgressionGearEffects {
   }
   attackDamage(base, options) { return this.effects.modifyAttackDamage(base, options); }
   miningSpeed(base, tool = this.gameplay.getHandStack(), options = {}) {
-    return this.effects.modifyMiningSpeed(miningSpeed(base, tool, {
-      helmet: this.gameplay.equipment.head, context: this.gameplay.context, ...options,
+    const speed = this.effects.modifyMiningSpeed(miningSpeed(base, tool, {
+      helmet: this.gameplay.getEquipmentStack("head"), context: this.gameplay.context, ...options,
     }), { creative: this.gameplay.mode === "creative" });
+    // StatusEffects already applies Haste and potion fatigue. Conduit grants
+    // Haste I only when no equal/stronger Haste is present, never a second Haste.
+    const hasHaste = options.conduitPower === true &&
+      this.effects.serialize().effects.some((effect) => effect.id === "haste");
+    return options.conduitPower === true && !hasHaste && this.gameplay.mode !== "creative"
+      ? speed * 1.2 : speed;
   }
   // Parent first applies attackDamage to the raw attribute, THEN its charge/
   // critical multiplier. Enchantment damage is added last and never crit-scaled.

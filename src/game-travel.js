@@ -1,6 +1,7 @@
 import { getBiomeById } from "./biomes.js";
 import { audioOperation } from "./audio-lifecycle.js";
 import { newWorldGeneratorVersion } from "./generation-choice.js";
+import { currentConduitServices, updatePlayerVisualEffects } from "./game-conduit-services.js";
 import {
   installTravelLanding, installTravelPortal, stageTravelDestination,
 } from "./game-travel-stage.js";
@@ -200,6 +201,8 @@ export class GameTravel {
     if (!ownersCurrent())
       return { ok: false, message: "Travel owners were replaced before inspection" };
     game.building = true;
+    currentConduitServices(game)?.reset();
+    updatePlayerVisualEffects(game, { reset: true });
     game.overlayOpen = false;
     game.player.unlock();
     game.ui.setLoading(0.3, "Discovering new terrain");

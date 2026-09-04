@@ -4,6 +4,7 @@ import { sampleOutdoorLighting } from "./environment-lighting.js";
 import { createFluidQueryView } from "./fluid-query-view.js";
 import { createFluidSample, sampleFluidAtPoint } from "./fluid-sampling.js";
 import { geometryWorldSpec } from "./geometry-world.js";
+import { playerVisionStrength, visualStrength } from "./player-visual-effects.js";
 import { WORLD_HEIGHT } from "./terrain.js";
 
 const INSPECTION_FOG_LIFT = new THREE.Color("#b8c4bd");
@@ -19,6 +20,9 @@ export class Atmosphere {
     this.skyAccess = null;
     this.surfaceBiome = null;
     this.fullbrightInspection = false;
+    this.nightVision = 0;
+    this.conduitPower = false;
+    this.playerVision = 0;
     this.cameraFluid = createFluidSample();
     this.cameraMediumKnown = true;
     this.underwater = false;
@@ -298,6 +302,16 @@ export class Atmosphere {
       this.setSurfaceBiome(surfaceBiome);
   }
 
+  setPlayerVisualEffects(effects) {
+    this.nightVision = visualStrength(effects?.nightVision);
+    this.conduitPower = effects?.conduitPower === true;
+    this.updatePlayerVision();
+  }
+
+  updatePlayerVision() {
+    this.playerVision = playerVisionStrength(this.nightVision, this.conduitPower, this);
+  }
+
   /** Render camera only: never the player's feet or unbobbed physical eye. */
   sampleCameraFluid(camera) {
     if (this._fluidWorld !== this.world) {
@@ -313,6 +327,7 @@ export class Atmosphere {
     this.cameraMediumKnown = sample.valid && sample.loaded;
     this.underwater = this.cameraMediumKnown && isWaterFluid(sample.fluid);
     this.inLava = this.cameraMediumKnown && sample.fluid === FLUID.LAVA_SOURCE;
+    this.updatePlayerVision();
     return sample;
   }
 
@@ -441,6 +456,7 @@ export class Atmosphere {
   }
 
   dispose() {
+    this.setPlayerVisualEffects();
     for (const object of [
       this.sky,
       this.sun,

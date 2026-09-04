@@ -78,19 +78,20 @@ const correctTool = (profile, item) =>
 const canHarvest = (profile, item) =>
   !profile.tier || (correctTool(profile, item) && item.tier >= profile.tier);
 
-export function miningDuration(gameplay, blockId) {
+export function miningDuration(gameplay, blockId, { modifySpeed } = {}) {
   const profile = miningProfile(blockId);
   if (!profile || gameplay.dead) return Infinity;
   if (gameplay.mode === "creative") return 0.08;
   const stack = gameplay.getHandStack();
   const held = getItem(stack?.id);
   const correct = correctTool(profile, held);
-  const speed = correct
+  const speed = modifySpeed ? modifySpeed(correct ? held.speed ?? 1 : 1, correct, stack) : correct
     ? resolveItemStats(stack, {
         context: gameplay.context,
         effectiveMiningTool: true,
       }).speed
     : 1;
+  if (!Number.isFinite(speed) || speed <= 0) return Infinity;
   return Math.max(
     0.08,
     (profile.hardness * (canHarvest(profile, held) ? 1.5 : 5)) / speed
