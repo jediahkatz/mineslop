@@ -6,6 +6,7 @@ import { GameProgressionServices } from "./game-progression-services.js";
 import { normalizeProgressionArchive } from "./game-progression-state.js";
 import { GameProjectileServices } from "./game-projectile-services.js";
 import { Gameplay } from "./gameplay.js";
+import { playerDamageKind } from "./player-damage-kind.js";
 import { progressionPlan } from "./progression-station-interactions.js";
 import { progressionStationKind } from "./progression-station-state.js";
 import { TransactionInvariantError } from "./transactions.js";
@@ -110,6 +111,8 @@ export class GameProgressionIntegration {
       return refusal("stale_progression_host");
     if (!canBind(game, "progressionIntegration", this))
       return refusal("progression_host_owned");
+    if (this.gameplay.damageHost && this.gameplay.damageHost !== this)
+      return refusal("damage_host_owned");
     if (this.services.potions.projectiles.some((potion) => potion.life !== this.pearls.life))
       return refusal("stale_progression_stage");
     if (typeof headless !== "boolean" || (!root && !headless) ||
@@ -165,6 +168,7 @@ export class GameProgressionIntegration {
       });
       this._game = game;
       this._player = game.player;
+      this.gameplay.damageHost = this;
       this.ui = ui;
       this.feedback.reset();
       return activated;
@@ -198,6 +202,40 @@ export class GameProgressionIntegration {
     const current = captureEntityContext(this.world, this.gameplay.context);
     return () => this.running && current() &&
       this._player === owner.ref && this.pearls.life === owner.life;
+  }
+
+  /** One replacement damage transaction; never recurse through Gameplay.damage. */
+  prepareDamage(amount, cause = "injury", kind) {
+    const current = this._captureRewardHost();
+    if (!current || this.gameplay.damageHost !== this ||
+        !Number.isFinite(amount) || amount <= 0)
+      return null;
+    return this.services.gear.prepareDamage(amount, {
+      cause,
+      kind: playerDamageKind(cause, kind),
+      validate: () => this.gameplay.damageHost === this && current(),
+    });
+  }
+
+  damage(amount, cause, kind) {
+    const plan = this.prepareDamage(amount, cause, kind);
+    const result = plan && this.commit(plan);
+    return result?.ok ? result.damage : 0;
+  }
+
+  prepareShieldBlock(hand, amount, validate) {
+    const current = this._captureRewardHost();
+    if (!current || this.gameplay.damageHost !== this || !synchronous(validate) ||
+        !["main", "offhand"].includes(hand) || !Number.isFinite(amount) || amount <= 0)
+      return null;
+    return this.services.gear.prepareWear([{
+      area: hand === "offhand" ? "offhand" : "inventory",
+      index: hand === "offhand" ? 0 : this.gameplay.selected,
+      amount: Math.max(1, Math.ceil(amount) + 1),
+    }], {
+      selfUseHands: [hand],
+      validate: () => this.gameplay.damageHost === this && current() && validate(),
+    });
   }
 
   _showFeedback(view) {

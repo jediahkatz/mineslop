@@ -187,6 +187,9 @@ export class Gameplay {
     this.onDeath = onDeath;
     this.onChange = onChange;
     this.onHurt = onHurt;
+    // Installed only by the live progression composition boundary. A detached
+    // or stale host refuses damage; it must never fall back to legacy armor.
+    this.damageHost = null;
     this.random = random;
     this.health = 20;
     this.hunger = 20;
@@ -1172,7 +1175,7 @@ export class Gameplay {
     return this.eatFromHand("main");
   }
 
-  damage(amount, cause = "injury") {
+  damage(amount, cause = "injury", kind) {
     if (
       this._disposed ||
       this._inventoryBusy ||
@@ -1183,6 +1186,8 @@ export class Gameplay {
     )
       return 0;
     cause = typeof cause === "string" ? cause.slice(0, 80) : "injury";
+    if (this.damageHost)
+      return this.damageHost.damage(amount, cause || "injury", kind);
     const points = armorPoints(this._owned.equipment);
     let wear = 0;
     if (points && !["drowning", "starvation", "fall"].includes(cause)) {

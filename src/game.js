@@ -302,6 +302,15 @@ export class VoxelGame {
     return gameplay;
   }
 
+  bindPlayerDamage(player = this.player, gameplay = this.gameplay) {
+    const world = this.world;
+    player.onFall = (distance) => {
+      if (this.player !== player || this.gameplay !== gameplay || this.world !== world)
+        return 0;
+      return gameplay.damage(Math.ceil(distance - 3), "fall", "fall");
+    };
+  }
+
   async start() {
     let saved;
     try {
@@ -588,8 +597,7 @@ export class VoxelGame {
     this.player.allowFlight = this.gameplay.mode === "creative";
     this.player.canSprint = this.gameplay.hunger > 6;
     if (!this.player.allowFlight) this.player.flying = false;
-    this.player.onFall = (distance) =>
-      this.gameplay.damage(Math.ceil(distance - 3), "fall");
+    this.bindPlayerDamage();
     this.currentTime = staged.buildingServices.worldClock.time;
     this.graphics.setTime(this.currentTime);
     this.effects = new Effects(this.graphics.scene, this.graphics.camera, {
@@ -1529,7 +1537,7 @@ export class VoxelGame {
       );
       this.gameplay.update(dt, environment);
       if (this.settlement.update(dt, this.world)) this.scheduleSave();
-      if (environment.inVoid) this.gameplay.damage(20, "the void");
+      if (environment.inVoid) this.gameplay.damage(20, "the void", "void");
       if (
         [BLOCK.NETHER_PORTAL, BLOCK.END_PORTAL].includes(feet) &&
         this.portalCooldown <= 0

@@ -4,9 +4,11 @@ import { FLUID, isSourceWater, normalizeCell } from "./block-state.js";
 import { isBuildingBlock } from "./building-placement.js";
 import { placeFluidBlock } from "./game-fluid-block-actions.js";
 import { GameMobActions } from "./game-mob-actions.js";
+import { EQUIPMENT_SLOTS } from "./inventory-domain.js";
 import { canShieldBlock, ItemUse, itemUseKind } from "./item-use.js";
 import { stackIdentity } from "./item-stack-data.js";
 import { getItem, ITEM } from "./items.js";
+import { playerDamageKind } from "./player-damage-kind.js";
 import { progressionStationKind } from "./progression-station-state.js";
 import { TransactionInvariantError } from "./transactions.js";
 import { raycast } from "./world.js";
@@ -18,12 +20,6 @@ import {
 } from "./world-interactions.js";
 
 const hands = ["main", "offhand"];
-const equipmentItems = new Map([
-  [ITEM.IRON_HELMET, 0],
-  [ITEM.IRON_ARMOR, 1],
-  [ITEM.IRON_LEGGINGS, 2],
-  [ITEM.IRON_BOOTS, 3],
-]);
 const interactiveBlocks = new Set([
   BLOCK.CHEST,
   BLOCK.FURNACE,
@@ -224,11 +220,12 @@ export class GameUseActions {
         game.ui.toast("Remote controls: hold V to eat, drink, draw a bow or block");
       return true;
     }
-    if (equipmentItems.has(item.id)) {
+    if (EQUIPMENT_SLOTS.includes(item.equipmentSlot)) {
+      if (hand === "main" && !gameplay._ownedMainMatchesPalette()) return false;
       const result = game.gameplay.inventoryAction({
         type: hand === "main" ? "swapHotbar" : "swapOffhand",
         area: "equipment",
-        index: equipmentItems.get(item.id),
+        index: EQUIPMENT_SLOTS.indexOf(item.equipmentSlot),
         hotbarIndex: game.gameplay.selected,
       });
       if (result.ok) {
@@ -537,8 +534,12 @@ export class GameUseActions {
 
   damage(amount, cause, source, kind = "melee") {
     const game = this.game;
-    const before = game.gameplay.health;
-    if (!Number.isFinite(amount) || amount <= 0)
+    const gameplay = game.gameplay;
+    const host = gameplay.damageHost;
+    const before = gameplay.health;
+    kind = playerDamageKind(cause, kind);
+    if (!Number.isFinite(amount) || amount <= 0 || gameplay.dead ||
+        gameplay.mode === "creative" || (host && !host.running))
       return { health: before, blocked: false, damage: 0 };
     const stack = this.use.active
       ? game.gameplay.getHandStack(this.use.hand)
@@ -554,18 +555,30 @@ export class GameUseActions {
         forward: game.player.forward,
         source: source?.position ?? source,
         kind,
-      }) &&
-      game.gameplay.wearHand(this.use.hand, Math.max(1, Math.ceil(amount) + 1))
+      })
     ) {
-      game.effects.sound("block", stack.id);
-      game.scheduleSave();
+      const hand = this.use.hand;
+      const revision = gameplay.getHandRevision(hand);
+      const valid = () => game.gameplay === gameplay && this.use.blocking &&
+        this.use.hand === hand && gameplay.getHandRevision(hand) === revision &&
+        this.use.matches(gameplay.getHandStack(hand), revision);
+      const plan = host?.prepareShieldBlock(hand, amount, valid);
+      const result = host
+        ? plan && host.commit(plan)
+        : { ok: gameplay.wearHand(hand, Math.max(1, Math.ceil(amount) + 1)) };
+      // A refused block transaction is not permission to deal a different hit.
+      if (!result?.ok) return { health: before, blocked: false, damage: 0 };
+      this._observeCommitted(result, [
+        () => game.effects.sound("block", stack.id),
+        () => game.scheduleSave(),
+      ]);
       return { health: before, blocked: true, damage: 0 };
     }
-    game.gameplay.damage(amount, cause);
+    const taken = gameplay.damage(amount, cause, kind);
     return {
-      health: game.gameplay.health,
+      health: gameplay.health,
       blocked: false,
-      damage: before - game.gameplay.health,
+      damage: taken,
     };
   }
 }

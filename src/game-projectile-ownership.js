@@ -151,11 +151,21 @@ export function prepareHostedPearlImpact(service, request) {
     },
   });
 
+  // Pearl already owns Gameplay for its pose/retirement transaction. Reduce
+  // here, without composing prepareDamage's second Gameplay participant.
+  const host = gameplay.damageHost;
+  if (host && (!host.running || game.progressionIntegration !== host)) return null;
+  const effects = host?.services.effects;
+  const effectsRevision = effects?.revision;
+  const effectsBytes = effects && gameplay.coordinator.usage(effects);
+  const reduction = host
+    ? host.gear.incomingDamage(PEARL_TELEPORT_DAMAGE, { kind: "pearl" }).damage
+    : PEARL_TELEPORT_DAMAGE;
   let died = false;
   const health = gameplay._prepareState(
     (draft) => {
       if (gameplay.mode !== "creative") {
-        draft.health = Math.max(0, draft.health - PEARL_TELEPORT_DAMAGE);
+        draft.health = Math.max(0, draft.health - reduction);
         draft.timers.regen = 0;
         died = draft.health === 0;
         if (died) {
@@ -168,6 +178,8 @@ export function prepareHostedPearlImpact(service, request) {
     { notify: false }
   );
   if (!health) return null;
+  const clear = died && effects ? effects.prepareClear() : null;
+  if (died && effects && !clear) return null;
   let healthPublished = false;
   let healthNotified = false;
   const damage = Object.freeze({
@@ -177,6 +189,10 @@ export function prepareHostedPearlImpact(service, request) {
       service.game === game &&
       game.player === player &&
       game.vehicleServices === vehicles &&
+      gameplay.damageHost === host &&
+      (!host || (host.running && game.progressionIntegration === host &&
+        host.services.effects === effects && effects.revision === effectsRevision &&
+        gameplay.coordinator.usage(effects) === effectsBytes)) &&
       health.validate(),
     publish() {
       health.publish();
@@ -198,5 +214,8 @@ export function prepareHostedPearlImpact(service, request) {
       }
     },
   });
-  return { pose, damage, extraParticipants: departure?.participants ?? [] };
+  return {
+    pose, damage,
+    extraParticipants: [...(departure?.participants ?? []), ...(clear ? [clear] : [])],
+  };
 }
