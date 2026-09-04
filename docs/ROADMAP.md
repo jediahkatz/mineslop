@@ -26,10 +26,11 @@ loading, and has relevant regression tests and real browser verification.
   edits, and GPU return/torch/context-recovery checks. See
   [cave lighting verification](cave-lighting.md) for scope and remaining
   inherited test/performance limits. The deployed fix still has a reported
-  white-looking interior when viewed from the top of an entrance, potentially
-  excessive cave brightness, and changing light on fixed inside/outside mobs
-  as the observer crosses the entrance. Reproduce and correct each symptom
-  without reintroducing deep-cave blackouts or merely darkening the whole scene.
+  white-looking interior when viewed from the top of an entrance and potentially
+  excessive cave brightness; neither was established by the controlled sample.
+  Observer-dependent creature lighting is fixed and verified separately in
+  [mob lighting](mob-lighting.md). Keep the remaining appearance reports open
+  without reintroducing blackouts or merely darkening the whole scene.
 - [ ] **World-anchored clouds and weather.** Clouds must drift independently of
   player movement. Add rain/weather with bounded rendering/audio, appropriate
   biome/dimension/roof behavior, and coherent time, pause and save semantics.
