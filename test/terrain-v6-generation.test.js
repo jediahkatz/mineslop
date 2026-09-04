@@ -27,7 +27,7 @@ test("explicit v6 is expanded in every dimension; normal default remains gated a
     assert.equal(generator.getNaturalBlock(0, generator.minY - 1, 0), B.AIR);
     assert.equal(generator.getNaturalBlock(0, generator.maxY, 0), B.AIR);
   }
-  for (const version of [0, 7, "6", null, NaN])
+  for (const version of [0, 8, "6", null, NaN])
     assert.throws(() => createGenerator("future", "overworld", version), RangeError);
 });
 

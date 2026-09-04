@@ -22,7 +22,7 @@ test("v5 requires explicit dispatch; the new-world default and old dimensions st
     for (const version of [1, 2, 3])
       assert.equal(getWorldSpec(version, dimension).maxY, 96);
   }
-  for (const version of [0, 7, "5", null, NaN])
+  for (const version of [0, 8, "5", null, NaN])
     assert.throws(() => createGenerator("v5-explicit", "overworld", version), RangeError);
 });
 

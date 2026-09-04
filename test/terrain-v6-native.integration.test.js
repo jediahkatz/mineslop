@@ -87,7 +87,7 @@ for (const kind of V6_GENERATION_MANIFEST.structureKinds)
       chunks: structureChunks(descriptor).length, admitted: admittedIds.size }));
   });
 
-test("v4/v5/v6 worker contexts alternate explicitly; future 7 and cross-version descriptors reject", () => {
+test("v4/v5/v6 worker contexts alternate explicitly; future 8 and cross-version descriptors reject", () => {
   for (const dimension of ["overworld", "nether", "end"])
     for (const version of [4, 5, 6, 5, 4, 6]) {
       const generator = createGenerator("v6-context-alternation", dimension, version);
@@ -110,8 +110,8 @@ test("v4/v5/v6 worker contexts alternate explicitly; future 7 and cross-version 
       { ...v6Context(generator), generatorVersion: version }, descriptor.gx, descriptor.gz), RangeError);
   }
   let future;
-  handleTerrainRequest({ ...job, generatorVersion: 7 }, (packet) => { future = packet; });
+  handleTerrainRequest({ ...job, generatorVersion: 8 }, (packet) => { future = packet; });
   assert.equal(future.type, "error");
-  assert.throws(() => cloneTerrainStructures(undefined, { ...job, generatorVersion: 7 }, generator.spec, raw.blocks),
+  assert.throws(() => cloneTerrainStructures(undefined, { ...job, generatorVersion: 8 }, generator.spec, raw.blocks),
     RangeError);
 });

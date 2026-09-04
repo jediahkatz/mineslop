@@ -9,6 +9,7 @@ import { V4_MAX_XZ, V4_MIN_XZ } from "./terrain-v4-config.js";
 import { V4_GENERATION_MANIFEST } from "./terrain-v4-manifest.js";
 import { V5_GENERATION_MANIFEST } from "./terrain-v5-manifest.js";
 import { V6_GENERATION_MANIFEST } from "./terrain-v6-manifest.js";
+import { V7_GENERATION_MANIFEST } from "./terrain-v7-manifest.js";
 
 function manifestFor(job) {
   switch (job.generatorVersion) {
@@ -20,6 +21,7 @@ function manifestFor(job) {
     case 4: return V4_GENERATION_MANIFEST;
     case 5: return V5_GENERATION_MANIFEST;
     case 6: return V6_GENERATION_MANIFEST;
+    case 7: return V7_GENERATION_MANIFEST;
     default: throw new RangeError("Unsupported native structure generator version");
   }
 }

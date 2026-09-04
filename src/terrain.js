@@ -42,6 +42,7 @@ import {
 } from "./terrain-v5-manifest.js";
 import { createTerrainV6 } from "./terrain-v6.js";
 import { getNativeV6Decorators, V6_GENERATION_MANIFEST } from "./terrain-v6-manifest.js";
+import { createNativeTerrainV7 } from "./terrain-v7.js";
 
 export { BIOMES, getBiomeById } from "./biomes.js";
 export const WORLD_MIN = -30000000;
@@ -68,6 +69,7 @@ export function createGenerator(
   const seedString = String(seed).slice(0, 80);
   if (!["overworld", "nether", "end"].includes(dimension))
     throw new RangeError("Unknown dimension");
+  if (generatorVersion === 7) return createNativeTerrainV7(seedString, dimension);
   if (generatorVersion === 4) {
     const generator = createTerrainV4(seedString, dimension, {
       // createTerrainV4 supplies its raw, non-generating field sampler to every

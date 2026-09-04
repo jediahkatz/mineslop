@@ -16,7 +16,7 @@ const jobFor = (generatorVersion, dimension) => ({
   id: 1, epoch: 0, cx: 0, cz: 0, ...getWorldSpec(generatorVersion, dimension),
 });
 
-for (const version of [1, 2, 3, 4, 5, 6])
+for (const version of [1, 2, 3, 4, 5, 6, 7])
   for (const dimension of ["overworld", "nether", "end"])
     test(`v${version}/${dimension}: absent, empty and opaque declaration packet/worker parity`, () => {
       const job = jobFor(version, dimension);
@@ -51,7 +51,7 @@ for (const version of [1, 2, 3, 4, 5, 6])
       }
     });
 
-for (const version of [1, 2, 3, 4, 5, 6])
+for (const version of [1, 2, 3, 4, 5, 6, 7])
   for (const empty of [true, false])
     test(`v${version} World fallback preserves ${empty ? "empty" : "opaque"} declarations`, async (t) => {
       t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -85,7 +85,7 @@ for (const version of [1, 2, 3, 4, 5, 6])
 
 test("unsupported versions reject even absent or empty declaration planes", () => {
   const spec = getWorldSpec(6, "overworld");
-  for (const generatorVersion of [undefined, 0, 7, "6"])
+  for (const generatorVersion of [undefined, 0, 8, "6"])
     for (const structures of [undefined, []])
       assert.throws(() => cloneTerrainStructures(structures,
         { ...jobFor(6, "overworld"), generatorVersion }, spec, new Uint16Array(384 * 256)), RangeError);
