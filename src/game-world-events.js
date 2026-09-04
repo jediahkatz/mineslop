@@ -12,21 +12,44 @@ const serviceSlots = [
 export function bindWorldServiceEvents(game) {
   const world = game.world;
   const consumers = serviceSlots.map((slot) => [slot, game[slot]]);
+  let graphics = game.graphics;
   let bound = true;
-  const currentWorld = () => bound && game.world === world && !world._disposed;
+  const currentWorld = () => bound && game.world === world && !world._disposed &&
+    world.onMutation === mutation && world.onChunkAdmitted === admitted;
 
   function dispatch(method, event) {
-    if (
-      !currentWorld() ||
-      event?.epoch !== world.epoch ||
-      event?.dimension !== world.dimension
-    )
-      return;
+    const currentEvent = () => currentWorld() &&
+      event?.epoch === world.epoch && event?.dimension === world.dimension;
+    if (!currentEvent()) return;
     const errors = [];
+    if (method === "onMutation") {
+      // Normal installation creates graphics first. A binder installed earlier
+      // may attach its first renderer lazily, but never adopts a replacement.
+      try {
+        graphics ??= game.graphics;
+        if (graphics && game.graphics === graphics && graphics.world === world) {
+          const callback = graphics.onWorldMutation;
+          if (callback != null) {
+            if (typeof callback !== "function" ||
+              Object.prototype.toString.call(callback) !== "[object Function]")
+              throw new TypeError("Renderer mutation observers must be synchronous");
+            // Read-only observation comes first: a service may publish another
+            // transaction, making this event's revision obsolete for lighting.
+            const result = callback.call(graphics, world, event);
+            if (result != null && typeof result.then === "function") {
+              if (result instanceof Promise) result.catch(() => {});
+              throw new TypeError("Renderer mutation observers must be synchronous");
+            }
+          }
+        }
+      } catch (error) {
+        errors.push(error);
+      }
+    }
     for (const [slot, service] of consumers) {
       try {
         if (
-          !currentWorld() ||
+          !currentEvent() ||
           !service ||
           game[slot] !== service ||
           !service.active
@@ -47,7 +70,7 @@ export function bindWorldServiceEvents(game) {
         errors.push(error);
       }
     }
-    if (method === "onMutation" && currentWorld()) {
+    if (method === "onMutation" && currentEvent()) {
       try {
         game.scheduleSave?.();
       } catch (error) {

@@ -43,7 +43,7 @@ test("field hooks compose, rebind, preserve instancing/emission/dynamic lights a
   assert.equal(compile().uniforms.uBlockLightAtlas.value, second.blockLight.texture);
   const late = new THREE.MeshLambertMaterial({ transparent: true });
   applySceneDaylight(secondScene, late);
-  assert.match(late.customProgramCacheKey(), /block-light-1/);
+  assert.match(late.customProgramCacheKey(), /block-light-2/);
   second.dispose();
   applySceneDaylight(secondScene, material);
   assert.equal(material.onBeforeCompile, original);

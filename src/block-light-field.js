@@ -170,6 +170,10 @@ export class BlockLightField {
     this.nextTarget = 0;
   }
 
+  observeMutation(world, event) {
+    if (!this.disposed && world === this.world) this.revisions.observeMutation(world, event);
+  }
+
   update(world, position, radius = 3) {
     if (this.disposed) return;
     const started = performance.now(), spec = geometryWorldSpec(world);
@@ -250,14 +254,28 @@ export class BlockLightField {
   sample(point) {
     if (!this.world || this.disposed) return [0, 0, 0];
     const x = Math.floor(point.x), z = Math.floor(point.z), y = Math.floor(point.y) - this.spec.minY;
-    const cx = Math.max(this.cx - this.radius, Math.min(this.cx + this.radius, Math.floor(x / 16)));
-    const cz = Math.max(this.cz - this.radius, Math.min(this.cz + this.radius, Math.floor(z / 16)));
-    const lx = x - cx * 16 + 2, lz = z - cz * 16 + 2;
-    if (y < 0 || y >= this.height || lx < 0 || lx >= 20 || lz < 0 || lz >= 20) return [0, 0, 0];
-    const slot = this.slot(cx, cz), sy = Math.floor(y / 16);
-    if (this.valid[sy * this.tiles ** 2 + slot] !== 255) return [0, 0, 0];
-    const at = slot * this.layerBytes + (y * 400 + lz * 20 + lx) * 4;
-    return Array.from(this.data.subarray(at, at + 3), (v) => v / 255);
+    if (y < 0 || y >= this.height) return [0, 0, 0];
+    const ownerX = Math.floor(x / 16), ownerZ = Math.floor(z / 16);
+    const rx = x - ownerX * 16, rz = z - ownerZ * 16;
+    const edgeX = rx < 2 || rx >= 14, edgeZ = rz < 2 || rz >= 14;
+    const nx = ownerX + (rx < 2 ? -1 : 1), nz = ownerZ + (rz < 2 ? -1 : 1);
+    const columns = [[Math.max(this.cx - this.radius, Math.min(this.cx + this.radius, ownerX)),
+      Math.max(this.cz - this.radius, Math.min(this.cz + this.radius, ownerZ))]];
+    if (edgeX) columns.push([nx, ownerZ]);
+    if (edgeZ) columns.push([ownerX, nz]);
+    if (edgeX && edgeZ) columns.push([nx, nz]);
+    for (const [cx, cz] of columns) {
+      if (!this.within({ x: cx, z: cz })) continue;
+      const lx = x - cx * 16 + 2, lz = z - cz * 16 + 2;
+      if (lx < 0 || lx >= 20 || lz < 0 || lz >= 20) continue;
+      const slot = this.slot(cx, cz), ready = this.valid[Math.floor(y / 16) * this.tiles ** 2 + slot];
+      if (!ready) continue;
+      // Verified darkness is authoritative; only unavailable pages fall back.
+      if (ready !== 255) return [0, 0, 0];
+      const at = slot * this.layerBytes + (y * 400 + lz * 20 + lx) * 4;
+      return Array.from(this.data.subarray(at, at + 3), (v) => v / 255);
+    }
+    return [0, 0, 0];
   }
 
   resources() {
@@ -267,6 +285,7 @@ export class BlockLightField {
       topologySections: this.topology.size, cachedSections: this.cache.size,
       sharedPaletteBytes: BLOCK_LIGHT_PALETTE_BYTES,
       metadataEntries: this.revisions.tokens.size, metadataPrefixBytes: this.revisions.prefix?.byteLength ?? 0,
+      semanticEntries: this.revisions.semantic.size,
       targetEntries: this.targets.length, uploadQueue: this.uploadQueue.length,
       scratchBytes: this.solver.resources() + BLOCK_LIGHT_PAGE_CELLS * 4 + 4096 * 4,
       queuedCells: this.solver.count ?? 0, pending: this.pending ?? 0 };
@@ -287,6 +306,7 @@ export class BlockLightField {
     this.disposed = true;
     this.texture.dispose(); this.validTexture.dispose();
     this.cache.clear(); this.topology.clear(); this.waiting.clear();
+    this.revisions = new BlockLightRevisions();
     this.job = null; this.world = null;
     this.targets = []; this.uploadQueue = [];
     this.solver.sources = null;
