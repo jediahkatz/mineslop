@@ -3,6 +3,7 @@ import {
   syncFurnaceRecipe,
   takeFurnaceExperience,
 } from "./furnace.js";
+import { isStorageKind, isFurnaceKind } from "./container-kinds.js";
 import {
   clickStackSlot,
   cloneSlots,
@@ -165,9 +166,9 @@ function slotRef(container, owned, area, index) {
 }
 
 const accepts = (container, index, stack) =>
-  container.kind === "chest" ||
+  isStorageKind(container.kind) ||
   ((stack === null || normalizeStackData(stack.id, stack.data) === undefined) &&
-    acceptsFurnaceStack(index, stack));
+    acceptsFurnaceStack(index, stack, undefined, container.kind));
 
 function acceptsRef(container, ref, stack) {
   if (ref.area === "container") return accepts(container, ref.index, stack);
@@ -180,7 +181,7 @@ function acceptsRef(container, ref, stack) {
 }
 
 function insertionIndices(container, stack) {
-  if (container.kind === "chest") return undefined;
+  if (isStorageKind(container.kind)) return undefined;
   if (accepts(container, 0, stack)) return [0];
   if (accepts(container, 1, stack)) return [1];
   return [];
@@ -197,10 +198,10 @@ export function applyContainerAction(container, owned, action) {
     typeof action !== "object" ||
     !owned ||
     !container ||
-    !["chest", "furnace"].includes(container.kind) ||
+    !(isStorageKind(container.kind) || isFurnaceKind(container.kind)) ||
     !validSlotArray(
       container.slots,
-      container.kind === "chest" ? CHEST_SLOTS : 3
+      isStorageKind(container.kind) ? CHEST_SLOTS : 3
     ) ||
     !validSlotArray(owned.slots, 36) ||
     !(owned.cursor === null || isValidStack(owned.cursor))
@@ -216,7 +217,7 @@ export function applyContainerAction(container, owned, action) {
         : { ...cloneStack(source), count: source.count - count }
     );
     if (
-      container.kind === "furnace" &&
+      isFurnaceKind(container.kind) &&
       ref.area === "container" &&
       ref.index === 2
     )
@@ -224,7 +225,7 @@ export function applyContainerAction(container, owned, action) {
     return taken;
   };
   const succeed = (extra = {}) => {
-    if (container.kind === "furnace") syncFurnaceRecipe(container);
+    if (isFurnaceKind(container.kind)) syncFurnaceRecipe(container);
     return { ok: true, ...(experience ? { experience } : {}), ...extra };
   };
 
@@ -341,7 +342,7 @@ export function applyContainerAction(container, owned, action) {
   if (action.area !== "container") return failure();
   if (action.type === "click") {
     if (![0, 2].includes(action.button)) return failure();
-    if (container.kind === "furnace" && action.index === 2) {
+    if (isFurnaceKind(container.kind) && action.index === 2) {
       if (!source || (owned.cursor && !isMergeable(source, owned.cursor)))
         return failure();
       const room = getItem(source.id).stackSize - (owned.cursor?.count ?? 0);

@@ -1,3 +1,5 @@
+import { BLOCK } from "./blocks.js";
+import { isFurnaceKind } from "./container-kinds.js";
 import { matchesIngredient, recipeOutput } from "./crafting.js";
 import {
   cloneSlots,
@@ -7,7 +9,7 @@ import {
   takeStack,
 } from "./inventory-slots.js";
 import { normalizeStackData } from "./item-stack-data.js";
-import { FUEL_ITEMS, getItem } from "./items.js";
+import { FUEL_ITEMS, getItem, ITEM } from "./items.js";
 import { getRecipe, RECIPES } from "./recipes.js";
 
 export const FURNACE_SLOTS = 3;
@@ -22,11 +24,35 @@ const smelting = RECIPES.filter(
     recipe.ingredients.length === 1
 );
 const outputs = new Set(smelting.map((recipe) => recipe.output.id));
+const rawMetals = new Set([ITEM.RAW_IRON, ITEM.RAW_GOLD, ITEM.RAW_COPPER]);
+const blastInput = (id) => {
+  const item = getItem(id);
+  return (
+    rawMetals.has(id) ||
+    id === BLOCK.ANCIENT_DEBRIS ||
+    (item?.kind === "block" && item.texture === "ore") ||
+    ["iron", "gold", "copper", "chainmail"].includes(item?.gearMaterial)
+  );
+};
+const blastRecipes = smelting.filter(({ ingredients: [input] }) =>
+  [input.id, ...(input.alternatives ?? [])].some(blastInput)
+);
+const blastOutputs = new Set(blastRecipes.map((recipe) => recipe.output.id));
+const speed = (kind) => kind === "blast_furnace" ? 2 : 1;
+const furnaceKind = (furnace) =>
+  furnace.kind === undefined ? "furnace" : furnace.kind;
+const cookDuration = (furnace, recipe) =>
+  (recipe?.duration ?? 0) / speed(furnaceKind(furnace));
 const inRange = (value, min, max) =>
   Number.isFinite(value) && value >= min && value <= max;
 
-export function getSmeltingRecipe(stack, context) {
-  if (!isValidStack(stack, context)) return null;
+export function getSmeltingRecipe(stack, context, kind = "furnace") {
+  if (
+    !isFurnaceKind(kind) ||
+    !isValidStack(stack, context) ||
+    (kind === "blast_furnace" && !blastInput(stack.id))
+  )
+    return null;
   return (
     smelting.find(({ ingredients: [input] }) =>
       matchesIngredient(stack, input)
@@ -35,12 +61,17 @@ export function getSmeltingRecipe(stack, context) {
 }
 
 /** Output is extraction-only. This predicate describes player insertion. */
-export function acceptsFurnaceStack(index, stack, context) {
-  if (!Number.isInteger(index) || index < 0 || index >= FURNACE_SLOTS)
+export function acceptsFurnaceStack(index, stack, context, kind = "furnace") {
+  if (
+    !isFurnaceKind(kind) ||
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index >= FURNACE_SLOTS
+  )
     return false;
   if (stack === null) return true;
   if (!isValidStack(stack, context)) return false;
-  if (index === 0) return getSmeltingRecipe(stack, context) !== null;
+  if (index === 0) return getSmeltingRecipe(stack, context, kind) !== null;
   if (index === 1)
     return (
       normalizeStackData(stack.id, stack.data, context) === undefined &&
@@ -49,8 +80,10 @@ export function acceptsFurnaceStack(index, stack, context) {
   return false;
 }
 
-export function createFurnace() {
+export function createFurnace(kind = "furnace") {
+  if (!isFurnaceKind(kind)) throw new RangeError("Invalid furnace kind");
   return {
+    kind,
     slots: Array(FURNACE_SLOTS).fill(null),
     burnTime: 0,
     burnDuration: 0,
@@ -61,7 +94,10 @@ export function createFurnace() {
 }
 
 export function cloneFurnace(furnace, context) {
+  const kind = furnaceKind(furnace);
+  if (!isFurnaceKind(kind)) throw new RangeError("Invalid furnace kind");
   return {
+    kind,
     slots: cloneSlots(furnace.slots, context),
     burnTime: furnace.burnTime,
     burnDuration: furnace.burnDuration,
@@ -73,7 +109,9 @@ export function cloneFurnace(furnace, context) {
 
 /** Changing the input recipe cannot carry partially paid cooking into another. */
 export function syncFurnaceRecipe(furnace) {
-  const recipe = getSmeltingRecipe(furnace.slots[0]);
+  const recipe = getSmeltingRecipe(
+    furnace.slots[0], undefined, furnaceKind(furnace)
+  );
   const id = recipe?.id ?? null;
   if (furnace.recipeId !== id) {
     furnace.recipeId = id;
@@ -87,6 +125,8 @@ export function isValidFurnace(furnace, context) {
     !furnace ||
     typeof furnace !== "object" ||
     Array.isArray(furnace) ||
+    !isFurnaceKind(furnaceKind(furnace)) ||
+    (Object.hasOwn(furnace, "kind") && !isFurnaceKind(furnace.kind)) ||
     !Array.isArray(furnace.slots) ||
     furnace.slots.length !== FURNACE_SLOTS ||
     !Array.from(furnace.slots).every(
@@ -95,22 +135,25 @@ export function isValidFurnace(furnace, context) {
   )
     return false;
   const [input, fuel, output] = furnace.slots;
+  const kind = furnaceKind(furnace);
   if (
-    !acceptsFurnaceStack(0, input, context) ||
-    !acceptsFurnaceStack(1, fuel, context) ||
-    (output !== null && !outputs.has(output.id)) ||
-    !inRange(furnace.burnDuration, 0, MAX_BURN_TIME) ||
+    !acceptsFurnaceStack(0, input, context, kind) ||
+    !acceptsFurnaceStack(1, fuel, context, kind) ||
+    (output !== null &&
+      !(kind === "blast_furnace" ? blastOutputs : outputs).has(output.id)) ||
+    !inRange(furnace.burnDuration, 0, MAX_BURN_TIME / speed(kind)) ||
     !inRange(furnace.burnTime, 0, furnace.burnDuration) ||
     !Number.isSafeInteger(furnace.experience) ||
     furnace.experience < 0 ||
     furnace.experience > (output?.count ?? 0) * FURNACE_XP_PER_OUTPUT
   )
     return false;
-  const recipe = getSmeltingRecipe(input, context);
+  const recipe = getSmeltingRecipe(input, context, kind);
+  const duration = cookDuration(furnace, recipe);
   return (
     furnace.recipeId === (recipe?.id ?? null) &&
-    inRange(furnace.cookTime, 0, recipe?.duration ?? 0) &&
-    (!recipe || furnace.cookTime < recipe.duration)
+    inRange(furnace.cookTime, 0, duration) &&
+    (!recipe || furnace.cookTime < duration)
   );
 }
 
@@ -133,7 +176,8 @@ function canCook(furnace, recipe) {
  * Only the caller decides which loaded dimension's furnaces receive time.
  */
 export function advanceFurnace(furnace, dt) {
-  if (!Number.isFinite(dt) || dt <= 0) return false;
+  if (!isFurnaceKind(furnaceKind(furnace)) || !Number.isFinite(dt) || dt <= 0)
+    return false;
   let changed = false;
   while (dt > EPSILON) {
     const previousRecipe = furnace.recipeId;
@@ -155,20 +199,22 @@ export function advanceFurnace(furnace, dt) {
         }
         break;
       }
-      furnace.burnTime = furnace.burnDuration = getItem(fuel.id).fuel;
+      // Timers are real seconds. Halve BOTH clocks, preserving outputs per fuel.
+      furnace.burnTime = furnace.burnDuration =
+        getItem(fuel.id).fuel / speed(furnaceKind(furnace));
       takeStack(furnace.slots, 1, 1);
       changed = true;
     }
     const elapsed = Math.min(
       dt,
       furnace.burnTime,
-      recipe.duration - furnace.cookTime
+      cookDuration(furnace, recipe) - furnace.cookTime
     );
     furnace.burnTime = Math.max(0, furnace.burnTime - elapsed);
     furnace.cookTime += elapsed;
     dt -= elapsed;
     changed = true;
-    if (furnace.cookTime >= recipe.duration - EPSILON) {
+    if (furnace.cookTime >= cookDuration(furnace, recipe) - EPSILON) {
       takeStack(furnace.slots, 0, recipe.ingredients[0].count);
       const output = furnace.slots[2];
       furnace.slots[2] = {
@@ -201,8 +247,8 @@ export function furnaceProgress(furnace) {
       ? furnace.burnTime / furnace.burnDuration
       : 0,
     cookTime: furnace.cookTime,
-    cookDuration: recipe?.duration ?? 0,
-    cookProgress: recipe ? furnace.cookTime / recipe.duration : 0,
+    cookDuration: cookDuration(furnace, recipe),
+    cookProgress: recipe ? furnace.cookTime / cookDuration(furnace, recipe) : 0,
     recipeId: furnace.recipeId,
     experience: furnace.experience,
   };

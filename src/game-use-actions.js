@@ -22,7 +22,9 @@ import {
 const hands = ["main", "offhand"];
 const interactiveBlocks = new Set([
   BLOCK.CHEST,
+  BLOCK.BARREL,
   BLOCK.FURNACE,
+  BLOCK.BLAST_FURNACE,
   BLOCK.CRAFTING_TABLE,
 ]);
 const finiteVector = (value) =>

@@ -1,4 +1,5 @@
 import { CHEST_SLOTS } from "./settlement.js";
+import { CONTAINER_TITLES, isStorageKind, isFurnaceKind } from "./container-kinds.js";
 import { TransactionInvariantError } from "./transactions.js";
 import { createEventScope, isTextInput, setText, trapFocus } from "./ui/dom.js";
 import { clamp } from "./ui/model.js";
@@ -155,9 +156,11 @@ export class ContainerUI {
     return this._session?.kind || null;
   }
 
-  open(world, hit, gameplay, settlement) {
+  open(world, hit, gameplay, settlement, { validate } = {}) {
+    if (validate !== undefined && (typeof validate !== "function" || validate() !== true))
+      return false;
     const snapshot = settlement.getContainerState?.(world, hit, gameplay);
-    if (!snapshot || !["chest", "furnace"].includes(snapshot.kind)) {
+    if (!snapshot || !Object.hasOwn(CONTAINER_TITLES, snapshot.kind)) {
       this.onToast("That container is no longer available");
       return false;
     }
@@ -167,8 +170,9 @@ export class ContainerUI {
       world,
       gameplay,
       settlement,
+      validate,
       kind: snapshot.kind,
-      hit: { ...hit, dimension: world.dimension },
+      hit: { ...hit, id: world.get(hit.x, hit.y, hit.z), dimension: world.dimension },
     };
     this._signature = "";
     this.element.hidden = false;
@@ -229,12 +233,18 @@ export class ContainerUI {
 
   _action(action) {
     if (!this.isOpen) return { ok: false, message: "Container closed" };
-    const { world, hit, gameplay, settlement, kind } = this._session;
+    const session = this._session;
+    const { world, hit, gameplay, settlement, kind, validate } = session;
+    if (validate && validate() !== true) {
+      this.close({ force: true });
+      return { ok: false, message: "That container is no longer available" };
+    }
     let result;
     try {
       result = settlement.containerAction(world, hit, gameplay, action, {
         prepareDrops: this.prepareDrops,
         prepareExperience: this.prepareExperience,
+        validate: () => this._session === session && (!validate || validate() === true),
       });
     } catch (error) {
       if (error instanceof TransactionInvariantError) throw error;
@@ -255,7 +265,11 @@ export class ContainerUI {
 
   refresh() {
     if (!this.isOpen) return false;
-    const { world, hit, gameplay, settlement, kind } = this._session;
+    const { world, hit, gameplay, settlement, kind, validate } = this._session;
+    if (validate && validate() !== true) {
+      this.close({ force: true });
+      return false;
+    }
     const snapshot = settlement.getContainerState(world, hit, gameplay);
     if (!snapshot || snapshot.kind !== kind) {
       this.close({ force: true });
@@ -277,11 +291,12 @@ export class ContainerUI {
     if (signature !== this._signature) {
       this._signature = signature;
       const disabled = !Array.isArray(this._state.slots);
-      $(".settlement-chest").hidden = kind !== "chest";
-      $(".furnace-workbench").hidden = kind !== "furnace";
+      $(".settlement-chest").hidden = !isStorageKind(kind);
+      $(".furnace-workbench").hidden = !isFurnaceKind(kind);
+      $(".settlement-chest").setAttribute("aria-label", `${CONTAINER_TITLES[kind]}: 27 slots`);
       setText(
         $("#container-title"),
-        snapshot.title || (kind === "chest" ? "Chest" : "Furnace")
+        snapshot.title || CONTAINER_TITLES[kind]
       );
       this.closeButton.setAttribute("aria-label", `Close ${kind}`);
       const position = snapshot.position || hit;
@@ -290,13 +305,21 @@ export class ContainerUI {
         `${position.dimension || world.dimension}: ${position.x}, ${position.y}, ${position.z}`
       );
       this._chest.update(snapshot.slots || [], {
-        disabled: disabled || kind !== "chest",
+        disabled: disabled || !isStorageKind(kind),
       });
+      for (const slot of this._chest.slots) {
+        slot.node.setAttribute("aria-label",
+          slot.node.getAttribute("aria-label").replace(/^Chest/, CONTAINER_TITLES[kind]));
+      }
       this._furnace.forEach((slot, index) =>
         slot.update(snapshot.slots?.[index], {
-          disabled: disabled || kind !== "furnace",
+          disabled: disabled || !isFurnaceKind(kind),
         })
       );
+      for (const slot of this._furnace) {
+        slot.node.setAttribute("aria-label",
+          slot.node.getAttribute("aria-label").replace(/^Furnace/, CONTAINER_TITLES[kind]));
+      }
       const slots = ownedSlotStacks(this._state);
       this._backpack.update(slots, { disabled });
       this._hotbar.update(slots, { disabled });
@@ -304,7 +327,7 @@ export class ContainerUI {
       $(".settlement-offhand").hidden = !this._state.offhand;
       $(".settlement-owned-note").hidden = this._state.mode !== "creative";
     }
-    if (kind === "furnace") {
+    if (isFurnaceKind(kind)) {
       const burn = clamp(snapshot.burnProgress);
       const cook = clamp(snapshot.cookProgress);
       $(".furnace-burn").setAttribute(

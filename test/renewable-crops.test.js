@@ -6,7 +6,7 @@ import { CROP_SPECIES, cropDrops } from "../src/crop-rules.js";
 import { ITEM } from "../src/items.js";
 import { GameHarvestActions } from "../src/game-harvest-actions.js";
 import { GameFluidServices } from "../src/game-fluid-services.js";
-import { Settlement, normalizeSettlementSnapshot } from "../src/settlement.js";
+import { Settlement, normalizeSettlementSnapshot, SETTLEMENT_VERSION } from "../src/settlement.js";
 import { exportWorldFile, parseWorldFile, WorldStorage } from "../src/storage.js";
 import { cropBatchFixture, prepareCropRemoval, cropDropCounts } from "./settlement-crop-batch-fixture.js";
 import { parityGame, setOwnedSlots } from "./parity-fixture.js";
@@ -183,7 +183,7 @@ test("legacy position/age migration is lossless; unknown versions/species/fields
     }));
     const legacy = { version, chests: [], ...(version === 1 ? {} : { furnaces: [] }), crops };
     const normalized = normalizeSettlementSnapshot(legacy, f.context);
-    assert.equal(normalized.version, 4);
+    assert.equal(normalized.version, SETTLEMENT_VERSION);
     assert.deepEqual(normalized.crops, crops.map(c => ({ ...c, version: 1, species: "wheat" })));
     assert.deepEqual(legacy.crops, crops);
     assert.equal(f.settlement.load(legacy, { world: f.world }), true);

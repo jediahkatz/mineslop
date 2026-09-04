@@ -7,7 +7,7 @@ import { progressionStationKind } from "./progression-station-state.js";
 import { TransactionInvariantError } from "./transactions.js";
 import { explosionTargets } from "./world-interactions.js";
 
-const containers = new Set([BLOCK.CHEST, BLOCK.FURNACE]);
+const containers = new Set([BLOCK.CHEST, BLOCK.BARREL, BLOCK.FURNACE, BLOCK.BLAST_FURNACE]);
 const center = (hit) =>
   hit && { x: hit.x + 0.5, y: hit.y + 0.5, z: hit.z + 0.5 };
 const blockKey = (world, hit) =>

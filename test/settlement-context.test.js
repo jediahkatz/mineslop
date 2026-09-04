@@ -8,6 +8,7 @@ import {
   CHEST_SLOTS,
   normalizeSettlementSnapshot,
   Settlement,
+  SETTLEMENT_VERSION,
 } from "../src/settlement.js";
 import { stationKey, stationRecordBytes } from "../src/settlement-state.js";
 import { TransactionCoordinator } from "../src/transactions.js";
@@ -121,7 +122,7 @@ test("all historical generators retain their bottom-layer and height restriction
     const valid = savedStations(context, 2);
     assert.equal(settlement.load(valid), true);
     const before = settlement.serialize();
-    assert.equal(before.version, 4);
+    assert.equal(before.version, SETTLEMENT_VERSION);
     for (const dimension of DIMENSIONS) {
       for (const y of [-64, -1, 0, 96, 255]) {
         const invalid = structuredClone(valid);
@@ -199,7 +200,7 @@ test("the pure v3 normalizer detaches records and rejects invalid metadata witho
   const context = contextFor(3);
   const saved = savedStations(context, 2);
   const normalized = normalizeSettlementSnapshot(saved, context);
-  assert.equal(normalized.version, 4);
+  assert.equal(normalized.version, SETTLEMENT_VERSION);
   assert.deepEqual(normalized.chests[0].slots[0], tool());
   normalized.chests[0].slots[0].data.enchantments.efficiency = 1;
   assert.equal(saved.chests[0].slots[0].data.enchantments.efficiency, 3);

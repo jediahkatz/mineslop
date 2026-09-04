@@ -47,9 +47,12 @@ test("component-v1 aggregates migrate to 27 slots with every tool's wear and cro
   };
   assert.equal(settlement.load(old), true);
   const saved = settlement.serialize();
-  assert.equal(saved.version, 3);
+  assert.equal(saved.version, 5);
   assert.deepEqual(saved.furnaces, []);
-  assert.deepEqual(saved.crops, old.crops);
+  assert.deepEqual(saved.barrels, []);
+  assert.deepEqual(saved.crops, old.crops.map((crop) => ({
+    ...crop, version: 1, species: "wheat",
+  })));
   for (let index = 0; index < old.chests.length; index++) {
     const chest = saved.chests[index];
     const { items, ...position } = old.chests[index];

@@ -1,5 +1,6 @@
 import { BLOCK } from "./blocks.js";
 import { cellsEqual, isValidCell } from "./block-state.js";
+import { CONTAINER_BLOCKS } from "./container-kinds.js";
 import { physicalEye } from "./game-use-actions.js";
 import { cloneStack, insertStack, isValidStack } from "./inventory-slots.js";
 import { sameStackKind } from "./item-stack-data.js";
@@ -308,9 +309,13 @@ export class GameInventoryActions {
 
   openStation(hit) {
     const game = this.game;
+    const { world, gameplay, settlement, player } = game;
     if (
       !game.active ||
       !hit ||
+      !world || !gameplay || !settlement || !player ||
+      (hit.world !== undefined && hit.world !== world) ||
+      (hit.dimension !== undefined && hit.dimension !== world.dimension) ||
       !game.world.isLoaded(hit.x, hit.z) ||
       game.world.get(hit.x, hit.y, hit.z) !== hit.id
     )
@@ -333,7 +338,18 @@ export class GameInventoryActions {
       game.scheduleSave();
       return true;
     }
-    if (![BLOCK.CHEST, BLOCK.FURNACE].includes(hit.id)) return false;
+    if (!CONTAINER_BLOCKS.has(hit.id)) return false;
+    hit = { ...hit };
+    const { dimension, epoch } = world;
+    const validate = () => {
+      if (game.world !== world || game.gameplay !== gameplay ||
+          game.settlement !== settlement || game.player !== player) return false;
+      const eye = physicalEye(game);
+      return !gameplay.dead && world.dimension === dimension && world.epoch === epoch &&
+        world.isLoaded(hit.x, hit.z) && world.get(hit.x, hit.y, hit.z) === hit.id &&
+        eye && Math.hypot(eye.x - hit.x - 0.5, eye.y - hit.y - 0.5, eye.z - hit.z - 0.5) <= 5.5;
+    };
+    if (!validate()) return false;
     const exploration = game.explorationServices?.openContainer(hit);
     if (exploration?.handled && !exploration.ok) {
       game.ui.toast(
@@ -345,7 +361,8 @@ export class GameInventoryActions {
       game.world,
       hit,
       game.gameplay,
-      game.settlement
+      game.settlement,
+      { validate }
     );
   }
 

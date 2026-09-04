@@ -1,4 +1,5 @@
 import { CHEST_SLOTS, validSlotArray } from "./container-slots.js";
+import { isStorageKind, isFurnaceKind } from "./container-kinds.js";
 import { isValidExperience } from "./experience.js";
 import { isValidFurnace } from "./furnace.js";
 import { cloneSlots, insertStack, normalizeStack } from "./inventory-slots.js";
@@ -21,7 +22,7 @@ export const synchronousStationCallback = (callback) =>
   Object.prototype.toString.call(callback) === "[object Function]";
 
 function validRecord(kind, next, context) {
-  if (kind === "chest") return validSlotArray(next, CHEST_SLOTS, context);
+  if (isStorageKind(kind)) return validSlotArray(next, CHEST_SLOTS, context);
   if (kind === "furnace") return isValidFurnace(next, context);
   return (
     settlementPositionValid(
@@ -198,8 +199,8 @@ export function prepareSettlementContainers(
           initialized !== request.expectedInitialized) ||
         (["adopt", "clear"].includes(request.action) && !initialized) ||
         (request.action === "initialize" &&
-          (initialized || live.kind !== "chest")) ||
-        (request.action === "clear" && live.kind !== "chest")
+          (initialized || !isStorageKind(live.kind))) ||
+        (request.action === "clear" && !isStorageKind(live.kind))
       )
         return null;
       const draft = settlement._containerDraft(live);
@@ -234,12 +235,12 @@ export function prepareSettlementContainers(
         slots: cloneSlots(draft.slots, context),
         drops,
         experience:
-          request.action === "remove" && live.kind === "furnace"
+          request.action === "remove" && isFurnaceKind(live.kind)
             ? draft.experience
             : 0,
       });
     }
-    const source = prepareStationRecords(settlement, changes, {
+    const source = settlement._prepareRecords(changes, {
       world,
       context,
       validate: () =>

@@ -1,5 +1,12 @@
 import { BLOCK } from "./blocks.js";
 import {
+  CONTAINER_BLOCKS,
+  CONTAINER_TITLES,
+  containerRecordKind,
+  isStorageKind,
+  isFurnaceKind,
+} from "./container-kinds.js";
+import {
   cellAfterBreaking,
   isWaterFluid,
   normalizeCell,
@@ -54,10 +61,6 @@ import { createWorldContext, DIMENSIONS } from "./world-spec.js";
 export { CHEST_SLOTS, CROP_GROW_SECONDS, SETTLEMENT_VERSION };
 export { normalizeSettlementSnapshot } from "./settlement-state.js";
 
-const CONTAINER_BLOCKS = new Map([
-  [BLOCK.CHEST, "chest"],
-  [BLOCK.FURNACE, "furnace"],
-]);
 const failure = (message) => ({ ok: false, ...(message ? { message } : {}) });
 
 function hasWater(world, { x, y, z }) {
@@ -92,6 +95,7 @@ export class Settlement {
     this.context = normalizeSettlementContext(context);
     this.onChange = onChange;
     this.chests = new Map();
+    this.barrels = new Map();
     this.furnaces = new Map();
     this.crops = new Map();
     this._chestViews = new Map();
@@ -206,41 +210,49 @@ export class Settlement {
       !kind ||
       (expectedKind && expectedKind !== kind) ||
       (hit.id !== undefined && hit.id !== read.before.id) ||
-      this.crops.has(key) ||
-      (kind === "chest" ? this.furnaces.has(key) : this.chests.has(key))
+      (hit.state !== undefined && hit.state !== read.before.state) ||
+      (hit.fluid !== undefined && hit.fluid !== read.before.fluid) ||
+      STATION_KINDS.some((entry) =>
+        entry !== containerRecordKind(kind) && this._store(entry).has(key)
+      ) ||
+      (isFurnaceKind(kind) &&
+        this.furnaces.has(key) &&
+        this.furnaces.get(key).kind !== kind)
     )
       return null;
     return { key, kind, read };
   }
 
   _store(kind) {
-    return kind === "chest"
-      ? this.chests
-      : kind === "furnace"
-        ? this.furnaces
-        : this.crops;
+    if (kind === "chest") return this.chests;
+    if (kind === "barrel") return this.barrels;
+    if (isFurnaceKind(kind)) return this.furnaces;
+    return this.crops;
   }
 
   _containerDraft({ key, kind }) {
-    return kind === "chest"
+    return isStorageKind(kind)
       ? {
           kind,
           slots: cloneSlots(
-            this.chests.get(key) ?? Array(CHEST_SLOTS).fill(null),
+            this._store(kind).get(key) ?? Array(CHEST_SLOTS).fill(null),
             this.context
           ),
         }
       : {
           kind,
           ...cloneFurnace(
-            this.furnaces.get(key) ?? createFurnace(),
+            this.furnaces.get(key) ?? createFurnace(kind),
             this.context
           ),
         };
   }
 
   _prepareRecords(changes, options) {
-    return prepareStationRecords(this, changes, options);
+    // The furnace store owns both types; each record retains its actual block kind.
+    return prepareStationRecords(this, changes.map((change) => ({
+      ...change, kind: containerRecordKind(change.kind),
+    })), options);
   }
 
   /** Detached inspection: never establishes empty ownership for a natural chest. */
@@ -253,7 +265,7 @@ export class Settlement {
       kind: live.kind,
       initialized: this._store(live.kind).has(live.key),
       slots: draft.slots,
-      experience: live.kind === "furnace" ? draft.experience : 0,
+      experience: isFurnaceKind(live.kind) ? draft.experience : 0,
       before: { ...live.read.before },
     };
   }
@@ -361,7 +373,7 @@ export class Settlement {
           {
             kind: live.kind,
             key: live.key,
-            next: live.kind === "chest" ? draft.slots : draft,
+            next: isStorageKind(live.kind) ? draft.slots : draft,
           },
         ],
         { world, context, validate: live.read.validate }
@@ -385,6 +397,9 @@ export class Settlement {
 
   getContainerState(world, hit, gameplay) {
     if (
+      this._busy ||
+      this._disposed ||
+      !this._containerAccessible(world, hit) ||
       !this._matchesGameplay(world, gameplay) ||
       typeof gameplay.getState !== "function"
     )
@@ -394,10 +409,10 @@ export class Settlement {
     const next = this._containerDraft(live);
     return {
       kind: live.kind,
-      title: live.kind === "chest" ? "Chest" : "Furnace",
+      title: CONTAINER_TITLES[live.kind],
       position: stationPosition(live.key),
       slots: next.slots,
-      ...(live.kind === "furnace" ? furnaceProgress(next) : {}),
+      ...(isFurnaceKind(live.kind) ? furnaceProgress(next) : {}),
       gameplay: gameplay.getState(),
     };
   }
@@ -408,24 +423,35 @@ export class Settlement {
       this._disposed ||
       !isRecord(action) ||
       !isRecord(options) ||
+      (options.validate !== undefined &&
+        (!synchronousStationCallback(options.validate) || options.validate() !== true)) ||
       !this._containerAccessible(world, hit) ||
       !this._matchesGameplay(world, gameplay)
     )
       return failure();
     const live = this._liveContainer(world, hit);
     if (!live) return failure("That container is no longer available");
+    const validate = () => live.read.validate() &&
+      this._matchesGameplay(world, gameplay) &&
+      this._containerAccessible(world, hit) &&
+      (options.validate === undefined || options.validate() === true);
     const crossContainer =
       action.area === "container" ||
       ["quickMove", "collect"].includes(action.type) ||
       (action.type === "distribute" &&
         Array.isArray(action.targets) &&
         action.targets.some((target) => target?.area === "container"));
-    if (!crossContainer)
-      return typeof gameplay.inventoryAction === "function"
+    if (!crossContainer) {
+      const guard = this._prepareRecords([], {
+        world, context: this.context ?? createWorldContext(world), validate,
+      });
+      return guard && typeof gameplay.inventoryAction === "function"
         ? gameplay.inventoryAction(action, {
             prepareDrops: options.prepareDrops,
+            participants: [guard],
           })
         : failure();
+    }
     const plan = this._prepare(() => {
       const context = this.context ?? createWorldContext(world);
       const next = this._containerDraft(live);
@@ -438,10 +464,10 @@ export class Settlement {
               {
                 kind: live.kind,
                 key: live.key,
-                next: live.kind === "chest" ? next.slots : next,
+                next: isStorageKind(live.kind) ? next.slots : next,
               },
             ],
-            { world, context, validate: live.read.validate }
+            { world, context, validate }
           ),
         options
       );
@@ -524,9 +550,11 @@ export class Settlement {
       const key = this._hitKey(world, hit);
       const storedKind = this.chests.has(key)
         ? "chest"
-        : this.furnaces.has(key)
-          ? "furnace"
-          : null;
+        : this.barrels.has(key)
+          ? "barrel"
+          : this.furnaces.has(key)
+            ? this.furnaces.get(key).kind
+            : null;
       const read = key && captureStationRead(world, hit.x, hit.y, hit.z);
       const block = read?.before.id;
       const kind = storedKind ?? CONTAINER_BLOCKS.get(block);
@@ -542,7 +570,7 @@ export class Settlement {
       const context = this.context ?? createWorldContext(world);
       const next = this._containerDraft({ key, kind });
       const drops = cloneSlots(next.slots.filter(Boolean), context);
-      const experience = kind === "furnace" ? next.experience : 0;
+      const experience = isFurnaceKind(kind) ? next.experience : 0;
       const source = this._prepareRecords(
         storedKind ? [{ kind, key, next: null }] : [],
         {
@@ -761,7 +789,7 @@ export class Settlement {
         const { dimension, x, y, z } = stationPosition(key);
         if (dimension !== world.dimension) continue;
         const read = captureStationRead(world, x, y, z);
-        if (read?.before.id !== BLOCK.FURNACE) continue;
+        if (CONTAINER_BLOCKS.get(read?.before.id) !== furnace.kind) continue;
         const next = cloneFurnace(furnace, context);
         if (!advanceFurnace(next, furnaceDt)) continue;
         records.push({
@@ -924,6 +952,10 @@ export class Settlement {
         ...cloneFurnace(furnace, this.context),
       })),
       crops: [...this.crops.values()].map((crop) => ({ ...crop })),
+      barrels: [...this.barrels].map(([key, slots]) => ({
+        ...stationPosition(key),
+        slots: cloneSlots(slots, this.context),
+      })),
     };
   }
 
@@ -947,17 +979,17 @@ export class Settlement {
       return false;
     const parsed = normalizeSettlementSnapshot(data, context);
     if (!parsed) return false;
-    const stores = [new Map(), new Map(), new Map()];
+    const stores = STATION_KINDS.map(() => new Map());
     const recordBytes = new Map();
     let bytes = 0;
-    const arrays = [parsed.chests, parsed.furnaces, parsed.crops];
+    const arrays = [parsed.chests, parsed.furnaces, parsed.crops, parsed.barrels];
     for (const [index, entries] of arrays.entries()) {
       const kind = STATION_KINDS[index];
       for (const entry of entries) {
         const key = stationKey(entry.dimension, entry.x, entry.y, entry.z);
         const value = ownStationRecord(
           kind,
-          kind === "chest" ? entry.slots : entry,
+          isStorageKind(kind) ? entry.slots : entry,
           context
         );
         const cost = stationRecordBytes(kind, key, value);
@@ -969,7 +1001,7 @@ export class Settlement {
     }
     if (!this.coordinator.register(this, bytes, { allowOverBudget }))
       return false;
-    [this.chests, this.furnaces, this.crops] = stores;
+    [this.chests, this.furnaces, this.crops, this.barrels] = stores;
     this._recordBytes = recordBytes;
     this._bytes = bytes;
     this._revision++;

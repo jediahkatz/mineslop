@@ -1,4 +1,5 @@
 import { cellsEqual, normalizeCell } from "./block-state.js";
+import { isStorageKind } from "./container-kinds.js";
 import {
   CHEST_SLOTS,
   migrateChestItems,
@@ -18,10 +19,10 @@ import {
   inWorldBounds,
 } from "./world-spec.js";
 
-export const SETTLEMENT_VERSION = 4;
+export const SETTLEMENT_VERSION = 5;
 export { CROP_GROW_SECONDS } from "./crop-rules.js";
 export const MAX_SETTLEMENT_ENTRIES = 16384;
-export const STATION_KINDS = Object.freeze(["chest", "furnace", "crop"]);
+export const STATION_KINDS = Object.freeze(["chest", "furnace", "crop", "barrel"]);
 export const stationKey = (dimension, x, y, z) => `${dimension}:${x},${y},${z}`;
 export const isRecord = (value) =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -74,7 +75,7 @@ export function settlementPositionValid(
 }
 
 export function cloneStationRecord(kind, value, context) {
-  if (kind === "chest") return cloneSlots(value, context);
+  if (isStorageKind(kind)) return cloneSlots(value, context);
   if (kind === "furnace") return cloneFurnace(value, context);
   if (!validCrop(value)) throw new RangeError("Invalid crop record");
   const { dimension, x, y, z, age, version, species } = value;
@@ -102,6 +103,7 @@ const longestRecipe = Math.max(
 );
 const FURNACE_PROGRESS_BYTES =
   encodedBytes({
+    kind: "blast_furnace",
     burnTime: 0,
     burnDuration: 0,
     cookTime: 0,
@@ -124,7 +126,7 @@ export function stationRecordBytes(kind, key, value) {
   return (
     encodedBytes({
       ...position,
-      slots: kind === "chest" ? value : value.slots,
+      slots: isStorageKind(kind) ? value : value.slots,
     }) +
     (kind === "furnace" ? FURNACE_PROGRESS_BYTES : 0) +
     1
@@ -168,7 +170,7 @@ export function normalizeSettlementSnapshot(data, context) {
     context = normalizeSettlementContext(context);
     if (
       !isRecord(data) ||
-      ![1, 2, 3, SETTLEMENT_VERSION].includes(data.version) ||
+      ![1, 2, 3, 4, SETTLEMENT_VERSION].includes(data.version) ||
       !Array.isArray(data.chests) ||
       !Array.isArray(data.crops) ||
       data.chests.length > MAX_SETTLEMENT_ENTRIES ||
@@ -176,8 +178,13 @@ export function normalizeSettlementSnapshot(data, context) {
     )
       return null;
     const savedFurnaces = data.version === 1 ? [] : data.furnaces;
+    const savedBarrels = data.version < 5 ? [] : data.barrels;
     if (
       !Array.isArray(savedFurnaces) ||
+      !Array.isArray(savedBarrels) ||
+      savedBarrels.length > MAX_SETTLEMENT_ENTRIES ||
+      (data.version < 5 && data.barrels !== undefined &&
+        (!Array.isArray(data.barrels) || data.barrels.length !== 0)) ||
       savedFurnaces.length > MAX_SETTLEMENT_ENTRIES ||
       (data.version === 1 &&
         data.furnaces !== undefined &&
@@ -187,6 +194,7 @@ export function normalizeSettlementSnapshot(data, context) {
     const seen = new Set();
     const chests = [];
     const furnaces = [];
+    const barrels = [];
     const crops = [];
     const position = (entry, crop = false) => {
       if (!isRecord(entry)) return null;
@@ -212,12 +220,19 @@ export function normalizeSettlementSnapshot(data, context) {
     }
     for (const furnace of savedFurnaces) {
       const at = position(furnace);
-      if (!at || !isValidFurnace(furnace, context)) return null;
+      if (!at || !isValidFurnace(furnace, context) ||
+          (data.version < 5 && furnace.kind !== undefined && furnace.kind !== "furnace") ||
+          (data.version >= 5 && !Object.hasOwn(furnace, "kind"))) return null;
       furnaces.push({ ...at, ...cloneFurnace(furnace, context) });
+    }
+    for (const barrel of savedBarrels) {
+      const at = position(barrel);
+      if (!at || !validSlotArray(barrel.slots, CHEST_SLOTS, context)) return null;
+      barrels.push({ ...at, slots: cloneSlots(barrel.slots, context) });
     }
     for (const crop of data.crops) {
       const at = position(crop, true);
-      const legacy = data.version < SETTLEMENT_VERSION;
+      const legacy = data.version < 4;
       const fields = ["dimension", "x", "y", "z", "age",
         ...(legacy ? [] : ["version", "species"])];
       const next = {
@@ -233,7 +248,7 @@ export function normalizeSettlementSnapshot(data, context) {
         return null;
       crops.push(next);
     }
-    return { version: SETTLEMENT_VERSION, chests, furnaces, crops };
+    return { version: SETTLEMENT_VERSION, chests, furnaces, crops, barrels };
   } catch {
     return null;
   }
