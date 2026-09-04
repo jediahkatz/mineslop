@@ -15,8 +15,8 @@ export function extraSoundDescription(kind, id) {
       cooldown: 0.055, group: "ui", limit: 2, gain: 0.045, duration: 0.075 };
   if (kind === "water-entry" || kind === "water-jump")
     return { ...common, family: "splash", key: "splash", cooldownKey: kind,
-      cooldown: 0.28, group: "water", limit: 2, gain: kind === "water-entry" ? 0.085 : 0.055,
-      rate: kind === "water-entry" ? 1 : 1.18, duration: 0.68 };
+      cooldown: 0.28, group: "water", limit: 2, gain: kind === "water-entry" ? 0.055 : 0.035,
+      rate: kind === "water-entry" ? 1 : 1.18, duration: 0.3 };
   return null;
 }
 
@@ -28,7 +28,7 @@ export function extraSampleKey(definition) {
 }
 
 export function synthesizeExtra(definition, variant) {
-  const duration = definition.family === "music" ? 1.5 : definition.family === "splash" ? 0.68 : 0.075;
+  const duration = definition.family === "music" ? 1.5 : definition.family === "splash" ? 0.3 : 0.075;
   const data = sampleArray(duration);
   const random = seededNoise(0x7c49a + variant * 7919);
   let low = 0, rounded = 0;
@@ -42,17 +42,13 @@ export function synthesizeExtra(definition, variant) {
       data[i] = Math.sin(TAU * (410 * t - 650 * t * t)) *
         envelope(t, duration, 0.003, 0.025) * Math.exp(-t * 55);
     } else {
-      low += 0.15 * (random() - low);
-      rounded += 0.12 * (low - rounded);
-      let bubbles = 0;
-      for (let b = 0; b < 4; b++) {
-        const local = t - 0.065 - b * 0.095;
-        if (local > 0 && local < 0.14)
-          bubbles += Math.sin(TAU * ((430 + variant * 27 + b * 48) * local - 540 * local * local)) *
-            envelope(local, 0.14, 0.009, 0.065) * Math.exp(-local * 25) * 0.12;
-      }
-      data[i] = (rounded * Math.exp(-t * 7) * 3 + bubbles) *
-        envelope(t, duration, 0.022, 0.16);
+      // One soft displacement/spray transient, not a sequence of pitched bubbles.
+      // Two noise bands decay together; no oscillators or periodic retriggers.
+      low += 0.28 * (random() - low);
+      rounded += 0.075 * (low - rounded);
+      data[i] = (rounded * 2.4 * Math.exp(-t * 20) +
+        (low - rounded) * 0.6 * Math.exp(-t * 16)) *
+        envelope(t, duration, 0.008, 0.09);
     }
   }
   return finishSample(data);

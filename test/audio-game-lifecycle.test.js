@@ -10,7 +10,7 @@ test("live Game audio lifecycle with headless browser transports", () => {
     "--experimental-test-module-mocks", "--test", "--test-reporter=tap",
     new URL("./audio-game-lifecycle.cases.mjs", import.meta.url).pathname,
   ], { encoding: "utf8", timeout: 45000, env });
-  assert.match(output, /^# tests 5$/m, "all five real Game cases must execute");
-  assert.match(output, /^# pass 5$/m);
+  assert.match(output, /^# tests 6$/m, "all six real Game cases must execute");
+  assert.match(output, /^# pass 6$/m);
   process.stdout.write(output);
 });

@@ -207,6 +207,38 @@ test("pre-world trusted menu unlock, real world replacement and mute retain one 
   assert.equal(contexts[0].sources.length, 2);
 });
 
+test("real archive reload in water seeds the tracker without replaying an entry", async (t) => {
+  const { game, contexts, click } = fixture(t);
+  click();
+  await settleAudio();
+  await game.initialize("audio-water-restore", null, { generatorVersion: 3 });
+  await game.play();
+  for (let x = 7; x <= 9; x++)
+    for (let z = 7; z <= 9; z++) assert.equal(game.world.set(x, 65, z, BLOCK.WATER), true);
+  game.player.setPosition({ x: 8.5, y: 65, z: 8.5 });
+  assert.ok(game.player.fluidState.waterImmersion > 0);
+  const saved = game.archive.snapshot();
+  const mixer = game.audioEngine;
+  const context = contexts[0];
+  const sources = context.sources.length;
+  const sound = Effects.prototype.sound;
+  const water = [];
+  t.mock.method(Effects.prototype, "sound", function (kind, ...args) {
+    if (kind.startsWith("water-")) water.push(kind);
+    return sound.call(this, kind, ...args);
+  });
+  await game.initialize(saved.world.seed, saved, { generatorVersion: 3 });
+  await game.play();
+  for (let i = 0; i < 240; i++) {
+    context.advance(1 / 120);
+    game.player.update(1 / 120);
+  }
+  assert.ok(game.player.fluidState.waterImmersion > 0);
+  assert.equal(game.audioEngine, mixer);
+  assert.deepEqual(water, []);
+  assert.equal(context.sources.length, sources);
+});
+
 test("real play/pause/death/hidden transitions silence immediately and music starts only in play", async (t) => {
   const { game, contexts, click } = fixture(t);
   click();
