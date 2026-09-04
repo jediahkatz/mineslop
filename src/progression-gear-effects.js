@@ -1,7 +1,8 @@
 import {
-  activeEnchantmentLevel, bowDamage, durabilityLoss, meleeDamage, miningSpeed,
+  activeEnchantmentLevel, bowDamage, durabilityLoss, durabilityUseChance, meleeDamage, miningSpeed,
   planMendingExperience, reduceEnchantedDamage, respirationAirLoss, waterMovement,
 } from "./enchantment-effects.js";
+import { boundedDurabilityWear } from "./bounded-durability-wear.js";
 import { reduceArmorDamage } from "./gear.js";
 import { EQUIPMENT_SLOTS, ownedSlot } from "./inventory-domain.js";
 import { getItem } from "./items.js";
@@ -133,12 +134,15 @@ export class ProgressionGearEffects {
       return true;
     };
     const draws = uses.length ? wearCount(uses) : 0;
-    if (draws === null) return null;
-    const random = draws ? this.stations.prepareRandom(draws, { validate: valid }) : null;
+    const counted = draws === null
+      ? this._prepareCountWear(uses, { validate: valid, editGameplay }) : null;
+    if (draws === null && !counted) return null;
+    const random = counted?.random ??
+      (draws ? this.stations.prepareRandom(draws, { validate: valid }) : null);
     if (draws && !random) return null;
-    const player = draws
+    const player = counted?.player ?? (draws
       ? this.prepareWearParticipant(uses, random.rolls, { editGameplay })
-      : this.gameplay._prepareState(editGameplay);
+      : this.gameplay._prepareState(editGameplay));
     const clear = dead ? effects.prepareClear() : null;
     if (!player || (dead && !clear)) return null;
     const guarded = {
@@ -171,6 +175,55 @@ export class ProgressionGearEffects {
       { ...player, validate: () => validate() && player.validate() },
       random.participant, ...participants,
     ], { ok: true }) : null;
+  }
+
+  /** Hit-only escape from the per-point work budget; ordinary wear stays capped. */
+  prepareHitWear(uses, options = {}) {
+    if (wearCount(uses) !== null) return this.prepareWear(uses, options);
+    const { validate, participants = [] } = options;
+    if (!Array.isArray(participants)) return null;
+    const wear = this._prepareCountWear(uses, options);
+    return wear ? progressionPlan(this.gameplay.coordinator, [
+      { ...wear.player, validate: () => validate() && wear.player.validate() },
+      ...(wear.random ? [wear.random.participant] : []), ...participants,
+    ], { ok: true }) : null;
+  }
+
+  /**
+   * Only oversized hits use count sampling. At most six distinct affected
+   * slots, one saved draw per stochastic slot; no draws for deterministic wear.
+   * Sampling/editing happens in one detached Gameplay draft, with RNG as a peer.
+   */
+  _prepareCountWear(uses, { validate, selfUseHands = [], editGameplay } = {}) {
+    if (!synchronous(validate) || !Array.isArray(uses) || !uses.length || uses.length > 6 ||
+        uses.some((use) => !use || !Number.isFinite(use.amount) ||
+          !Number.isInteger(use.amount) || use.amount < 1) ||
+        new Set(uses.map((use) => `${use.area}:${use.index}`)).size !== uses.length ||
+        !Array.isArray(selfUseHands) ||
+        (editGameplay !== undefined && !synchronous(editGameplay))) return null;
+    let random = null;
+    const player = this.gameplay._prepareState((draft) => {
+      const entries = uses.map((use) => {
+        const slot = ownedSlot(draft.owned, use.area, use.index), stack = slot?.get();
+        if (!stack?.durability) return null;
+        return { use, slot, stack, chance: durabilityUseChance(stack, this.gameplay.context) };
+      });
+      if (entries.some((entry) => !entry)) return false;
+      const creative = this.gameplay.mode === "creative";
+      const draws = creative ? 0 : entries.filter((entry) => entry.chance < 1).length;
+      random = draws ? this.stations.prepareRandom(draws, { validate }) : null;
+      if (draws && !random) return false;
+      let offset = 0;
+      for (const { use, slot, stack, chance } of entries) {
+        const loss = creative ? 0 : boundedDurabilityWear(
+          use.amount, chance, stack.durability, chance < 1 ? random.rolls[offset++] : 0
+        );
+        if (loss) slot.set(stack.durability <= loss ? null :
+          { ...stack, durability: stack.durability - loss });
+      }
+      return editGameplay === undefined || editGameplay(draft) === true;
+    }, { selfUseHands });
+    return player ? { player, random } : null;
   }
 
   /**

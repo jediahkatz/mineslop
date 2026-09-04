@@ -252,7 +252,7 @@ test("stale hosts, effect revisions, replay and overflowing wear plans refuse wi
   f.game.progressionIntegration = f.integration;
 });
 
-test("raised shields stop incoming damage before armor; rejected shield payment cannot become a hit", (t) => {
+test("raised shields stop incoming damage before armor, including oversized wear", (t) => {
   const f = liveArmorFixture(t);
   f.armor();
   f.editInventory((owned) => {
@@ -278,10 +278,13 @@ test("raised shields stop incoming damage before armor; rejected shield payment 
   assert.equal(f.gameplay.health, 20);
   assert.equal(f.events.length, 0);
   assert.equal(use.observerErrors.length, 1);
-  // More than the bounded 256 wear draws is refused, not a shield bypass.
-  const before = f.snapshot();
-  assert.equal(f.hit(300, "huge arrow", "projectile").damage, 0);
-  assert.deepEqual(f.snapshot(), before);
+  // Oversized valid wear uses a bounded count sample, not a refused block.
+  const before = f.gameplay.offhand.durability, random = f.services.stations.randomState;
+  assert.equal(f.hit(300, "huge arrow", "projectile").blocked, true);
+  assert.ok(f.gameplay.offhand.durability < before);
+  assert.equal(f.services.stations.randomState, nextEnchantingSeed(random));
+  assert.equal(f.gameplay.health, 20);
+  assert.deepEqual(f.gameplay.equipment, armor);
   assert.equal(f.hit(4, "from behind", "melee", {
     x: f.player.position.x, y: f.player.eyePosition.y, z: f.player.position.z + 2,
   }).blocked, false);

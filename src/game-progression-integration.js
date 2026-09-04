@@ -228,7 +228,7 @@ export class GameProgressionIntegration {
     if (!current || this.gameplay.damageHost !== this || !synchronous(validate) ||
         !["main", "offhand"].includes(hand) || !Number.isFinite(amount) || amount <= 0)
       return null;
-    return this.services.gear.prepareWear([{
+    return this.services.gear.prepareHitWear([{
       area: hand === "offhand" ? "offhand" : "inventory",
       index: hand === "offhand" ? 0 : this.gameplay.selected,
       amount: Math.max(1, Math.ceil(amount) + 1),
