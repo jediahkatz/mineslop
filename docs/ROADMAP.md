@@ -10,8 +10,18 @@ loading, and has relevant regression tests and real browser verification.
   silhouettes, increase useful viewing range within measured CPU/GPU and memory
   budgets, and avoid gaps or abrupt transitions during chunk streaming. Distant
   LOD surfaces must retain blocky, stepped silhouettes rather than smooth hills.
+  The user's badlands/End screenshots reopen visual acceptance: preserve narrow
+  landforms instead of enlarging them into featureless coarse blocks, retain
+  material/color character, and blend the near/far boundary with fog.
+- [ ] **Distant End landmarks.** Keep actual native obsidian pillars and their
+  caps visible beyond detailed chunks. Ground-height LOD alone omits these
+  features. Preserve edits and avoid duplicate proxies during partial detail
+  transitions; do not invent terrain or force-load distant chunks.
 - [ ] **More interesting worlds.** Richer landforms, coherent scenery and
   decoration, varied oceans, and discoverable structures with useful rewards.
+  Compare the central End island's depressions, elevations and silhouettes with
+  the supplied Minecraft reference. Separate generation improvements from LOD
+  omissions, and keep saved generator outputs immutable.
 - [ ] **Biome size and rarity.** Audit multiple seeds and large regions; common
   biomes should form substantial coherent areas, rare biomes should actually be
   uncommon, and neighboring climates should make sense. Reproduce unnatural
