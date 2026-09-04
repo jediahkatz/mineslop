@@ -7,6 +7,8 @@ import { fluidAtPoint } from "./collision.js";
 import { releaseLostContextResources } from "./context-resources.js";
 import { DaylightMaterial } from "./daylight-material.js";
 import { DistantTerrain } from "./distant-terrain.js";
+import { landmarkDetailSections } from "./distant-landmarks.js";
+import { endVisualFog } from "./end-visual-policy.js";
 import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
 import {
   LOCAL_LIGHT_LIMITS,
@@ -558,6 +560,8 @@ export class GameRenderer {
       dimension: this.world.dimension,
       outdoors,
       coverage,
+      detailSections: this.world.dimension === "end"
+        ? landmarkDetailSections(this.chunks) : undefined,
       budgetMs: this.quality === "high" ? 2 : 1,
     });
     const horizonVisible =
@@ -608,7 +612,7 @@ export class GameRenderer {
             : -Infinity
         )
       : undefined;
-    const fog =
+    const baseFog =
       outdoors && this.world.dimension !== "nether"
         ? terrainFogRange(
             this.camera,
@@ -617,6 +621,14 @@ export class GameRenderer {
             horizontalFar
           )
         : { near: horizontalNear, far: horizontalFar };
+    const fog = endVisualFog({
+      dimension: this.world.dimension, outdoors, horizonVisible,
+      terrainComplete: this.distant.terrainCoverageComplete,
+      availableDistance: this.distant.fogDistance,
+      horizontalFar, detailFar: qualityFogDistance(this.renderRadius),
+      base: baseFog, eyeY: this.camera.position.y, minY: spec.minY,
+      forward: this.camera.getWorldDirection(new THREE.Vector3()),
+    });
     this.scene.fog.near =
       underwater || inLava ? 0.2 : fog.near * dimensionScale;
     this.scene.fog.far = inLava

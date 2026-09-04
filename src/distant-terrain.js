@@ -4,6 +4,8 @@ import { BLOCK, BLOCKS } from "./blocks.js";
 import {
   distantGridCells,
   DISTANT_GRID_LIMITS,
+  DISTANT_NATIVE_GRID_LIMITS,
+  landmarkGridRefinement,
   DISTANT_QUALITY,
 } from "./distant-grid.js";
 import {
@@ -11,6 +13,9 @@ import {
   createDistantVegetationJob,
 } from "./distant-vegetation.js";
 import { DistantTerraces } from "./distant-terraces.js";
+import { DistantLandmarks } from "./distant-landmarks.js";
+import { installDistantSurface } from "./distant-surface-material.js";
+import { visualHorizon } from "./end-visual-policy.js";
 import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
 import { noise, seedHash } from "./noise.js";
 import { CHUNK_SIZE, WORLD_MAX, WORLD_MIN } from "./terrain.js";
@@ -19,6 +24,7 @@ export const DISTANT_TERRAIN_LIMITS = Object.freeze({
   samplesPerUpdate: 128,
   workPerUpdate: 512,
   cachedSamples: 8192,
+  nativeCachedSamples: 16384,
   maxBudgetMs: 4,
 });
 const EDGE_MARGIN = 8;
@@ -96,6 +102,7 @@ export class DistantTerrain {
     this._terrainMaterial = new THREE.MeshLambertMaterial({
       vertexColors: true,
     });
+    this._surfaceVersion = installDistantSurface(this._terrainMaterial);
     this._waterMaterial = new THREE.MeshLambertMaterial({
       vertexColors: true,
       transparent: true,
@@ -129,6 +136,10 @@ export class DistantTerrain {
     return this.ready ? this._fogDistance : 0;
   }
 
+  get terrainCoverageComplete() {
+    return this.ready && this._terrainCoverageComplete === true;
+  }
+
   setDaylight(lighting) {
     lighting.install(this._terrainMaterial, true);
     lighting.install(this._waterMaterial, true);
@@ -144,11 +155,15 @@ export class DistantTerrain {
       identity.epoch === geometryEpoch(this.world) &&
       identity.heightSource === this.world.generator.terrainHeight &&
       identity.biomeSource === this.world.generator.getBiome &&
+      identity.columnSource === this.world.generator.sampleColumn &&
+      identity.landmarkSource === this.world.generator.getEndPillars &&
       identity.worldDimension === this.world.dimension
     );
   }
 
   _clear() {
+    this._landmarks?.dispose();
+    this._landmarks = null;
     this._job = null;
     this._vegetationJob?.job.dispose();
     this._vegetationJob = null;
@@ -168,7 +183,7 @@ export class DistantTerrain {
   _request(position, radius, quality, dimension, coverage) {
     const cx = Math.floor(position.x / CHUNK_SIZE);
     const cz = Math.floor(position.z / CHUNK_SIZE);
-    const horizon = DISTANT_QUALITY[quality].horizon;
+    const horizon = visualHorizon(dimension, quality);
     const extent = horizon + REBUILD_MARGIN;
     return {
       cx,
@@ -203,6 +218,7 @@ export class DistantTerrain {
     return (
       !previous ||
       previous.quality !== request.quality ||
+      previous.horizon !== request.horizon ||
       previous.radius !== request.radius ||
       Math.max(
         Math.abs(previous.cx - request.cx),
@@ -219,6 +235,16 @@ export class DistantTerrain {
         : null;
     const originX = request.cx * CHUNK_SIZE;
     const originZ = request.cz * CHUNK_SIZE;
+    const native = request.dimension === "overworld" &&
+      (typeof this.world.generator.getEndPillars === "function" ||
+       typeof this.world.generator.sampleColumn === "function");
+    const pillars = request.dimension === "end"
+      ? (this.world.generator.getEndPillars?.() ?? []).filter((p) =>
+        p.x + 2 >= request.bounds.minX && p.x - 2 < request.bounds.maxX &&
+        p.z + 2 >= request.bounds.minZ && p.z - 2 < request.bounds.maxZ)
+      : [];
+    const limits = native || pillars.length ? DISTANT_NATIVE_GRID_LIMITS : DISTANT_GRID_LIMITS;
+    const refinement = new Map();
     // Keep interior vertices too: rows restore immediately using index changes,
     // even when generation or meshing is stalled and the player reverses.
     return {
@@ -227,40 +253,50 @@ export class DistantTerrain {
       waterSurface,
       originX,
       originZ,
+      limits,
+      refinement,
+      planCursor: 0,
+      landmarkPlan: landmarkGridRefinement(pillars),
+      landmarkReachSquared: pillars.length
+        ? (Math.max(...pillars.map((p) => Math.hypot(p.x, p.z))) + 3 * CHUNK_SIZE) ** 2 : 0,
       grid: distantGridCells(
         request.cx,
         request.cz,
         request.bounds,
-        request.quality
+        request.quality,
+        refinement
       ),
       points: [],
       pointIds: new Map(),
       cells: [],
       wetCells: 0,
+      wet: [],
       unknownChunks: new Set(),
-      indices: new Uint16Array(DISTANT_GRID_LIMITS.indices),
+      indices: new Uint16Array(limits.indices),
       indexCount: 0,
       count: 0,
       bounds: request.bounds,
       identity: this._identity,
-      phase: "sample",
+      phase: pillars.length ? "landmark-plan" : native ? "plan" : "sample",
       cursor: 0,
       minHeight: Infinity,
       maxHeight: -Infinity,
       allValid: true,
-      heights: new Float32Array(DISTANT_GRID_LIMITS.vertices),
-      valid: new Uint8Array(DISTANT_GRID_LIMITS.vertices),
-      positions: new Float32Array(DISTANT_GRID_LIMITS.vertices * 3),
-      normals: new Float32Array(DISTANT_GRID_LIMITS.vertices * 3),
-      colors: new Float32Array(DISTANT_GRID_LIMITS.vertices * 3),
-      rockColors: new Float32Array(DISTANT_GRID_LIMITS.vertices * 3),
+      heights: new Float32Array(limits.vertices),
+      valid: new Uint8Array(limits.vertices),
+      badlands: new Uint8Array(limits.vertices),
+      surfaceData: new Float32Array(limits.vertices * 3),
+      positions: new Float32Array(limits.vertices * 3),
+      normals: new Float32Array(limits.vertices * 3),
+      colors: new Float32Array(limits.vertices * 3),
+      rockColors: new Float32Array(limits.vertices * 3),
       waterPositions:
         waterSurface !== null
-          ? new Float32Array(DISTANT_GRID_LIMITS.vertices * 3)
+          ? new Float32Array(limits.vertices * 3)
           : null,
       waterColors:
         waterSurface !== null
-          ? new Float32Array(DISTANT_GRID_LIMITS.vertices * 3)
+          ? new Float32Array(limits.vertices * 3)
           : null,
     };
   }
@@ -269,7 +305,7 @@ export class DistantTerrain {
     const point = ([x, z]) => {
       const key = `${x},${z}`;
       if (job.pointIds.has(key)) return job.pointIds.get(key);
-      if (job.count >= DISTANT_GRID_LIMITS.vertices)
+      if (job.count >= job.limits.vertices)
         throw new RangeError("Distant terrain exceeded its vertex budget");
       const index = job.count++;
       job.pointIds.set(key, index);
@@ -285,13 +321,14 @@ export class DistantTerrain {
         ])
       : [ring[0], ring[1], ring[2], ring[0], ring[2], ring[3]];
     if (
-      job.cells.length >= DISTANT_GRID_LIMITS.cells ||
-      job.indexCount + indices.length > DISTANT_GRID_LIMITS.indices
+      job.cells.length >= job.limits.cells ||
+      job.indexCount + indices.length > job.limits.indices
     )
       throw new RangeError("Distant terrain exceeded its topology budget");
     job.cells.push({
       key: `${cell.cx},${cell.cz}`,
       ring,
+      step: Math.max(...cell.boundary.map(([x]) => x)) - cell.boundary[0][0],
       start: job.indexCount,
       count: indices.length,
       valid: false,
@@ -334,20 +371,32 @@ export class DistantTerrain {
       const generator = job.identity.generator;
       const top = generator.terrainHeight(worldX, worldZ);
       const valid = Number.isFinite(top) && top >= job.spec.minY;
+      const biome = generator.getBiome(worldX, worldZ);
+      const nativeColumn = biome?.category === "badlands"
+        ? generator.sampleColumn?.(worldX, worldZ) : null;
       sample = {
         valid,
         height: valid
           ? Math.min(job.spec.maxY - 1, Math.floor(top)) + 1
           : job.spec.minY,
-        palette: this._palette(generator.getBiome(worldX, worldZ)),
+        palette: this._palette(biome),
+        badlands: biome?.category === "badlands",
+        strataOffset: biome?.category === "badlands" ? (nativeColumn?.strataOffset ??
+          Math.floor(noise(worldX / 180, worldZ / 180, seedHash(String(job.identity.seed).slice(0, 80)) ^ 1811) * 3)) : 0,
+        landTop: nativeColumn?.landTop ?? top,
       };
       this._samples.set(key, sample);
-      if (this._samples.size > DISTANT_TERRAIN_LIMITS.cachedSamples) {
+      const cacheLimit = job.refinement.size
+        ? DISTANT_TERRAIN_LIMITS.nativeCachedSamples
+        : DISTANT_TERRAIN_LIMITS.cachedSamples;
+      if (this._samples.size > cacheLimit) {
         this._samples.delete(this._samples.keys().next().value);
       }
     }
     job.heights[at] = sample.height;
     job.valid[at] = Number(sample.valid);
+    job.badlands[at] = Number(sample.badlands);
+    job.surfaceData.set([sample.strataOffset, Number.isFinite(sample.landTop) ? sample.landTop : job.spec.minY, Number(sample.badlands)], at * 3);
     job.minHeight = Math.min(job.minHeight, sample.height);
     job.maxHeight = Math.max(job.maxHeight, sample.height);
     job.allValid &&= sample.valid;
@@ -373,10 +422,27 @@ export class DistantTerrain {
       }
     }
     cell.valid = true;
+    cell.anchor = cell.ring[0];
+    const centerX = job.originX + job.positions[cell.anchor * 3] + cell.step / 2;
+    const centerZ = job.originZ + job.positions[cell.anchor * 3 + 2] + cell.step / 2;
+    if (cell.step >= 2 && centerX * centerX + centerZ * centerZ < job.landmarkReachSquared) {
+      // Even a two-block foundation cell can straddle a native height change.
+      // Keep its lowest sampled cap so an inflated terrace/riser cannot bury
+      // the adjacent pillar base. This does not change the native pillar body.
+      for (const vertex of cell.ring)
+        if (job.heights[vertex] < job.heights[cell.anchor]) cell.anchor = vertex;
+    }
+    if (cell.step >= 8 && job.badlands[cell.anchor]) {
+      const sorted = cell.ring.toSorted((a, b) => job.heights[a] - job.heights[b]);
+      cell.anchor = sorted[Math.floor((sorted.length - 1) / 2)];
+    }
     cell.wet =
       job.waterSurface !== null &&
-      job.heights[cell.ring[0]] < job.waterSurface;
-    if (cell.wet) job.wetCells++;
+      job.heights[cell.anchor] < job.waterSurface;
+    if (cell.wet) {
+      job.wetCells++;
+      job.wet.push(cell);
+    }
     // Native sample slopes only select the rock/grass palette. The rendered
     // terraces replace these with hard, axis-aligned top and riser normals.
     const p = job.positions;
@@ -432,15 +498,19 @@ export class DistantTerrain {
       waterCount = 0;
     const terrainIndices = layer.terrain.geometry.index.array;
     const waterIndices = layer.water?.geometry.index.array;
-    for (const cell of data.cells) {
-      // Only authoritative detail owns this ground. Ground outside an older
-      // canopy's bounds remains useful during independent quality upgrades.
-      if (!cell.valid || request.coverage.has(cell.key)) continue;
-      for (let i = cell.terraceStart; i < cell.terraceStart + cell.terraceCount; i++)
-        terrainIndices[terrainCount++] = data.terraces.indices[i];
-      if (waterIndices && cell.wet)
+    // Cell refinement must not multiply coverage/publication work. Emission
+    // keeps each chunk's terrain indices contiguous, so copy whole ranges.
+    for (const range of data.terraces.ranges) {
+      if (request.coverage.has(range.key)) continue;
+      terrainIndices.set(data.terraces.indices.subarray(range.start, range.start + range.count), terrainCount);
+      terrainCount += range.count;
+    }
+    if (waterIndices) {
+      for (const cell of data.wet) {
+        if (request.coverage.has(cell.key)) continue;
         for (let i = cell.start; i < cell.start + cell.count; i++)
           waterIndices[waterCount++] = data.indices[i];
+      }
     }
     layer.terrain.geometry.setDrawRange(0, terrainCount);
     layer.terrain.geometry.index.needsUpdate = true;
@@ -480,6 +550,7 @@ export class DistantTerrain {
       this._terrainMaterial
     );
     terrain.name = "Distant terrain surface";
+    terrain.geometry.setAttribute("lodSurface", new THREE.BufferAttribute(job.terraces.surfaceData, 3));
     const layerGroup = new THREE.Group();
     layerGroup.position.set(job.originX, 0, job.originZ);
     layerGroup.userData = {
@@ -653,12 +724,14 @@ export class DistantTerrain {
       vegetation.terrain = layer;
     }
     const data = layer.data;
+    const knownDistance = this._knownTerrainDistance(data, request, position);
+    this._terrainCoverageComplete = knownDistance === Infinity;
     this._fogDistance = Math.max(
       0,
       Math.min(
         request.horizon,
         data.request.horizon,
-        this._knownTerrainDistance(data, request, position),
+        knownDistance,
         edgeDistance(data.bounds, position),
         vegetation
           ? Math.min(
@@ -679,6 +752,7 @@ export class DistantTerrain {
       dimension,
       outdoors,
       coverage = new Set(),
+      detailSections = new Set(),
       budgetMs = 2,
     } = {}
   ) {
@@ -689,6 +763,7 @@ export class DistantTerrain {
       ? Math.max(0, Math.min(DISTANT_TERRAIN_LIMITS.maxBudgetMs, budgetMs))
       : 2;
     const generator = this.world.generator;
+    this._surfaceVersion.value = this.world.generatorVersion ?? 3;
     const targetDimension = dimension ?? this.world.dimension ?? "overworld";
     if (
       !position ||
@@ -718,6 +793,8 @@ export class DistantTerrain {
         epoch: geometryEpoch(this.world),
         heightSource: generator.terrainHeight,
         biomeSource: generator.getBiome,
+        columnSource: generator.sampleColumn,
+        landmarkSource: generator.getEndPillars,
         worldDimension: this.world.dimension,
         styleSeed: seedHash(String(this.world.seed ?? "")) ^ 0x735ca,
       };
@@ -782,7 +859,28 @@ export class DistantTerrain {
       work < DISTANT_TERRAIN_LIMITS.workPerUpdate &&
       performance.now() - started < terrainBudget
     ) {
-      if (job.phase === "sample") {
+      if (job.phase === "landmark-plan") {
+        const next = job.landmarkPlan.next();
+        if (next.done) job.phase = "sample";
+        else job.refinement.set(next.value.key,
+          Math.min(job.refinement.get(next.value.key) ?? 16, next.value.step));
+      } else if (job.phase === "plan") {
+        if (job.planCursor === 289) job.phase = "sample";
+        else {
+          if (samples >= DISTANT_TERRAIN_LIMITS.samplesPerUpdate) break;
+          const dx = job.planCursor % 17 - 8;
+          const dz = Math.floor(job.planCursor / 17) - 8;
+          const cx = job.request.cx + dx, cz = job.request.cz + dz;
+          const x = cx * CHUNK_SIZE + 8, z = cz * CHUNK_SIZE + 8;
+          if (x >= WORLD_MIN && x < WORLD_MAX && z >= WORLD_MIN && z < WORLD_MAX) {
+            const biome = job.identity.generator.getBiome(x, z);
+            samples++;
+            if (biome?.category === "badlands")
+              job.refinement.set(`${cx},${cz}`, Math.max(Math.abs(dx), Math.abs(dz)) <= 4 ? 2 : 4);
+          }
+          job.planCursor++;
+        }
+      } else if (job.phase === "sample") {
         if (job.cursor < job.count) {
           if (samples >= DISTANT_TERRAIN_LIMITS.samplesPerUpdate) break;
           samples += this._sample(job);
@@ -831,6 +929,13 @@ export class DistantTerrain {
       request,
       Math.max(0, budget - (performance.now() - started))
     );
+    if (targetDimension === "end" && typeof generator.getEndPillars === "function") {
+      this._landmarks ??= new DistantLandmarks(this.group, this.world, this._terrainMaterial);
+      this._landmarks.update({
+        coverage, detailSections,
+        budgetMs: Math.max(0, budget - (performance.now() - started)),
+      });
+    }
     this._show(request, position);
     return this.ready;
   }

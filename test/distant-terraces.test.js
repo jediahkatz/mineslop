@@ -279,12 +279,12 @@ test("all emitted terrain vertices are referenced and identical hard-normal vert
       assert.equal(inspected.referenced, count, "no unused native-prefix vertices in terrain buffers");
       const unique = new Set();
       for (let i = 0; i < count; i++) {
-        const values = ["position", "normal", "color"].flatMap((name) =>
+        const values = ["position", "normal", "color", "lodSurface"].flatMap((name) =>
           [...terrain.geometry.attributes[name].array.subarray(i * 3, i * 3 + 3)]
         );
         unique.add(values.join(","));
       }
-      assert.equal(unique.size, count, "coplanar risers share equal endpoint/height/normal/color vertices");
+      assert.equal(unique.size, count, "coplanar risers share equal endpoint/height/normal/color/surface vertices");
       assert.equal(calls.length, data.count);
       assert.equal(calls.length, 1933);
       lod.update(position, { ...settings, budgetMs: 0 });
