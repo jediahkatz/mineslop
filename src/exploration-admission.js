@@ -22,12 +22,14 @@ import {
 import { CHUNK_SIZE } from "./terrain.js";
 import { describeV5Structure } from "./terrain-v5-manifest.js";
 import { describeV6Structure } from "./terrain-v6-manifest.js";
+import { describeV7Structure } from "./terrain-v7-manifest.js";
 
 function describeCanonicalStructure(version, kind, terrain, gx, gz) {
   switch (version) {
     case 4: return describeStructure(kind, terrain, gx, gz);
     case 5: return describeV5Structure(kind, terrain, gx, gz);
     case 6: return describeV6Structure(kind, { ...terrain, generatorVersion: 6 }, gx, gz);
+    case 7: return describeV7Structure(kind, { ...terrain, generatorVersion: 7 }, gx, gz);
     default: throw new RangeError("Unsupported native structure generator version");
   }
 }

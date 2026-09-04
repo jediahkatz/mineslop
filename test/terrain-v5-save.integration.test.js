@@ -71,7 +71,7 @@ test("v5 export/import and IndexedDB preserve world identity and all-dimension s
     assert.equal(parseWorldFile(exportWorldFile(old)).world.generatorVersion, generatorVersion);
   }
   const future = snapshot();
-  future.world.generatorVersion = 7;
+  future.world.generatorVersion = 8;
   assert.throws(() => parseWorldFile(JSON.stringify(future)), /version/);
 });
 
@@ -84,7 +84,7 @@ test("v5 canonical structure/map identity and detached contexts widen without we
   assert.deepEqual(normalizeMapTarget(target, context), target);
   assert.equal(parseStructureIdentity(id, seed, 5, "overworld").generatorVersion, 5);
   assert.equal(parseStructureIdentity(id, seed, 4, "overworld").generatorVersion, 4);
-  for (const version of [1, 2, 3, 7, "5"])
+  for (const version of [1, 2, 3, 8, "5"])
     assert.throws(() => parseStructureIdentity(id, seed, version, "overworld"), RangeError);
   assert.throws(() => normalizeMapTarget(target, createWorldContext({ seed, generatorVersion: 4 })), RangeError);
   assert.throws(() => normalizeMapTarget({ ...target, x: 192 }, context), RangeError);
@@ -111,6 +111,6 @@ test("v5 pearl sidecar identity accepts signed/high poses and rejects cross-vers
   };
   assert.deepEqual(normalizePlayerProjectilesSnapshot(data, context), data);
   assert.equal(normalizePlayerProjectilesSnapshot(data, createWorldContext({ seed, generatorVersion: 4 })), null);
-  assert.equal(normalizePlayerProjectilesSnapshot({ ...data, generatorVersion: 7 },
-    { ...context, generatorVersion: 7 }), null);
+  assert.equal(normalizePlayerProjectilesSnapshot({ ...data, generatorVersion: 8 },
+    { ...context, generatorVersion: 8 }), null);
 });

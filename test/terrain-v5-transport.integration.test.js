@@ -83,6 +83,6 @@ test("worker cache keys distinguish v4/v5 and reject unsupported versions", { ti
   }
   let reply;
   handleTerrainRequest({ ...v5Job(createGenerator("invalid", "overworld", 5), 0, 0),
-    generatorVersion: 7 }, (packet) => { reply = packet; });
+    generatorVersion: 8 }, (packet) => { reply = packet; });
   assert.equal(reply.type, "error");
 });

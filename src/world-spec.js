@@ -45,7 +45,7 @@ const expanded = Object.freeze({
   }),
 });
 
-/** Explicit capabilities: 1–3 are historical; 4, 5 and 6 share expanded bounds.
+/** Explicit capabilities: 1–3 are historical; 4–7 share expanded bounds.
  * This does not choose a new-world default or upgrade any persisted version.
  */
 export function getWorldSpec(generatorVersion, dimension) {

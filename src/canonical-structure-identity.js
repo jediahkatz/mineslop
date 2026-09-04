@@ -58,7 +58,7 @@ export function parseStructureIdentity(id, seed, generatorVersion, dimension) {
     parts.length !== 7 ||
     namespace !== "structure" ||
     layout !== "v1" ||
-    (generatorVersion !== 4 && generatorVersion !== 5 && generatorVersion !== 6) ||
+    (generatorVersion !== 4 && generatorVersion !== 5 && generatorVersion !== 6 && generatorVersion !== 7) ||
     typeof seed !== "string" ||
     seed.length > 80 ||
     // World seeds are opaque UTF-16 strings. JSON quoting makes even control
