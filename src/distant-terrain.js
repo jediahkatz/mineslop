@@ -10,6 +10,7 @@ import {
   createDistantVegetationCache,
   createDistantVegetationJob,
 } from "./distant-vegetation.js";
+import { DistantTerraces } from "./distant-terraces.js";
 import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
 import { noise, seedHash } from "./noise.js";
 import { CHUNK_SIZE, WORLD_MAX, WORLD_MIN } from "./terrain.js";
@@ -69,8 +70,9 @@ function geometry(positions, normals, colors, indices, bounds) {
   result.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   result.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
   result.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  const Index = positions.length / 3 > 65536 ? Uint32Array : Uint16Array;
   result.setIndex(
-    new THREE.BufferAttribute(new Uint16Array(indices), 1).setUsage(
+    new THREE.BufferAttribute(new Index(indices), 1).setUsage(
       THREE.DynamicDrawUsage
     )
   );
@@ -140,6 +142,8 @@ export class DistantTerrain {
       identity.seed === this.world.seed &&
       identity.version === this.world.generatorVersion &&
       identity.epoch === geometryEpoch(this.world) &&
+      identity.heightSource === this.world.generator.terrainHeight &&
+      identity.biomeSource === this.world.generator.getBiome &&
       identity.worldDimension === this.world.dimension
     );
   }
@@ -232,6 +236,7 @@ export class DistantTerrain {
       points: [],
       pointIds: new Map(),
       cells: [],
+      wetCells: 0,
       unknownChunks: new Set(),
       indices: new Uint16Array(DISTANT_GRID_LIMITS.indices),
       indexCount: 0,
@@ -240,6 +245,9 @@ export class DistantTerrain {
       identity: this._identity,
       phase: "sample",
       cursor: 0,
+      minHeight: Infinity,
+      maxHeight: -Infinity,
+      allValid: true,
       heights: new Float32Array(DISTANT_GRID_LIMITS.vertices),
       valid: new Uint8Array(DISTANT_GRID_LIMITS.vertices),
       positions: new Float32Array(DISTANT_GRID_LIMITS.vertices * 3),
@@ -283,6 +291,7 @@ export class DistantTerrain {
       throw new RangeError("Distant terrain exceeded its topology budget");
     job.cells.push({
       key: `${cell.cx},${cell.cz}`,
+      ring,
       start: job.indexCount,
       count: indices.length,
       valid: false,
@@ -339,6 +348,9 @@ export class DistantTerrain {
     }
     job.heights[at] = sample.height;
     job.valid[at] = Number(sample.valid);
+    job.minHeight = Math.min(job.minHeight, sample.height);
+    job.maxHeight = Math.max(job.maxHeight, sample.height);
+    job.allValid &&= sample.valid;
     job.positions.set([localX, sample.height, localZ], at * 3);
     job.colors.set(sample.palette.slice(0, 3), at * 3);
     job.rockColors.set(sample.palette.slice(6, 9), at * 3);
@@ -352,7 +364,6 @@ export class DistantTerrain {
   _normal(job) {
     const cell = job.cells[job.cursor];
     const end = cell.start + cell.count;
-    let lowest = Infinity;
     for (let i = cell.start; i < end; i++) {
       const vertex = job.indices[i];
       if (!job.valid[vertex]) {
@@ -360,12 +371,14 @@ export class DistantTerrain {
           job.unknownChunks.add(cell.key);
         return;
       }
-      lowest = Math.min(lowest, job.heights[vertex]);
     }
     cell.valid = true;
-    cell.wet = job.waterSurface !== null && lowest < job.waterSurface;
-    // Area-weighted normals share the exact stitched topology. No extra native
-    // queries are needed for slope shading or for coarse/fine boundary normals.
+    cell.wet =
+      job.waterSurface !== null &&
+      job.heights[cell.ring[0]] < job.waterSurface;
+    if (cell.wet) job.wetCells++;
+    // Native sample slopes only select the rock/grass palette. The rendered
+    // terraces replace these with hard, axis-aligned top and riser normals.
     const p = job.positions;
     for (let i = cell.start; i < end; i += 3) {
       const a = job.indices[i] * 3;
@@ -423,11 +436,11 @@ export class DistantTerrain {
       // Only authoritative detail owns this ground. Ground outside an older
       // canopy's bounds remains useful during independent quality upgrades.
       if (!cell.valid || request.coverage.has(cell.key)) continue;
-      for (let i = cell.start; i < cell.start + cell.count; i++) {
-        terrainIndices[terrainCount++] = data.indices[i];
-        if (waterIndices && cell.wet)
+      for (let i = cell.terraceStart; i < cell.terraceStart + cell.terraceCount; i++)
+        terrainIndices[terrainCount++] = data.terraces.indices[i];
+      if (waterIndices && cell.wet)
+        for (let i = cell.start; i < cell.start + cell.count; i++)
           waterIndices[waterCount++] = data.indices[i];
-      }
     }
     layer.terrain.geometry.setDrawRange(0, terrainCount);
     layer.terrain.geometry.index.needsUpdate = true;
@@ -458,10 +471,10 @@ export class DistantTerrain {
     );
     const terrain = new THREE.Mesh(
       geometry(
-        job.positions.subarray(0, attributes),
-        job.normals.subarray(0, attributes),
-        job.colors.subarray(0, attributes),
-        job.indexCount,
+        job.terraces.positions,
+        job.terraces.normals,
+        job.terraces.colors,
+        job.terraces.indices.length,
         bounds
       ),
       this._terrainMaterial
@@ -475,21 +488,27 @@ export class DistantTerrain {
       horizon: job.request.horizon,
       sampleCount: job.count,
       cellCount: job.cells.length,
-      indexCount: job.indexCount,
+      indexCount: job.terraces.indices.length,
+      vertexCount: job.terraces.positions.length / 3,
     };
     layerGroup.add(terrain);
     let water = null;
     if (job.waterPositions) {
-      const normals = new Float32Array(job.count * 3);
-      for (let i = 0; i < job.count; i++) normals[i * 3 + 1] = 1;
+      const waterAttributes = job.wetCells > 0 ? attributes : 0;
+      const normals = new Float32Array(waterAttributes);
+      for (let i = 1; i < waterAttributes; i += 3) normals[i] = 1;
       const waterBounds = bounds.clone();
       waterBounds.min.y = waterBounds.max.y = Math.fround(job.waterSurface);
       water = new THREE.Mesh(
         geometry(
-          job.waterPositions.subarray(0, attributes),
+          waterAttributes > 0
+            ? job.waterPositions.subarray(0, waterAttributes)
+            : new Float32Array(0),
           normals,
-          job.waterColors.subarray(0, attributes),
-          job.indexCount,
+          waterAttributes > 0
+            ? job.waterColors.subarray(0, waterAttributes)
+            : new Float32Array(0),
+          waterAttributes > 0 ? job.indexCount : 0,
           waterBounds
         ),
         this._waterMaterial
@@ -512,6 +531,8 @@ export class DistantTerrain {
     job.pointIds.clear();
     job.points.length = 0;
     job.grid = job.rockColors = job.heights = job.valid = null;
+    job.terraceBuilder = null;
+    job.waterPositions = job.waterColors = null;
     this._job = null;
   }
 
@@ -695,6 +716,8 @@ export class DistantTerrain {
         seed: this.world.seed,
         version: this.world.generatorVersion,
         epoch: geometryEpoch(this.world),
+        heightSource: generator.terrainHeight,
+        biomeSource: generator.getBiome,
         worldDimension: this.world.dimension,
         styleSeed: seedHash(String(this.world.seed ?? "")) ^ 0x735ca,
       };
@@ -768,18 +791,35 @@ export class DistantTerrain {
           const next = job.grid.next();
           if (next.done) {
             job.cursor = 0;
+            job.terraceBuilder = new DistantTerraces(job);
             job.phase = "normal";
           } else this._cell(job, next.value);
         }
       } else if (job.phase === "normal") {
         this._normal(job);
+        job.terraceBuilder.link(job.cells[job.cursor]);
         if (++job.cursor === job.cells.length) {
           job.cursor = 0;
           job.phase = "shade";
         }
       } else if (job.phase === "shade") {
         this._shade(job);
-        if (++job.cursor === job.count) job.phase = "publish";
+        if (++job.cursor === job.count) {
+          job.terraceBuilder.begin();
+          job.cursor = 0;
+          if (job.terraceBuilder.flat) {
+            job.terraces = job.terraceBuilder.finish();
+            job.phase = "publish";
+          } else job.phase = "terrace";
+        }
+      } else if (job.phase === "terrace") {
+        job.terraceBuilder.emit(job.cells[job.cursor]);
+        if (++job.cursor === job.cells.length) {
+          job.phase = "terrace-finalize";
+        }
+      } else if (job.phase === "terrace-finalize") {
+        job.terraces = job.terraceBuilder.finish();
+        if (job.terraces) job.phase = "publish";
       } else {
         this._publish(job, request);
         break;

@@ -14,6 +14,7 @@ import {
   WORLD_MIN,
 } from "../src/terrain.js";
 import { describeTree } from "../src/terrain-trees.js";
+import { assertRenderedNativeTerraces } from "./distant-terraces-native-fixture.js";
 
 const plains = {
   id: "plains",
@@ -445,13 +446,8 @@ test("real seeded generator samples agree with LOD heights without loading any c
   const lod = new DistantTerrain(scene, world);
   const at = { x: -40.5, y: 95, z: 61.5 };
   finish(lod, at);
-  const mesh = surface(lod),
-    points = mesh.geometry.getAttribute("position");
-  for (let i = 0; i < points.count; i += 37) {
-    const x = mesh.parent.position.x + points.getX(i);
-    const z = mesh.parent.position.z + points.getZ(i);
-    assert.equal(points.getY(i), generator.terrainHeight(x, z) + 1);
-  }
+  const inspected = assertRenderedNativeTerraces(lod, (x, z) => generator.terrainHeight(x, z));
+  assert.ok(inspected.renderedRisers > 0);
   assert.equal(world.chunks.size, 0);
   lod.dispose();
 });
@@ -1111,12 +1107,12 @@ test("terrain slope and color depth are deterministic and leave native heights u
     const slopeNormals = slopeGeometry.getAttribute("normal");
     assert.ok([...flatNormals.array].every(Number.isFinite));
     assert.notDeepEqual(flatNormals.array, slopeNormals.array);
-    const points = slopeGeometry.getAttribute("position");
-    for (let i = 0; i < points.count; i++)
-      assert.equal(
-        points.getY(i),
-        height(points.getX(i) + surface(slope.lod).parent.position.x) + 1
-      );
+    const before = slope.calls.heights;
+    const inspected = assertRenderedNativeTerraces(slope.lod, height);
+    assert.ok(inspected.renderedRisers > 0);
+    slope.lod.update(position, viewOptions(position, { ...settings, budgetMs: 0 }));
+    assert.equal(slope.calls.heights, before, "checking/rendering caps never resamples native terrain");
+    assert.ok(slope.lod.lastWork.units <= DISTANT_TERRAIN_LIMITS.workPerUpdate);
     const colors = flatGeometry.getAttribute("color").array.slice();
     assert.ok(
       new Set(colors).size > 3,
