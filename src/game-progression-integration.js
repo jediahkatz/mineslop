@@ -62,7 +62,7 @@ export class GameProgressionIntegration {
     this.feedback = new ExperienceFeedback();
     this._ownerBridge = pearls.getOwner;
     this._game = this._player = this.ui = null;
-    this._disposed = this._actionBusy = this._frameBusy = false;
+    this._disposed = this._actionBusy = this._frameBusy = this._rewardBusy = false;
     this._feedbackVisible = false;
     this.observerErrors = [];
   }
@@ -249,25 +249,31 @@ export class GameProgressionIntegration {
     });
   }
 
-  /** ONE Gameplay participant: directly compatible with ExperienceOrbs. */
+  /** Ordinary XP (no Mending/RNG), e.g. an explicitly composed station reward. */
   prepareExperience(amount) {
     const current = this._captureRewardHost();
     if (!current || !Number.isSafeInteger(amount) || amount <= 0) return null;
     return this._rewardParticipant(this.gameplay.prepareExperience(amount), amount, current);
   }
 
-  /** Explicit direct reward/fallback; false is not silently converted to success. */
+  /**
+   * Game.awardExperience's failed-orb-spawn fallback: immediately collect the
+   * same Mending reward without creating/retiring an orb. Ordinary station/trade
+   * XP uses its own Gameplay participant, never this collection fallback.
+   */
   earnExperience(amount) {
-    const player = this.prepareExperience(amount);
-    return player ? this.commit(progressionPlan(this.coordinator, [player], {
-      ok: true, experience: amount, experienceCommitted: true,
-    })) : refusal("experience_unavailable");
+    if (this._rewardBusy) return refusal("experience_busy");
+    this._rewardBusy = true;
+    try {
+      const plan = this.prepareMending(amount);
+      return plan ? this.commit(plan) : refusal("experience_unavailable");
+    } finally { this._rewardBusy = false; }
   }
 
   /**
-   * Full-plan Mending for source owners that accept participant lists. The
-   * current ExperienceOrbs receiver accepts ONE participant; do not put this
-   * method in its prepareCollect callback or credit the original amount too.
+   * Detached Mending receiver for physical XP. ExperienceOrbs composes these
+   * Gameplay + station RNG participants with its own removal in ONE commit.
+   * Gameplay already includes leftover XP; never also credit the original amount.
    */
   prepareMending(amount, { participants = [], validate = () => true } = {}) {
     const current = this._captureRewardHost();

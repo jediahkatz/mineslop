@@ -47,6 +47,7 @@ const COLLECT_DISTANCE_SQ = 1;
 const MERGE_DISTANCE_SQ = 1.5 ** 2;
 const RETRY_DELAY = 0.5;
 const TAU = Math.PI * 2;
+export const MAX_EXPERIENCE_RECEIVERS = 8;
 const synchronous = (callback) =>
   typeof callback === "function" &&
   Object.prototype.toString.call(callback) === "[object Function]";
@@ -129,8 +130,11 @@ function orbMaterial() {
  * 80 horizontal blocks of the player; unloaded, distant, other-dimension and
  * paused time is frozen. Items never share this pool. There is no XP spill
  * buffer: callers must handle a false spawn result.
- * prepareCollect(amount) supplies the receiving Gameplay participant. onCollect
- * is then only a postcommit notification, never a credit/veto callback.
+ * prepareCollect(amount) supplies one participant, or a detached
+ * {ok:true, prepared:true, participants:[...]} plan with 1..8 unique receiving
+ * owners. Neither form may contain thenables or the orb owner itself. All
+ * receivers and exactly one orb removal commit together; preparation must never
+ * commit. onCollect is only a postcommit notification, never a credit/veto.
  * Without prepareCollect, the deprecated isolated-caller adapter still requires
  * onCollect(amount) to return true only after accepting the entire amount.
  */
@@ -309,20 +313,39 @@ export class ExperienceOrbs {
       typeof notify === "function" ? () => notify(amount) : undefined
     );
     if (!remove || !synchronous(this.prepareCollect)) return false;
-    let receive;
+    let receivers;
     this._preparingCollect = true;
     try {
-      // This callback prepares detached Gameplay state; it does not credit XP.
-      receive = this.prepareCollect(amount);
+      const receive = this.prepareCollect(amount);
+      if (!isLooseRecord(receive) || typeof receive.then === "function")
+        return false;
+      // Keep the old participant contract unambiguous. Only explicitly prepared
+      // successful plans opt in to multiple owners; never flatten nested plans.
+      const parts = receive.ok === true && receive.prepared === true
+        ? receive.participants : [receive];
+      if (!Array.isArray(parts) || typeof parts.then === "function")
+        return false;
+      const count = parts.length;
+      if (!Number.isInteger(count) || count < 1 || count > MAX_EXPERIENCE_RECEIVERS)
+        return false;
+      receivers = [];
+      const owners = new Set([this]);
+      for (let index = 0; index < count; index++) {
+        const part = parts[index];
+        if (!isLooseRecord(part) || typeof part.then === "function")
+          return false;
+        const owner = part.owner;
+        if (owners.has(owner)) return false;
+        owners.add(owner);
+        receivers.push(part);
+      }
     } catch (error) {
       if (error instanceof TransactionInvariantError) throw error;
       return false;
     } finally {
       this._preparingCollect = false;
     }
-    if (!isLooseRecord(receive) || typeof receive.then === "function")
-      return false;
-    return this.coordinator.commit([receive, remove]).ok;
+    return this.coordinator.commit([...receivers, remove]).ok;
   }
 
   /** Deprecated, non-transactional receiver adapter for old isolated callers. */

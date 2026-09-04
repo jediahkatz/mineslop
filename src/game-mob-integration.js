@@ -38,7 +38,9 @@ export class GameMobIntegration {
       this.experienceOrbs = new ExperienceOrbs(this.scene, world, {
         context, coordinator: world.coordinator,
         prepareCollect: (amount) => this._current()
-          ? this.progressionIntegration.prepareExperience(amount) : null,
+          ? this.progressionIntegration.prepareMending(amount, {
+              validate: () => this._current(),
+            }) : null,
         onCollect: () => { if (this._current()) this._game.scheduleSave?.(); },
       });
       if (!this.experienceOrbs.load(saved?.experienceOrbs, { context, allowOverBudget: saved != null }))
