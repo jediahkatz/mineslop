@@ -463,6 +463,7 @@ export class VoxelGame {
       throw new Error("Close the inventory safely before replacing this world");
     this.building = true;
     audioOperation(this.audioEngine, "setPaused", true);
+    this.resetSwimmingPresentation();
     this.resetFrameRate();
     this.paused = true;
     this.overlayOpen = false;
@@ -879,6 +880,8 @@ export class VoxelGame {
     if (!this.player || this.building) return false;
     this.paused = true;
     audioOperation(this.audioEngine, "setPaused", true);
+    // Visibility/blur can suspend RAF before another hidden frame arrives.
+    this.resetSwimmingPresentation();
     this.resetActions();
     this.player.enabled = false;
     this.player.unlock();
@@ -893,6 +896,7 @@ export class VoxelGame {
 
   overlayChanged(open) {
     this.overlayOpen = open;
+    if (open) this.resetSwimmingPresentation();
     this.resetActions();
     if (!open) {
       this.stationOverride = null;
@@ -1361,6 +1365,35 @@ export class VoxelGame {
     this.containerUI?.refresh();
   }
 
+  // One borrowed presentation payload per Game. Rebuild its booleans from the
+  // current owners after physics/environment/late vehicle exits, never queries.
+  swimmingObservation(active) {
+    const state = (this.swimPresentation ??= {});
+    const player = this.player;
+    const fluid = player?.fluidState;
+    state.fluidKnown = Boolean(
+      active && player?.world === this.world && !player?.fluidMovementBlocked &&
+      fluid?.valid && fluid.loaded && fluid.eyeLoaded
+    );
+    state.swimming = state.fluidKnown && player.swimming === true;
+    state.moving = Boolean(active && player?.moving);
+    state.grounded = player?.grounded === true;
+    state.seated = player?.seated === true;
+    state.flying = player?.flying === true;
+    state.climbing = player?.climbing === true;
+    state.dead = this.gameplay?.dead === true;
+    // There is no persisted bob toggle. Use the actual live device motion
+    // preference owned by the held view; do not invent a world-save setting.
+    state.bob = this.effects?.motionPreference?.matches !== true;
+    return state;
+  }
+
+  resetSwimmingPresentation() {
+    const state = this.swimmingObservation(false);
+    this.playerVisual?.update(0, { perspective: "first" });
+    this.effects?.update(0, this.elapsed, false, false, null, state);
+  }
+
   frame(now) {
     this.animation = requestAnimationFrame((time) => this.frame(time));
     const frameTime = (now - this.lastFrame) / 1000;
@@ -1372,6 +1405,7 @@ export class VoxelGame {
       hidden: document.hidden,
     });
     if (!this.graphics || this.building || this.failed || document.hidden) {
+      this.resetSwimmingPresentation();
       this.resetFrameRate();
       return;
     }
@@ -1528,8 +1562,10 @@ export class VoxelGame {
     });
     this.ui.updateHurt?.(hurt);
     const perspective = this.player.perspective ?? "first";
+    const locomotion = this.swimmingObservation(this.active);
     if (perspective !== "first") {
       this.playerVisual.update(this.active ? dt : 0, {
+        ...locomotion,
         position: this.player.position,
         yaw: this.player.yaw,
         pitch: this.player.pitch,
@@ -1560,7 +1596,8 @@ export class VoxelGame {
       this.active &&
         this.ui.isHudVisible !== false &&
         (this.player.perspective ?? "first") === "first",
-      this.useActions.use
+      this.useActions.use,
+      locomotion
     );
     this.vehicleServices?.render(this.simulating ? dt : 0);
     this.projectileServices?.render();

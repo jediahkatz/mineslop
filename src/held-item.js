@@ -115,7 +115,9 @@ function placeInView(view, x, y, depth, tangent, aspect) {
   );
 }
 
-export function updateHeldItemView(view, dt, elapsed, moving, visible, use) {
+// locomotion is a read-only accepted pose observation; bob:false disables
+// locomotion decoration without suppressing food/bow/shield/action feedback.
+export function updateHeldItemView(view, dt, elapsed, moving, visible, use, locomotion) {
   const tangent = Math.tan(((view.camera.fov ?? 75) * Math.PI) / 360);
   const aspect = view.camera.aspect ?? 1;
   view.hand.visible = Boolean(visible && (!view.left || view.itemId));
@@ -126,7 +128,8 @@ export function updateHeldItemView(view, dt, elapsed, moving, visible, use) {
   // clock jump. Keep elapsed in the shared Effects view signature.
   const motion = view.motion;
   const step = advanceHeldMotion(
-    motion, dt, moving, view.hand.visible, kind, use?.progress, view.swing
+    motion, dt, moving, view.hand.visible, kind, use?.progress, view.swing,
+    locomotion
   );
   if (step || !view.hand.visible) view.swing = 0;
   const shield = getItem(view.itemId)?.tool === "shield";

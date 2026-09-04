@@ -1,12 +1,16 @@
 import * as THREE from "three";
 import { createPlayerRig, posePlayerRig } from "./player-rig.js";
 import { createPlayerSkinResources, MAX_PLAYER_PARTS } from "./player-skin.js";
+import { resetSwimMotion } from "./held-motion.js";
 
 /**
  * Third-person appearance only. dt is seconds; position is physical feet XYZ.
  * update(dt, { position, yaw, pitch, moving, sprinting, crouching, bodyHeight,
  *   eyeHeight, velocityY, seated = false, perspective, mainHand, offhand,
- *   equipment, hurtTint, vehicleType, hullYaw }).
+ *   equipment, hurtTint, vehicleType, hullYaw, swimming, fluidKnown, grounded,
+ *   flying, climbing, dead }).
+ * Swimming is an accepted physical observation, not inferred from eye water.
+ * Only upright treading/flutter is depicted; this does not promise crawling.
  * Hands/equipment take canonical { id, count, durability? } stacks or null.
  * Seated bends the shared rig's legs/arms, suppressing gait without changing
  * the physical feet/eye envelope, aim, skins, held items or equipment ownership.
@@ -100,6 +104,10 @@ export class PlayerVisual {
   }
 
   releaseBatch() {
+    if (this.rig) {
+      resetSwimMotion(this.rig.swim);
+      this.rig.gait = this.rig.stride = 0;
+    }
     if (!this.mesh) return;
     this.mesh.count = 0;
     this.mesh.visible = false;

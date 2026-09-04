@@ -352,6 +352,17 @@ export class Player {
   get vehicleType() { return this.seated ? this._vehicleType : null; }
   get hullHeading() { return this.seated ? this._hullHeading : null; }
 
+  /** Cached physical observations only; presentation must never resample water. */
+  get swimming() {
+    const fluid = this.fluidState;
+    return !this.seated && !this.flying && !this.climbing && !this.grounded &&
+      this._fluidWorld === this.world && !this.fluidMovementBlocked &&
+      fluid.valid && fluid.loaded && fluid.eyeLoaded &&
+      fluid.waterImmersion > 0 &&
+      (fluid.waterImmersion >= PLAYER_FLUID_PHYSICS.swimImmersion ||
+        fluid.bubble !== null || this._keys.has("Space"));
+  }
+
   get eyeHeight() {
     return this.sneaking && !this.seated ? SNEAK_EYE_HEIGHT : EYE_HEIGHT;
   }

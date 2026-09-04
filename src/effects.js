@@ -146,15 +146,15 @@ export class Effects {
     this.swing = 1;
   }
 
-  update(dt, elapsed, moving, visible, use) {
+  update(dt, elapsed, moving, visible, use, locomotion) {
     this.mesh.position
       .copy(this.camera.position)
       .divideScalar(16)
       .floor()
       .multiplyScalar(16);
-    updateHeldItemView(this, dt, elapsed, moving, visible, use);
+    updateHeldItemView(this, dt, elapsed, moving, visible, use, locomotion);
     if (this.offhand)
-      updateHeldItemView(this.offhand, dt, elapsed, moving, visible, use);
+      updateHeldItemView(this.offhand, dt, elapsed, moving, visible, use, locomotion);
     this.arrows = this.arrows.filter((arrow) => {
       arrow.age += dt;
       if (arrow.age > arrow.duration + 0.15) {

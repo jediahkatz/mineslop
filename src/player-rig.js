@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { getItem, ITEM } from "./items.js";
 import { MAX_PLAYER_PARTS, PLAYER_SKINS } from "./player-skin.js";
+import { advanceSwimMotion, createSwimMotion } from "./held-motion.js";
 
 const STANDING_HEIGHT = 1.8;
 const STANDING_EYE_HEIGHT = 1.62;
@@ -158,6 +159,7 @@ export function createPlayerRig() {
     },
     stride: 0,
     gait: 0,
+    swim: createSwimMotion(),
   };
   rig.root.name = "Original human player rig";
   rig.torso = joint(rig.root, "torso");
@@ -374,6 +376,10 @@ function poseHorseLeg(leg, hipY, hipZ) {
 /** Pose only; callers own camera placement, collisions, inventory and timing. */
 export function posePlayerRig(rig, dt, state) {
   const step = Math.max(0, Math.min(0.1, finite(dt, 0)));
+  advanceSwimMotion(rig.swim, step, state);
+  const swim = rig.swim.weight.value;
+  const swimMove = rig.swim.moving.value;
+  const paddle = Math.sin(rig.swim.phase);
   const seated = state.seated === true;
   const horse = seated && state.vehicleType === "horse";
   const crouching = !seated && Boolean(state.crouching);
@@ -402,17 +408,18 @@ export function posePlayerRig(rig, dt, state) {
     neutralHeadY - 0.24 - TORSO_LENGTH * Math.cos(lean)
   );
   const hipZ = crouching ? -0.12 : 0;
-  const moving = !seated && Boolean(state.moving);
+  const moving = !seated && !rig.swim.active && Boolean(state.moving);
   const sprinting = !seated && Boolean(state.sprinting) && !crouching;
   const target = moving ? (crouching ? 0.095 : sprinting ? 0.3 : 0.2) : 0;
-  if (seated) rig.gait = rig.stride = 0;
+  if (seated || rig.swim.active) rig.gait = rig.stride = 0;
   else rig.gait += (target - rig.gait) * Math.min(1, step * 14);
   if (moving)
     rig.stride =
       (rig.stride + step * (crouching ? 6 : sprinting ? 14 : 10)) %
       (Math.PI * 2);
   const swing = Math.sin(rig.stride) * rig.gait;
-  const airborne = !seated && Math.abs(finite(state.velocityY, 0)) > 0.2;
+  const airborne = !seated && !rig.swim.active &&
+    Math.abs(finite(state.velocityY, 0)) > 0.2;
   const lift = airborne ? 0 : Math.cos(rig.stride) * rig.gait * 0.18;
   const aimYaw = finite(state.yaw, 0);
   const bodyYaw = horse ? finite(state.hullYaw, aimYaw) : aimYaw;
@@ -433,8 +440,12 @@ export function posePlayerRig(rig, dt, state) {
     for (const leg of rig.legs)
       poseLeg(leg, hipY, hipZ, hipZ + LEG_LENGTH, seatLift);
   } else {
-    poseLeg(rig.legs[0], hipY, hipZ, swing, Math.max(0, lift));
-    poseLeg(rig.legs[1], hipY, hipZ, -swing, Math.max(0, -lift));
+    // Upright tread/flutter only: the physical player cannot crawl or adopt a
+    // horizontal collider. Head/torso retain the real eye and aim envelope.
+    const kick = swim * paddle * (0.045 + 0.055 * swimMove);
+    const floatLift = swim * 0.07;
+    poseLeg(rig.legs[0], hipY, hipZ, swing + kick, Math.max(0, lift) + floatLift);
+    poseLeg(rig.legs[1], hipY, hipZ, -swing - kick, Math.max(0, -lift) + floatLift);
   }
   updateHand(rig.mainHand, state.mainHand);
   updateHand(rig.offhand, state.offhand);
@@ -445,8 +456,13 @@ export function posePlayerRig(rig, dt, state) {
     arm.root.rotation.x =
       (seated ? -0.75 : -lean) +
       holdPitch +
-      (i === 0 ? 1 : -1) * swing * (holding ? 1.2 : 2.1);
-    arm.root.rotation.z = arm.side * (seated ? 0.08 : airborne ? 0.12 : 0.035);
+      (i === 0 ? 1 : -1) * swing * (holding ? 1.2 : 2.1) +
+      swim * (-0.25 + (i === 0 ? 1 : -1) * paddle *
+        (0.1 + 0.15 * swimMove)) * (holding ? 0.5 : 1);
+    arm.root.rotation.z = arm.side * (
+      (seated ? 0.08 : airborne ? 0.12 : 0.035) +
+      swim * (0.16 + Math.cos(rig.swim.phase) * 0.05)
+    );
   }
   updateEquipment(rig.equipment.head, "head", state.equipment?.head);
   updateEquipment(rig.equipment.chest, "chest", state.equipment?.chest);
