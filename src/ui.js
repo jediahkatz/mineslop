@@ -25,6 +25,7 @@ import {
 } from "./ui/model.js";
 import { shellMarkup } from "./ui/shell.js";
 import { hotbarSlotView } from "./ui/slot-model.js";
+import { generationChoiceFromInput } from "./generation-choice.js";
 
 export function createUI({
   onPlay,
@@ -99,6 +100,7 @@ export function createUI({
   const loading = $(".loading-screen");
   const hud = $(".game-hud");
   const seedInput = $("#world-seed");
+  const generationInput = $("#world-generation");
   const resume = onResume || onPlay;
   const menuNavigation = createMenuNavigation(menu, {
     listen,
@@ -403,6 +405,8 @@ export function createUI({
     $(".export-button").disabled = !onExport || storageBusy || worldBusy;
     $(".import-button").disabled = !onImport || storageBusy || worldBusy;
     $(".generate-button").disabled = !onNewWorld || storageBusy || worldBusy;
+    generationInput.disabled = !onNewWorld || storageBusy || worldBusy;
+    seedInput.disabled = !onNewWorld || storageBusy || worldBusy;
     $(".new-world-button").disabled = !onNewWorld || storageBusy || worldBusy;
     $(".play-button").disabled =
       !(menuMode === "pause" ? resume : onPlay) || storageBusy || worldBusy;
@@ -604,7 +608,8 @@ export function createUI({
     worldBusy = true;
     updateStorageButtons();
     try {
-      const result = await onNewWorld(seedInput.value);
+      const generatorVersion = generationChoiceFromInput(generationInput.value);
+      const result = await onNewWorld(seedInput.value, generatorVersion);
       if (disposed) return;
       if (result === false || result?.ok === false)
         setStorageStatus({

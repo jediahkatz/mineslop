@@ -271,7 +271,22 @@ export class WorldStorage {
     return next;
   }
 
-  async write(snapshot) {
+  /**
+   * Publish a replacement only if its synchronous activation succeeds. No
+   * candidate records become visible before activation; abort/crash keeps the
+   * previous archive intact. Callers must stop using retired live owners if the
+   * transaction subsequently fails (e.g. quota), and recover by reloading.
+   */
+  replace(snapshot, activate) {
+    if (typeof activate !== "function")
+      throw new TypeError("A synchronous world activation is required");
+    const validated = normalizeSave(snapshot);
+    const next = this.queue.catch(() => {}).then(() => this.write(validated, activate));
+    this.queue = next;
+    return next;
+  }
+
+  async write(snapshot, activate) {
     if (!this.hydrated) await this.readRecords();
     const database = await this.open();
     const identity = JSON.stringify([
@@ -322,6 +337,15 @@ export class WorldStorage {
         updatedAt: Date.now(),
         snapshot: metadata,
       });
+      // Stay in this transaction's request callback: never await activation.
+      // A thrown error aborts all queued puts/clears, without a rollback write
+      // that could clobber a newer tab's revision.
+      const activation = activate?.();
+      if (activation != null && typeof activation.then === "function") {
+        // Reject asynchronous activation without leaking its eventual rejection.
+        Promise.resolve(activation).catch(() => {});
+        throw new TypeError("World activation must not be asynchronous");
+      }
       await done;
     } catch (error) {
       try {

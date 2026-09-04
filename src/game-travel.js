@@ -1,5 +1,6 @@
 import { getBiomeById } from "./biomes.js";
 import { audioOperation } from "./audio-lifecycle.js";
+import { newWorldGeneratorVersion } from "./generation-choice.js";
 import {
   installTravelLanding, installTravelPortal, stageTravelDestination,
 } from "./game-travel-stage.js";
@@ -66,10 +67,24 @@ export class GameTravel {
     });
   }
 
-  generate(seed) {
+  generate(seed, generatorVersion) {
+    // Reject untrusted input before acquiring the gate, closing screens, saving,
+    // or admitting any candidate terrain. Archive versions are a separate API.
+    try {
+      generatorVersion = newWorldGeneratorVersion(generatorVersion);
+    } catch (error) {
+      return Promise.resolve({ ok: false, message: error.message });
+    }
     return this.game.transitionGate.run(async () => {
       const game = this.game;
       if (game.building) return false;
+      const world = game.world, gameplay = game.gameplay;
+      const epoch = world?.epoch, dimension = world?.dimension;
+      const validate = () => {
+        if (game.world !== world || game.gameplay !== gameplay ||
+            world?.epoch !== epoch || world?.dimension !== dimension)
+          throw new Error("The world changed before generation could finish.");
+      };
       if (
         game.world &&
         !window.confirm(
@@ -82,8 +97,9 @@ export class GameTravel {
           ok: false,
           message: "Close the inventory safely before generating a world.",
         };
+      validate();
       const checkpoint = await game.save();
-      if (checkpoint?.code === "STALE_WORLD") {
+      if (checkpoint?.ok === false) {
         game.ui.toast(checkpoint.message);
         return checkpoint;
       }
@@ -92,13 +108,21 @@ export class GameTravel {
           .trim()
           .slice(0, 80) || "cedar-valley";
       try {
-        await game.initialize(cleanSeed, null, { mode: game.gameplay.mode });
-        await game.save();
-        game.ui.toast("A whole world is waiting. B opens the biome atlas.");
+        validate();
+        await game.initialize(cleanSeed, null, {
+          mode: gameplay.mode, generatorVersion, persistNewWorld: true, validate,
+        });
+        try {
+          game.ui.toast("A whole world is waiting. B opens the biome atlas.");
+        } catch (error) {
+          console.error(error);
+        }
         return { ok: true };
       } catch (error) {
-        game.showError(error);
-        return { ok: false, message: error.message };
+        if (game.world === world && !game.building) game.ui.toast(error.message);
+        else game.showError(error);
+        return { ok: false, message: error.message,
+          ...(error.reloadRequired ? { reloadRequired: true } : {}) };
       }
     });
   }

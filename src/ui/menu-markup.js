@@ -89,7 +89,14 @@ export function menuMarkup() {
           </section>
           <section class="menu-page new-world-page" data-menu-page="new-world" hidden>
             <p class="world-replace-warning">This browser stores one world. A new world replaces the current one. Export your save first to keep it.</p>
-            <form class="seed-form"><label for="world-seed">Seed for the World Generator</label><input id="world-seed" name="seed" value="cedar-valley" maxlength="80" autocomplete="off" spellcheck="false"><p class="terrain-generation-note" hidden>Your existing world's original terrain is preserved. New worlds use the latest generator.</p><button type="submit" class="generate-button danger-button">Generate and Replace World...</button></form>
+            <form class="seed-form">
+              <label for="world-seed">Seed for the World Generator</label>
+              <input id="world-seed" name="seed" value="cedar-valley" maxlength="80" autocomplete="off" spellcheck="false">
+              <div class="setting-row"><label for="world-generation">World Generation</label><select id="world-generation" name="generatorVersion" aria-describedby="world-generation-help"><option value="3" selected>Classic (default)</option><option value="7">Expanded (experimental)</option></select></div>
+              <p id="world-generation-help" class="settings-note">Expanded: deeper Overworld, new biomes and structures. Visual acceptance is unfinished. Applies only to this new world; loading or importing a save preserves its original terrain.</p>
+              <p class="terrain-generation-note" hidden>Your existing world's original terrain is preserved. Choose the generation for a new world explicitly.</p>
+              <button type="submit" class="generate-button danger-button">Generate and Replace World...</button>
+            </form>
           </section>
           <button class="menu-back-button">Done</button>
         </div>

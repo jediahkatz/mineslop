@@ -38,6 +38,7 @@ import { bindWorldServiceEvents } from "./game-world-events.js";
 import { stageWorld } from "./game-world-stage.js";
 import { Gameplay } from "./gameplay.js";
 import { hasExpandedTerrain } from "./generator-version.js";
+import { newWorldGeneratorVersion } from "./generation-choice.js";
 import { requestHeldItemMining } from "./held-item.js";
 import { HurtFeedback } from "./hurt-feedback.js";
 import { getItem, ITEM } from "./items.js";
@@ -116,7 +117,7 @@ export class VoxelGame {
       onPlay: () => this.play(),
       onResume: () => this.play(),
       onPause: () => this.pause(),
-      onNewWorld: (seed) => this.newWorld(seed),
+      onNewWorld: (seed, generatorVersion) => this.newWorld(seed, generatorVersion),
       onSave: () => this.save(true),
       onTimeChange: (value) => {
         const result = this.buildingServices?.setTime(Number(value));
@@ -355,6 +356,21 @@ export class VoxelGame {
       onProgress: (progress, label) => this.ui.setLoading(progress, label),
     });
     const owners = [];
+    const dispose = () => {
+      for (const owner of [...owners].reverse()) {
+        try {
+          owner.dispose?.();
+        } catch {
+          // Continue releasing detached owners after a failed preparation/write.
+        }
+        staged.world.coordinator?.release(owner);
+      }
+      try {
+        staged.world.dispose();
+      } catch {
+        // Preserve the failure that prevented activation.
+      }
+    };
     try {
       const context = options.context ?? createWorldContext(staged.world);
       const ownership = { context, coordinator: staged.world.coordinator };
@@ -452,6 +468,7 @@ export class VoxelGame {
       owners.push(vehicleServices);
       return {
         ...staged,
+        dispose,
         context,
         gameplay,
         settlement,
@@ -468,24 +485,42 @@ export class VoxelGame {
         mobIntegration,
       };
     } catch (error) {
-      for (const owner of owners.reverse()) {
-        try {
-          owner.dispose?.();
-        } catch {
-          // Continue releasing every detached owner after a failed preparation.
-        }
-        staged.world.coordinator?.release(owner);
-      }
-      try {
-        staged.world.dispose();
-      } catch {
-        // Preserve the component failure that prevented activation.
-      }
+      dispose();
       throw error;
     }
   }
 
+  // Serialize only the freshly staged owners, before replacing live resources.
+  // Missing transient pickups/mobs start empty on reload, as on first creation.
+  snapshotPreparedNewWorld(staged) {
+    const { position, yaw, pitch, flying } = staged.pose;
+    const snapshot = {
+      version: 3,
+      world: staged.world.serialize(),
+      player: { ...position, yaw, pitch, flying },
+      gameplay: staged.gameplay.serialize(),
+      settlement: staged.settlement.serialize(),
+      overflow: staged.overflow.serialize(),
+      fuses: staged.fuses.serialize(),
+      time: staged.buildingServices.worldClock.time,
+      quality: staged.quality,
+      soundEnabled: this.soundEnabled,
+    };
+    for (const key of [
+      "buildingServices", "fluidServices", "projectileServices",
+      "progressionIntegration", "vehicleServices", "explorationServices",
+      "weatherServices",
+    ]) Object.assign(snapshot, staged[key]?.serialize());
+    // Validate the persisted result using the same component rules as imports.
+    normalizeWorldComponents(snapshot);
+    return snapshot;
+  }
+
   async initialize(seed, saved = null, options = {}) {
+    if (options.persistNewWorld) {
+      if (saved !== null) throw new Error("Only a new world may replace storage here");
+      options = { ...options, generatorVersion: newWorldGeneratorVersion(options.generatorVersion) };
+    }
     const normalized = normalizeWorldComponents(saved);
     const { context, ...components } = normalized ?? {};
     if (normalized) saved = { ...structuredClone(saved), ...components };
@@ -502,10 +537,37 @@ export class VoxelGame {
     this.player?.unlock();
     this.ui.setLoading(0.05, "Reading the world seed");
     await new Promise((resolve) => requestAnimationFrame(resolve));
-    let staged;
+    let staged, replacement;
+    let activationStarted = false, installing = false;
     try {
       staged = await this.prepareWorld(seed, saved, { ...options, context });
+      options.validate?.();
+      if (options.persistNewWorld)
+        replacement = this.snapshotPreparedNewWorld(staged);
+      installing = true;
+      await this.installPreparedWorld(staged, saved, options.validate,
+        replacement ? (activate) => this.storage.replace(replacement, () => {
+          // Recheck after the queued transaction/CAS await, before teardown.
+          options.validate?.();
+          activationStarted = true;
+          activate();
+        }) : undefined);
     } catch (error) {
+      if (!options.persistNewWorld && installing) {
+        staged.weatherServices.dispose();
+        audioOperation(this.audioEngine, "setRain", 0);
+        throw error;
+      }
+      if (activationStarted) {
+        this.releaseFailedNewWorld(staged);
+        const recovery = new Error(
+          `${error.message}. Reload to reopen the last saved world; the replacement was not saved.`,
+          { cause: error }
+        );
+        recovery.reloadRequired = true;
+        throw recovery;
+      }
+      if (!staged?.world?._disposed) staged?.dispose?.();
       this.building = false;
       if (this.world) {
         this.ui.ready();
@@ -514,17 +576,79 @@ export class VoxelGame {
       }
       throw error;
     }
+  }
+
+  // Activation can retire the old GPU resources before a quota/commit failure.
+  // Fail closed, with no live save source. Reload reconstructs from IndexedDB's
+  // unchanged archive (or a newer tab's archive); recovery never writes storage.
+  releaseFailedNewWorld(staged) {
+    this.failed = true;
+    this.paused = true;
+    this.started = false;
+    clearTimeout(this.saveTimer);
+    const release = (work) => { try { work(); } catch { /* Keep releasing owners. */ } };
+    release(() => this.unbindControls?.());
+    this.unbindControls = null;
+    release(() => this.unbindWorldEvents?.());
+    this.unbindWorldEvents = null;
+    const seen = new Set();
+    for (const key of [
+      "weatherServices", "gravityServices", "vehicleServices", "mobIntegration",
+      "progressionIntegration", "explorationServices", "player", "wildlife",
+      "pickups", "experienceOrbs", "playerVisual", "effects", "projectileServices",
+      "graphics", "fluidServices", "buildingServices", "gameplay", "settlement",
+      "overflow", "fuses", "world",
+    ]) {
+      const owner = this[key];
+      if (owner && !seen.has(owner)) {
+        seen.add(owner);
+        release(() => owner.dispose?.());
+      }
+      this[key] = null;
+    }
+    staged.dispose();
+    for (const key of [
+      "renderedWeather", "boats", "fishing", "horses", "ecologyServices",
+      "progressionServices", "exploration", "projectiles", "fluids",
+      "buildingActions", "beds", "worldClock", "worldContext", "coordinator",
+    ]) this[key] = null;
+    audioOperation(this.audioEngine, "setRain", 0);
+    this.building = false;
+  }
+
+  async installPreparedWorld(staged, saved, validate, publish) {
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     try {
-      await this.installPreparedWorld(staged, saved);
+      validate?.();
     } catch (error) {
-      staged.weatherServices.dispose();
-      audioOperation(this.audioEngine, "setRain", 0);
+      staged.dispose?.();
+      this.building = false;
+      this.ui.ready();
+      this.ui.showMenu(this.started ? "pause" : "title");
+      this.refreshHud();
       throw error;
+    }
+    if (publish) await publish(() => this.activatePreparedWorld(staged, saved));
+    else this.activatePreparedWorld(staged, saved);
+    this.building = false;
+    // Publication is final. A UI observer cannot turn a committed replacement
+    // into a reported failure or attempt to restore a retired world.
+    if (publish) {
+      for (const notify of [
+        () => this.ui.ready(), () => this.ui.showMenu("title"), () => this.refreshHud(),
+      ]) {
+        try { notify(); } catch (error) { console.error(error); }
+      }
+    } else {
+      this.ui.ready();
+      this.ui.showMenu("title");
+      this.refreshHud();
     }
   }
 
-  async installPreparedWorld(staged, saved) {
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+  // Must remain synchronous: replacement activation runs inside storage's CAS
+  // transaction, after all terrain admission and animation-frame waits.
+  activatePreparedWorld(staged, saved) {
     // Required terrain and a collision-checked pose exist before live teardown.
     this.unbindWorldEvents?.();
     this.unbindWorldEvents = null;
@@ -706,10 +830,6 @@ export class VoxelGame {
     this.graphics.update(0, this.elapsed, this.player.position);
     this.renderWeather();
     this.graphics.render();
-    this.building = false;
-    this.ui.ready();
-    this.ui.showMenu("title");
-    this.refreshHud();
   }
 
   createWildlife(saved, { safeSpawn = false } = {}) {
@@ -1337,8 +1457,8 @@ export class VoxelGame {
     return this.travel.respawn();
   }
 
-  newWorld(seed) {
-    return this.travel.generate(seed);
+  newWorld(seed, generatorVersion) {
+    return this.travel.generate(seed, generatorVersion);
   }
 
   snapshot() {
@@ -1696,6 +1816,7 @@ export class VoxelGame {
     this.ui?.updateHurt?.({});
     this.failed = true;
     this.building = false;
+    if (error.reloadRequired) this.ui?.dispose?.();
     const panel = document.createElement("div");
     panel.className = "fatal-error";
     const heading = document.createElement("h1");
@@ -1703,7 +1824,7 @@ export class VoxelGame {
     const message = document.createElement("p");
     message.textContent = `${error.message}. Use a current desktop browser with WebGL 2 enabled. Your saved world has not been deleted.`;
     const retry = document.createElement("button");
-    retry.textContent = "Try again";
+    retry.textContent = error.reloadRequired ? "Reload saved world" : "Try again";
     retry.onclick = () => location.reload();
     panel.append(heading, message, retry);
     document.querySelector("#ui").replaceChildren(panel);
