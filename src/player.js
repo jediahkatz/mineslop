@@ -34,6 +34,7 @@ export const PLAYER_FLUID_PHYSICS = Object.freeze({
   bubbleUpSpeed: 14,
   bubbleDownSpeed: 6,
   swimImmersion: 0.35,
+  maxSwimSpeedMultiplier: 1.6,
   maxQueriesPerUpdate: 15,
   maxBodyCellsPerQuery: 12,
 });
@@ -692,9 +693,15 @@ export class Player {
   // or under an overlay, with no extra physics step. Both together are invalid.
   // Return true on consumption, false on invalid input, otherwise undefined.
   // No pose means no implicit dismount: only an exit or setPosition releases it.
+  // Swim assistance is a per-update input, never retained on the Player.
   update(
     dt,
-    { recoverFromVoid = true, riderPose = null, exitPose = null } = {}
+    {
+      recoverFromVoid = true,
+      riderPose = null,
+      exitPose = null,
+      swimSpeedMultiplier = 1,
+    } = {}
   ) {
     this._fluidQueries = this._fluidCells = 0;
     if (typeof recoverFromVoid !== "boolean" || !Number.isFinite(dt) || dt < 0)
@@ -761,6 +768,12 @@ export class Player {
       this._syncCamera(dt);
       return;
     }
+    const swimMultiplier =
+      Number.isFinite(swimSpeedMultiplier) &&
+      swimSpeedMultiplier >= 1 &&
+      swimSpeedMultiplier <= PLAYER_FLUID_PHYSICS.maxSwimSpeedMultiplier
+        ? swimSpeedMultiplier
+        : 1;
     const keys = this._keys;
     const pressed = (code) => Number(keys.has(code));
     this._updateStance();
@@ -827,10 +840,13 @@ export class Player {
       this.climbing = !!ladder;
       const horizontalBlend = 1 - Math.exp(-18 * stepDt);
       const waterSlow = !this.flying ? 1 - waterWeight * 0.5 : 1;
+      // Recheck physical swimming each substep, including water exits. Only
+      // the horizontal input target changes, never buoyancy/current forces.
+      const swimBoost = swimming && !this.flying && !ladder ? swimMultiplier : 1;
       this.velocity.x +=
-        (targetX * waterSlow - this.velocity.x) * horizontalBlend;
+        (targetX * waterSlow * swimBoost - this.velocity.x) * horizontalBlend;
       this.velocity.z +=
-        (targetZ * waterSlow - this.velocity.z) * horizontalBlend;
+        (targetZ * waterSlow * swimBoost - this.velocity.z) * horizontalBlend;
       if (this.flying) {
         this.fallDistance = 0;
         const down = keys.has("ShiftLeft") || keys.has("ShiftRight");

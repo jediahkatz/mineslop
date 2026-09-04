@@ -1334,9 +1334,23 @@ export class VoxelGame {
       this.player.canSprint =
         this.gameplay.hunger > 6 || this.gameplay.mode === "creative";
     }
+    // Read the bound owner now: render observations can outlive their source,
+    // life or dimension. Never feed cached ecologyModifiers back into physics.
+    const ecology = this.ecologyServices;
+    const swimSpeedMultiplier =
+      this.active &&
+      !riderPose && !exitPose && !this.player.seated &&
+      ecology?.active === true &&
+      this.mobIntegration?.ecologyServices === ecology &&
+      ecology.world === this.world &&
+      ecology.gameplay === this.gameplay &&
+      ecology.wildlife === this.wildlife
+        ? ecology.modifiers().swimSpeedMultiplier
+        : 1;
     if (this.active || riderPose || exitPose)
       this.player.update(dt, {
         recoverFromVoid: this.gameplay.mode === "creative",
+        ...(swimSpeedMultiplier !== 1 ? { swimSpeedMultiplier } : null),
         ...(riderPose || exitPose ? { riderPose, exitPose } : null),
       });
     if (this.active) {
