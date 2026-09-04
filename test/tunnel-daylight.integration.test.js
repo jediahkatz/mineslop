@@ -5,6 +5,7 @@ import { BLOCK } from "../src/blocks.js";
 import { sampleDaylightAt } from "../src/daylight-material.js";
 import { hasTerrainRoof } from "../src/renderer.js";
 import { World } from "../src/world.js";
+import { settleLight } from "./block-light-fixture.js";
 import { daylightRenderer } from "./daylight-fixture.js";
 
 test("the recorded native entrance keeps daylight, deep darkness, look-back terrain and a real remeshed torch", async (t) => {
@@ -19,6 +20,7 @@ test("the recorded native entrance keeps daylight, deep darkness, look-back terr
   await world.ensureArea({ x: 60.5, y: 27.01, z: 951.5 }, 4);
   const admitted = world.chunks.size;
   const g = daylightRenderer(t, world, outside);
+  t.after(() => g.daylightMaterial?.dispose());
   let elapsed = 0;
   const opening = new THREE.Vector3(outside.x, outside.y + 1.62, outside.z);
   const visit = (feet, lookBack = false) => {
@@ -27,6 +29,8 @@ test("the recorded native entrance keeps daylight, deep darkness, look-back terr
     else g.camera.rotation.set(0, 0, 0, "YXZ");
     g.rebuildDirty(Infinity);
     g.update(0, elapsed += 0.05, feet);
+    // A CPU-only renderer acknowledges the upload normally consumed by WebGL.
+    g.blockLight.texture.clearLayerUpdates();
     assert.equal(world.chunks.size, admitted, "lighting cannot admit more terrain");
   };
   const warm = (feet, lookBack = false) => {
@@ -43,7 +47,7 @@ test("the recorded native entrance keeps daylight, deep darkness, look-back terr
     exposure: g.skyAccess.exposure,
     skyVisible: g.skyAccess.skyVisible,
     fog: [g.scene.fog.near, g.scene.fog.far],
-    selected: g.lightStats.selected,
+    lightPending: g.blockLight.pending,
   });
   warm(outside);
   const outsideState = state("outside");
@@ -110,23 +114,54 @@ test("the recorded native entrance keeps daylight, deep darkness, look-back terr
   assert.equal(g.distant.ready, true);
   assert.deepEqual(sampleDaylightAt(g.skyColumns, g.camera.position), { direct: 0, ambient: 0 });
   const deepState = state("deep-with-native-emitters");
+  // A native moss floor face beside the recorded torch, not authored terrain
+  // or the now-inert PointLight pool. Keep native emitters in the baseline.
+  const receiver = { x: 60.5, y: 16.02, z: 916.5 };
+  assert.equal(world.get(60, 15, 916), BLOCK.MOSS);
+  assert.equal(world.get(60, 16, 916), BLOCK.AIR);
+  const settle = () => {
+    const work = settleLight(g.blockLight, world, g.camera.position, g.renderRadius);
+    assert.equal(world.chunks.size, admitted, "light publication cannot admit terrain");
+    assert.equal(g.blockLight.valid[g.blockLight.index(3, 57, 1)], 255);
+    return work;
+  };
+  settle();
+  const unlit = g.blockLight.sample(receiver);
+  assert.deepEqual(unlit, [0, 0, 0], "this native receiver is dark before placement");
+  const unlitMesh = g.chunks.get("3,57");
+  assert.ok(unlitMesh?.children.some((child) => child.isMesh));
   assert.equal(world.get(61, 16, 916), BLOCK.AIR);
   assert.equal(world.set(61, 16, 916, BLOCK.TORCH), true);
   visit(deep, true);
-  assert.equal(g.localLights[0].userData.emitter.id, BLOCK.TORCH);
-  assert.ok(g.localLights[0].intensity > 6);
+  const torchMesh = g.chunks.get("3,57");
+  assert.notEqual(torchMesh, unlitMesh, "placement remeshes the actual native chunk");
+  assert.ok(torchMesh?.children.some((child) => child.isMesh));
+  const torchWork = settle();
+  const lit = g.blockLight.sample(receiver);
+  assert.ok(lit[0] > 0.7 && lit[0] > lit[1] && lit[1] > lit[2] && lit[2] > 0,
+    "the placed torch illuminates the adjacent native moss face with warm light");
+  assert.ok(g.localLights.every((light) => light.intensity === 0),
+    "static voxel light comes from the field, not duplicate PointLights");
+  assert.equal(g.daylightMaterial.uniforms.uBlockLightEnabled.value, 1);
+  assert.equal(g.daylightMaterial.uniforms.uBlockLightAtlas.value, g.blockLight.texture);
   assert.equal(g.skyAccess.exposure, 0, "a torch is not an outdoor opening");
   const torchState = state("real-torch");
   g.setFullbrightInspection(true);
   assert.equal(g.atmosphere.inspectionLight.intensity, Math.PI);
   assert.equal(g.daylightMaterial.uniforms.uDaylightEnabled.value, 0);
+  assert.equal(g.daylightMaterial.uniforms.uBlockLightEnabled.value, 0);
+  assert.deepEqual(g.blockLight.sample(receiver), lit, "inspection preserves the natural field");
   assert.ok(g.localLights.every((light) => !light.visible && !light.intensity));
   g.setFullbrightInspection(false);
   assert.equal(g.daylightMaterial.uniforms.uDaylightEnabled.value, 1);
-  assert.equal(g.localLights[0].userData.emitter.id, BLOCK.TORCH);
+  assert.equal(g.daylightMaterial.uniforms.uBlockLightEnabled.value, 1);
+  assert.deepEqual(g.blockLight.sample(receiver), lit, "natural torch light restores without another frame");
   assert.equal(g.atmosphere.hemi.intensity, 0.05);
   assert.equal(world.set(61, 16, 916, BLOCK.AIR), true);
   visit(deep, true);
-  assert.ok(g.localLights.every((light) => light.userData.emitter?.id !== BLOCK.TORCH));
-  t.diagnostic(JSON.stringify({ stations: [outsideState, beforeLabel, afterLabel, entranceState, occludedState, returnState, deepState, torchState], mouthFog, returnFog, admitted }));
+  assert.notEqual(g.chunks.get("3,57"), torchMesh, "removal remeshes the same native chunk");
+  settle();
+  assert.deepEqual(g.blockLight.sample(receiver), unlit, "remeshing after removal restores native darkness");
+  assert.equal(world.get(60, 15, 916), BLOCK.MOSS, "the real receiver geometry is unchanged");
+  t.diagnostic(JSON.stringify({ stations: [outsideState, beforeLabel, afterLabel, entranceState, occludedState, returnState, deepState, torchState], mouthFog, returnFog, admitted, receiver, unlit, lit, torchWork }));
 });
