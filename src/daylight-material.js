@@ -2,6 +2,26 @@ import * as THREE from "three";
 import { UNKNOWN_SKY_HEIGHT } from "./sky-columns.js";
 import { SURFACE_DAYLIGHT_LIMITS } from "./surface-daylight.js";
 
+const sceneDaylight = new WeakMap();
+const installations = new WeakMap();
+let nextBinding = 0;
+
+// Materials may be created lazily (gel), shared by batches, or moved to a
+// replacement world. Resolve the renderer's field at draw time, not creation.
+export function applySceneDaylight(scene, material) {
+  const daylight = sceneDaylight.get(scene);
+  if (daylight) return daylight.install(material);
+  const old = installations.get(material);
+  if (!old) return;
+  // A standalone preview or a disposed scene has no spatial field. Do not
+  // keep sampling textures owned by the previous renderer.
+  old.owner.installed.delete(material);
+  material.onBeforeCompile = old.previous;
+  material.customProgramCacheKey = old.cacheKey;
+  installations.delete(material);
+  material.needsUpdate = true;
+}
+
 /** CPU equivalent of the shader's mask, for focused geometry regressions. */
 export function sampleDaylightAt(columns, point) {
   const x = Math.floor(point.x) - columns.origin.x;
@@ -61,8 +81,11 @@ vec2 daylightMask(vec3 point) {
  * as exterior terrain, irrespective of the camera's cave classification.
  */
 export class DaylightMaterial {
-  constructor(columns) {
+  constructor(columns, scene) {
     this.columns = columns;
+    this.scene = scene;
+    this.binding = ++nextBinding;
+    if (scene) sceneDaylight.set(scene, this);
     this.installed = new WeakSet();
     this.uniforms = {
       uDaylightEnabled: { value: 0 },
@@ -82,15 +105,28 @@ export class DaylightMaterial {
 
   install(material, exterior = false) {
     if (!material?.isMeshLambertMaterial || this.installed.has(material)) return;
+    const existing = installations.get(material);
+    existing?.owner.installed.delete(material);
     this.installed.add(material);
-    const previous = material.onBeforeCompile;
-    const cacheKey = material.customProgramCacheKey.bind(material);
+    // Rebinding retains the original skin/ripple hook, never another daylight
+    // wrapper. A distinct binding key recompiles uniforms for the new owner.
+    const previous = existing?.previous ?? material.onBeforeCompile;
+    const cacheKey = existing?.cacheKey ?? material.customProgramCacheKey.bind(material);
+    installations.set(material, { owner: this, previous, cacheKey });
     material.onBeforeCompile = (shader, renderer) => {
       previous.call(material, shader, renderer);
       Object.assign(shader.uniforms, this.uniforms);
       shader.vertexShader = `varying vec3 vDaylightPosition;\n${shader.vertexShader}`.replace(
         "#include <project_vertex>",
-        "#include <project_vertex>\nvDaylightPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;"
+        `#include <project_vertex>
+        vec4 daylightPosition = vec4(transformed, 1.0);
+        #ifdef USE_BATCHING
+          daylightPosition = batchingMatrix * daylightPosition;
+        #endif
+        #ifdef USE_INSTANCING
+          daylightPosition = instanceMatrix * daylightPosition;
+        #endif
+        vDaylightPosition = (modelMatrix * daylightPosition).xyz;`
       );
       const lights = THREE.ShaderChunk.lights_fragment_begin
         .replace(
@@ -123,8 +159,13 @@ export class DaylightMaterial {
           )
           .replace("#include <fog_fragment>", fog);
     };
-    material.customProgramCacheKey = () => `${cacheKey()}:daylight-1:${Number(exterior)}:surface-atlas-1`;
+    material.customProgramCacheKey = () => `${cacheKey()}:daylight-2:${Number(exterior)}:surface-atlas-1:${this.binding}`;
     material.needsUpdate = true;
+  }
+
+  dispose() {
+    if (this.scene && sceneDaylight.get(this.scene) === this)
+      sceneDaylight.delete(this.scene);
   }
 
   update(atmosphere) {

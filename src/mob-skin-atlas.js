@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { AQUATIC_KINDS, paintAquaticSkinFace } from "./aquatic-skins.js";
+import { applySceneDaylight } from "./daylight-material.js";
 import {
   createMobModel,
   createProjectileModel,
@@ -256,6 +257,9 @@ function createSkinBatch(capacity, atlas, texture, translucent) {
     : "Lit pixel creature skins";
   material.onBeforeCompile = patchMobSkinShader;
   material.customProgramCacheKey = () => "voxelcraft-mob-skin-atlas-v1";
+  material.onBeforeRender = function (_renderer, scene) {
+    applySceneDaylight(scene, this);
+  };
   let disposed = false;
   return {
     atlas,
