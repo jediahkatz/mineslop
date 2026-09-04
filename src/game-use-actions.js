@@ -171,6 +171,15 @@ export class GameUseActions {
           game.ui.toast("Make room for the filled bottle");
         return result.ok === true;
       }
+      // This is a handled planting intent even if its payment is refused.
+      // Stop this gesture on refusal: a later tick must not eat from a changed
+      // hand/target either. A new gesture can deliberately choose food again.
+      if (!game.mobTarget && game.target &&
+          game.settlement?.canPlant(game.world, game.target, game.gameplay, { hand })) {
+        const planted = this.plant(hand, game.target);
+        if (!planted) this.held = false;
+        return planted;
+      }
       if (this.useHand(hand, stack, held)) return true;
     }
     return false;
@@ -260,7 +269,6 @@ export class GameUseActions {
     if (!game.target || game.mobTarget) return false;
     if (stack.id === ITEM.WATER_BUCKET)
       return this.emptyBucket(hand, { stack, handRevision, world, gameplay });
-    if (stack.id === ITEM.SEEDS) return game.plantFromHand(hand, game.target);
     if (stack.id === ITEM.FLINT_AND_STEEL) {
       if (world.coordinator !== gameplay.coordinator) return false;
       const primed =
@@ -300,6 +308,22 @@ export class GameUseActions {
     }
     if (!item.placeable || !BLOCKS[item.id]) return false;
     return this.place(hand, item.id);
+  }
+
+  plant(hand, hit) {
+    const game = this.game;
+    const { world, gameplay, player, settlement } = game;
+    const ok = settlement.plant(world, hit, gameplay, {
+      hand,
+      validate: () => game.active && game.world === world &&
+        game.gameplay === gameplay && game.player === player &&
+        game.settlement === settlement,
+    });
+    return this._observeCommitted({ ok }, [
+      () => game.graphics.rebuildDirty(4),
+      () => game.refreshHud(),
+      () => game.scheduleSave(),
+    ]);
   }
 
   place(hand, id) {

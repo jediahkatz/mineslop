@@ -492,7 +492,7 @@ test("dry crops mature after active time only and mark their block dirty", () =>
 
 test("nearby water accelerates crops while distant water does not", () => {
   const { world, settlement, game, hit } = farmFixture();
-  const dry = { ...hit, x: 20 };
+  const dry = { ...hit, x: 20, id: BLOCK.DIRT };
   world.set(dry.x, dry.y, dry.z, BLOCK.DIRT);
   world.set(hit.x + 4, hit.y, hit.z, BLOCK.WATER);
   settlement.plant(world, hit, game);
@@ -508,7 +508,7 @@ test("only loaded crops in the current dimension accumulate growth", () => {
   for (const dimension of ["overworld", "nether", "end"]) {
     world.dimension = dimension;
     world.set(hit.x, hit.y, hit.z, BLOCK.DIRT);
-    settlement.plant(world, hit, game);
+    settlement.plant(world, { ...hit, id: BLOCK.DIRT, dimension }, game);
   }
   world.dimension = "overworld";
   world.unloaded.add(world.column(hit.x, hit.z));
@@ -530,25 +530,28 @@ test("only loaded crops in the current dimension accumulate growth", () => {
   );
 });
 
-test("removed crops and unsupported farmland do not regrow or overwrite replacement blocks", () => {
+test("removed crops and unsupported farmland retain ownership until a paid harvest", () => {
   const { world, settlement, game, hit } = farmFixture();
   settlement.plant(world, hit, game);
   world.set(hit.x, hit.y + 1, hit.z, BLOCK.STONE);
   settlement.update(CROP_GROW_SECONDS, world);
-  assert.equal(settlement.crops.size, 0);
+  assert.equal(settlement.crops.size, 1);
   assert.equal(world.get(hit.x, hit.y + 1, hit.z), BLOCK.STONE);
   world.set(hit.x, hit.y + 1, hit.z, BLOCK.AIR);
-  settlement.plant(world, hit, game);
+  assert.equal(settlement.harvestCrop(world, cropHit(hit, BLOCK.TALL_GRASS), game), true);
+  settlement.plant(world, { ...hit, id: BLOCK.FARMLAND }, game);
   world.set(hit.x, hit.y, hit.z, BLOCK.DIRT);
   settlement.update(1, world);
-  assert.equal(settlement.crops.size, 0);
+  assert.equal(settlement.crops.size, 1);
+  assert.equal(world.get(hit.x, hit.y + 1, hit.z), BLOCK.TALL_GRASS);
+  assert.equal(settlement.harvestCrop(world, cropHit(hit, BLOCK.TALL_GRASS), game), true);
   assert.equal(world.get(hit.x, hit.y + 1, hit.z), BLOCK.AIR);
 });
 
 test("immature and mature harvests pay out exactly once without editing the already-cleared block", () => {
   const { world, settlement, game, hit } = farmFixture();
   for (const mature of [false, true]) {
-    settlement.plant(world, hit, game);
+    settlement.plant(world, { ...hit, id: world.get(hit.x, hit.y, hit.z) }, game);
     if (mature) settlement.update(CROP_GROW_SECONDS, world);
     const target = cropHit(hit, mature ? BLOCK.WHEAT_CROP : BLOCK.TALL_GRASS);
     world.set(target.x, target.y, target.z, BLOCK.AIR);

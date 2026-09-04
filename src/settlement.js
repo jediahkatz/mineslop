@@ -12,6 +12,10 @@ import {
 } from "./container-slots.js";
 import { matchesIngredient } from "./crafting.js";
 import {
+  acceptsCropSoil, cropBlock, cropDrops, cropRule, cropSpeciesForItem,
+  CROP_RECORD_VERSION, CROP_SPECIES,
+} from "./crop-rules.js";
+import {
   advanceFurnace,
   cloneFurnace,
   createFurnace,
@@ -19,7 +23,7 @@ import {
 } from "./furnace.js";
 import { isSupportedGeneratorVersion } from "./generator-version.js";
 import { cloneSlots, insertStack, takeStack } from "./inventory-slots.js";
-import { getItem, ITEM } from "./items.js";
+import { getItem } from "./items.js";
 import { prepareCropBatch } from "./settlement-crop-batch.js";
 import {
   captureStationRead,
@@ -50,8 +54,6 @@ import { createWorldContext, DIMENSIONS } from "./world-spec.js";
 export { CHEST_SLOTS, CROP_GROW_SECONDS, SETTLEMENT_VERSION };
 export { normalizeSettlementSnapshot } from "./settlement-state.js";
 
-const SOILS = new Set([BLOCK.GRASS, BLOCK.DIRT, BLOCK.FARMLAND]);
-const CROP_BLOCKS = new Set([BLOCK.TALL_GRASS, BLOCK.WHEAT_CROP]);
 const CONTAINER_BLOCKS = new Map([
   [BLOCK.CHEST, "chest"],
   [BLOCK.FURNACE, "furnace"],
@@ -618,18 +620,45 @@ export class Settlement {
     );
   }
 
-  /** Creative requires plain seeds in the requested hand but never spends them. */
+  /** Pure targeting gate: failed valid-target transactions must not eat carrots. */
+  canPlant(world, hit, gameplay, { hand = "main" } = {}) {
+    if (!this._hitKey(world, hit) || !this._matchesGameplay(world, gameplay) ||
+        !["main", "offhand"].includes(hand)) return false;
+    const stack = gameplay.getHandStack?.(hand);
+    const species = cropSpeciesForItem(stack?.id);
+    if (!species || !matchesIngredient(stack, { id: CROP_SPECIES[species].item }))
+      return false;
+    const { x, y, z } = hit;
+    if (!settlementPositionValid(world.dimension, x, y + 1, z, this.context, true))
+      return false;
+    const soil = captureStationRead(world, x, y, z);
+    const target = captureStationRead(world, x, y + 1, z);
+    const key = stationKey(world.dimension, x, y + 1, z);
+    return Boolean(soil && target &&
+      (hit.id === undefined || hit.id === soil.before.id) &&
+      (hit.state === undefined || hit.state === soil.before.state) &&
+      (hit.fluid === undefined || hit.fluid === soil.before.fluid) &&
+      acceptsCropSoil(species, soil.before.id) &&
+      target.before.id === BLOCK.AIR && !target.before.fluid &&
+      !STATION_KINDS.some((kind) => this._store(kind).has(key)));
+  }
+
+  /** Creative requires the requested plain planting item but never spends it. */
   plant(world, hit, gameplay, options = {}) {
-    if (!isRecord(options)) return false;
+    if (!isRecord(options) ||
+        (options.validate !== undefined && !synchronousStationCallback(options.validate)))
+      return false;
     const plan = this._prepare(() => {
       const { hand = "main" } = options;
       if (
-        !this._hitKey(world, hit) ||
-        !this._matchesGameplay(world, gameplay) ||
-        !["main", "offhand"].includes(hand) ||
-        !matchesIngredient(gameplay.getHandStack?.(hand), { id: ITEM.SEEDS })
+        !this.canPlant(world, hit, gameplay, { hand })
       )
         return null;
+      const species = cropSpeciesForItem(gameplay.getHandStack(hand).id);
+      const rule = CROP_SPECIES[species];
+      const mode = gameplay.mode;
+      const selected = gameplay.selected;
+      const handRevision = gameplay.getHandRevision?.(hand);
       const context = this.context ?? createWorldContext(world);
       const { x, y, z } = hit;
       if (!settlementPositionValid(world.dimension, x, y + 1, z, context, true))
@@ -640,7 +669,7 @@ export class Settlement {
       if (
         !soil ||
         !target ||
-        !SOILS.has(soil.before.id) ||
+        !acceptsCropSoil(species, soil.before.id) ||
         target.before.id !== BLOCK.AIR ||
         STATION_KINDS.some((kind) => this._store(kind).has(key))
       )
@@ -651,10 +680,10 @@ export class Settlement {
           y: y + 1,
           z,
           before: target.before,
-          after: normalizeCell({ id: BLOCK.TALL_GRASS }),
+          after: normalizeCell({ id: rule.young }),
         },
       ];
-      if (soil.before.id !== BLOCK.FARMLAND)
+      if (species === "wheat" && soil.before.id !== BLOCK.FARMLAND)
         changes.push({
           x,
           y,
@@ -666,9 +695,6 @@ export class Settlement {
         reads: [{ x, y, z, before: soil.before }],
       });
       if (!mutation) return null;
-      const mode = gameplay.mode;
-      const selected = gameplay.selected;
-      const handRevision = gameplay.getHandRevision?.(hand);
       return this._ownershipPlan(
         gameplay,
         (owned) => {
@@ -676,7 +702,7 @@ export class Settlement {
           const index = hand === "offhand" ? 0 : selected;
           if (
             (mode !== "creative" || hand === "offhand") &&
-            !matchesIngredient(slots[index], { id: ITEM.SEEDS })
+            !matchesIngredient(slots[index], { id: rule.item })
           )
             return failure();
           if (mode !== "creative") {
@@ -691,7 +717,8 @@ export class Settlement {
               {
                 kind: "crop",
                 key,
-                next: { dimension: world.dimension, x, y: y + 1, z, age: 0 },
+                next: { dimension: world.dimension, x, y: y + 1, z, age: 0,
+                  version: CROP_RECORD_VERSION, species },
               },
             ],
             {
@@ -701,6 +728,8 @@ export class Settlement {
               validate: () =>
                 soil.validate() &&
                 target.validate() &&
+                this._matchesGameplay(world, gameplay) &&
+                (options.validate === undefined || options.validate() === true) &&
                 gameplay.mode === mode &&
                 gameplay.selected === selected &&
                 gameplay.getHandRevision?.(hand) === handRevision,
@@ -745,44 +774,35 @@ export class Settlement {
       }
       for (const [key, crop] of this.crops) {
         if (crop.dimension !== world.dimension) continue;
+        const rule = cropRule(crop);
+        if (!rule) continue;
         const { x, y, z } = crop;
         const read = captureStationRead(world, x, y, z);
         const soil = captureStationRead(world, x, y - 1, z);
         if (!read || !soil) continue;
         const block = read.before.id;
-        const supported = soil.before.id === BLOCK.FARMLAND;
-        if (!CROP_BLOCKS.has(block) || !supported) {
-          records.push({ kind: "crop", key, next: null });
-          reads.push(read, soil);
-          if (!supported && CROP_BLOCKS.has(block))
-            changes.push({
-              x,
-              y,
-              z,
-              before: read.before,
-              after: cellAfterBreaking(read.before),
-            });
-          continue;
-        }
-        if (crop.age >= CROP_GROW_SECONDS) continue;
+        // Removal must include a retained reward destination. The growth tick
+        // cannot destroy an unsupported plant or silently forget its ownership.
+        if (block !== cropBlock(crop) || soil.before.id !== rule.soil) continue;
+        if (crop.age >= rule.maxAge) continue;
         let hydration = this._water.get(key);
-        if (!hydration || hydration.until <= clock) {
+        if (rule.hydrated && (!hydration || hydration.until <= clock)) {
           hydration = { wet: hasWater(world, crop), until: clock + 1 };
           water.push([key, hydration]);
         }
         let age = Math.min(
-          CROP_GROW_SECONDS,
-          crop.age + cropDt * (hydration.wet ? 1.5 : 1)
+          rule.maxAge,
+          crop.age + cropDt * (rule.hydrated && hydration?.wet ? 1.5 : 1)
         );
-        if (age >= CROP_GROW_SECONDS - 1e-8) {
-          age = CROP_GROW_SECONDS;
-          if (block !== BLOCK.WHEAT_CROP)
+        if (age >= rule.maxAge - 1e-8) {
+          age = rule.maxAge;
+          if (block !== rule.mature)
             changes.push({
               x,
               y,
               z,
               before: read.before,
-              after: normalizeCell({ id: BLOCK.WHEAT_CROP }),
+              after: normalizeCell({ id: rule.mature }),
             });
         }
         records.push({
@@ -836,8 +856,8 @@ export class Settlement {
         !crop ||
         !read ||
         !this._matchesGameplay(world, gameplay) ||
-        (hit.id !== undefined && !CROP_BLOCKS.has(hit.id)) ||
-        (read.before.id !== BLOCK.AIR && !CROP_BLOCKS.has(read.before.id))
+        (hit.id !== undefined && hit.id !== cropBlock(crop)) ||
+        (read.before.id !== BLOCK.AIR && read.before.id !== cropBlock(crop))
       )
         return null;
       const context = this.context ?? createWorldContext(world);
@@ -862,12 +882,7 @@ export class Settlement {
           const drops =
             mode === "creative"
               ? []
-              : crop.age >= CROP_GROW_SECONDS
-                ? [
-                    { id: ITEM.WHEAT, count: 2 },
-                    { id: ITEM.SEEDS, count: 1 },
-                  ]
-                : [{ id: ITEM.SEEDS, count: 1 }];
+              : cropDrops(crop);
           return {
             ok: true,
             drops: drops

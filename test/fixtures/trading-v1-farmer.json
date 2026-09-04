@@ -1,0 +1,95 @@
+{
+  "sourceCommit": "e2c34b1feebc8574d0cb5db1a1f1a2cfbe5ab53f",
+  "archive": {
+    "version": 3,
+    "world": {
+      "version": 3,
+      "generatorVersion": 4,
+      "seed": "legacy-carrot-catalog",
+      "dimension": "overworld",
+      "edits": []
+    },
+    "progression": {
+      "version": 1,
+      "stations": {
+        "version": 1,
+        "seed": "legacy-carrot-catalog",
+        "generatorVersion": 4,
+        "player": { "version": 1, "seed": 3164771365 },
+        "randomState": 927523081,
+        "stations": []
+      },
+      "statusEffects": { "version": 1, "tickRemainder": 0, "effects": [] },
+      "trading": {
+        "version": 1,
+        "seed": "legacy-carrot-catalog",
+        "generatorVersion": 4,
+        "npcs": [
+          {
+            "id": "fixture:village/npc/old-farmer",
+            "profession": "farmer",
+            "locked": true,
+            "xp": 8,
+            "offerVersion": 1,
+            "offers": [
+              {
+                "id": "farmer/wheat", "level": 1,
+                "inputs": [{ "id": 287, "count": 20 }],
+                "output": { "id": 307, "count": 1 },
+                "maxUses": 16, "uses": 0, "xp": 2, "playerXp": 3
+              },
+              {
+                "id": "farmer/bread", "level": 1,
+                "inputs": [{ "id": 307, "count": 1 }],
+                "output": { "id": 286, "count": 6 },
+                "maxUses": 16, "uses": 2, "xp": 1, "playerXp": 3
+              },
+              {
+                "id": "farmer/pumpkin", "level": 2,
+                "inputs": [{ "id": 91, "count": 6 }],
+                "output": { "id": 307, "count": 1 },
+                "maxUses": 12, "uses": 0, "xp": 10, "playerXp": 3
+              },
+              {
+                "id": "farmer/melon", "level": 3,
+                "inputs": [{ "id": 90, "count": 4 }],
+                "output": { "id": 307, "count": 1 },
+                "maxUses": 12, "uses": 0, "xp": 20, "playerXp": 3
+              },
+              {
+                "id": "farmer/apples", "level": 4,
+                "inputs": [{ "id": 307, "count": 1 }],
+                "output": { "id": 285, "count": 4 },
+                "maxUses": 16, "uses": 0, "xp": 15, "playerXp": 3
+              },
+              {
+                "id": "farmer/golden-carrot", "level": 5,
+                "inputs": [{ "id": 307, "count": 3 }],
+                "output": { "id": 65583, "count": 3 },
+                "maxUses": 12, "uses": 0, "xp": 30, "playerXp": 3
+              }
+            ],
+            "jobsite": {
+              "id": "fixture:village/jobsite/old-farmer",
+              "kind": "COMPOSTER",
+              "dimension": "overworld",
+              "position": { "x": 8, "y": 64, "z": 8 }
+            },
+            "clock": { "day": 3, "time": 6000 },
+            "restocks": 1,
+            "lastRestockTime": 4000
+          }
+        ]
+      },
+      "potionProjectiles": {
+        "version": 1,
+        "seed": "legacy-carrot-catalog",
+        "generatorVersion": 4,
+        "ownerId": "local-player",
+        "nextId": 1,
+        "accumulator": 0,
+        "projectiles": []
+      }
+    }
+  }
+}

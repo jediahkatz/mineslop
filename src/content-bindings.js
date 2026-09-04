@@ -146,7 +146,7 @@ export const CONTENT_ACQUISITION_HOOKS = Object.freeze(
       ],
       [
         "CARROT",
-        "initial village farm crop/loot, then mature CARROT_CROP",
+        "finite novice farmer offer (1 emerald for 2), then mature CARROT_CROP",
         "renewable farming and golden carrots",
       ],
       [

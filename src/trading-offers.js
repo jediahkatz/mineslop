@@ -14,7 +14,9 @@ import {
   requireProgressionItems,
 } from "./progression-items.js";
 
-export const TRADE_OFFER_VERSION = 1;
+export const TRADE_OFFER_VERSION = 2;
+// Catalog additions do not reroll historical offer prices/enchantment choices.
+const TRADE_RANDOM_VERSION = 1;
 export const MAX_TRADE_OFFERS = 12;
 export const MAX_TRADE_USES = 64;
 export const MAX_TRADER_XP = 2_147_483_647;
@@ -51,7 +53,7 @@ const book = (id, level, price, xp, choices) => offer(
  * experimental biome-restricted librarian rebalance. Tables/price choices are
  * frozen at admission, including later-level offers; reopening never samples.
  */
-export const TRADE_TEMPLATES = freezeProgressData({
+const LEGACY_TRADE_TEMPLATES = freezeProgressData({
   farmer: [
     buy("wheat", 1, "WHEAT", 20),
     sell("bread", 1, "BREAD", 6, [1, 1], 1, 16),
@@ -116,6 +118,21 @@ export const TRADE_TEMPLATES = freezeProgressData({
     ]),
   ],
 });
+
+export const TRADE_TEMPLATES = freezeProgressData({
+  ...LEGACY_TRADE_TEMPLATES,
+  farmer: [
+    ...LEGACY_TRADE_TEMPLATES.farmer.slice(0, 2),
+    sell("planting-carrots", 1, "CARROT", 2, [1, 1], 1, 4),
+    ...LEGACY_TRADE_TEMPLATES.farmer.slice(2),
+  ],
+});
+
+function templatesForVersion(version) {
+  if (version === 1) return LEGACY_TRADE_TEMPLATES;
+  if (version === TRADE_OFFER_VERSION) return TRADE_TEMPLATES;
+  throw new RangeError("Unsupported trade offer catalog");
+}
 
 export function traderLevel(xp) {
   if (!Number.isSafeInteger(xp) || xp < 0 || xp > MAX_TRADER_XP)
@@ -215,15 +232,16 @@ export function normalizeTradeOffer(value, context) {
 }
 
 /** All choices are keyed by NPC + profession + offer identity, not list position. */
-export function generateTraderOffers(npcId, profession, context) {
+export function generateTraderOffers(npcId, profession, context, offerVersion = TRADE_OFFER_VERSION) {
+  const templates = templatesForVersion(offerVersion);
   context = normalizeProgressionContext(context);
   progressId(npcId);
   const symbols = tradeItemSymbols(profession);
   requireProgressionItems(symbols);
   if (!TRADING_PROFESSIONS.includes(profession)) return [];
-  return TRADE_TEMPLATES[profession].map((definition) => {
+  return templates[profession].map((definition) => {
     const random = progressionRandom(JSON.stringify([
-      "trades", TRADE_OFFER_VERSION, context.seed, context.generatorVersion,
+      "trades", TRADE_RANDOM_VERSION, context.seed, context.generatorVersion,
       npcId, profession, definition.id,
     ]));
     const resolve = ({ symbol, count }, data) => progressionStack(

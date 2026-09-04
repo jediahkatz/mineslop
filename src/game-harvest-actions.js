@@ -144,7 +144,7 @@ export class GameHarvestActions {
       ? null
       : gameplay.prepareHarvest(hit.id, lootOptions);
     if (!explosion && !harvest) return null;
-    const drops = explosion
+    let drops = explosion
       ? harvestDrops(hit.id, {
           ...lootOptions,
           mode,
@@ -200,16 +200,35 @@ export class GameHarvestActions {
         },
       }, scope);
     }
+    const changes = linked?.changes ?? [
+      {
+        x: hit.x,
+        y: hit.y,
+        z: hit.z,
+        before,
+        after: cellAfterBreaking(before),
+      },
+    ];
+    // Soil and its owned crop are one paid removal, including explosions.
+    // A failed destination reservation preserves both cells and the crop record.
+    const above = { x: hit.x, y: hit.y + 1, z: hit.z };
+    if (!linked && settlement.hasCrop(world, above)) {
+      const cropBefore = world.getCell(above.x, above.y, above.z);
+      const crops =
+        cropBefore &&
+        settlement.prepareRemoveCrops(world, [{ ...above, before: cropBefore }]);
+      if (!crops) return null;
+      participants.push(crops.participant);
+      changes.push({
+        ...above,
+        before: cropBefore,
+        after: cellAfterBreaking(cropBefore),
+      });
+      if (mode !== "creative")
+        drops = [...drops, ...crops.drops.map(({ stack }) => ({ ...stack }))];
+    }
     const mutation = world.prepareMutation(
-      linked?.changes ?? [
-        {
-          x: hit.x,
-          y: hit.y,
-          z: hit.z,
-          before,
-          after: cellAfterBreaking(before),
-        },
-      ],
+      changes,
       { reads: linked?.reads ?? [] }
     );
     if (!mutation) return null;

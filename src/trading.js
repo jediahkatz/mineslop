@@ -238,6 +238,7 @@ export class Trading {
       const next = {
         ...structuredClone(previous), ...calendar, profession,
         jobsite: normalizeTraderJobsite(jobsite, profession, this.context),
+        offerVersion: profession === previous.profession ? previous.offerVersion : TRADE_OFFER_VERSION,
         offers: profession === previous.profession ? structuredClone(previous.offers) :
           generateTraderOffers(id, profession, this.context),
       };

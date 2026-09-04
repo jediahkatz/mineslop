@@ -1,9 +1,7 @@
-import { BLOCK } from "./blocks.js";
 import { cellsEqual, normalizeCell } from "./block-state.js";
-import { ITEM } from "./items.js";
+import { cropBlock, cropDrops, cropRule, validCrop } from "./crop-rules.js";
 import {
   captureStationRead,
-  CROP_GROW_SECONDS,
   isRecord,
   settlementPositionValid,
   stationKey,
@@ -132,19 +130,18 @@ export function prepareCropBatch(settlement, world, plants) {
       seen.add(key);
       // Canonical owned crops contain frozen data properties, not accessors.
       const age = Object.getOwnPropertyDescriptor(crop, "age")?.value;
+      const rule = cropRule(crop);
       if (
+        !validCrop(crop) ||
         !Number.isFinite(age) ||
-        age < 0 ||
-        age > CROP_GROW_SECONDS ||
         Object.entries({ dimension, x, y, z }).some(
           ([field, value]) =>
             Object.getOwnPropertyDescriptor(crop, field)?.value !== value
         )
       )
         return null;
-      const mature = age === CROP_GROW_SECONDS;
       const expected = normalizeCell(plant.before);
-      if (expected.id !== (mature ? BLOCK.WHEAT_CROP : BLOCK.TALL_GRASS))
+      if (expected.id !== cropBlock(crop))
         return null;
       const chunk = chunks.get(
         `${Math.floor(x / CHUNK_SIZE)},${Math.floor(z / CHUNK_SIZE)}`
@@ -164,7 +161,7 @@ export function prepareCropBatch(settlement, world, plants) {
         !read ||
         !soil ||
         !cellsEqual(read.before, expected) ||
-        soil.before.id !== BLOCK.FARMLAND ||
+        soil.before.id !== rule.soil ||
         bytes !== stationRecordBytes("crop", key, crop)
       )
         return null;
@@ -172,12 +169,7 @@ export function prepareCropBatch(settlement, world, plants) {
       reads.push(read, soil);
       ownership.push({ key, crop, bytes });
       // Match prepareHarvestCrop's physical (non-Creative) yields.
-      const stacks = mature
-        ? [
-            { id: ITEM.WHEAT, count: 2 },
-            { id: ITEM.SEEDS, count: 1 },
-          ]
-        : [{ id: ITEM.SEEDS, count: 1 }];
+      const stacks = cropDrops(crop);
       for (const stack of stacks)
         drops.push(Object.freeze({ x, y, z, stack: Object.freeze(stack) }));
     }

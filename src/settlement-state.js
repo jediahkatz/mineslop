@@ -5,6 +5,7 @@ import {
   validSlotArray,
 } from "./container-slots.js";
 import { cloneFurnace, isValidFurnace } from "./furnace.js";
+import { CROP_RECORD_VERSION, validCrop } from "./crop-rules.js";
 import { hasExpandedTerrain } from "./generator-version.js";
 import { cloneSlots } from "./inventory-slots.js";
 import { RECIPES } from "./recipes.js";
@@ -17,8 +18,8 @@ import {
   inWorldBounds,
 } from "./world-spec.js";
 
-export const SETTLEMENT_VERSION = 3;
-export const CROP_GROW_SECONDS = 45;
+export const SETTLEMENT_VERSION = 4;
+export { CROP_GROW_SECONDS } from "./crop-rules.js";
 export const MAX_SETTLEMENT_ENTRIES = 16384;
 export const STATION_KINDS = Object.freeze(["chest", "furnace", "crop"]);
 export const stationKey = (dimension, x, y, z) => `${dimension}:${x},${y},${z}`;
@@ -75,8 +76,9 @@ export function settlementPositionValid(
 export function cloneStationRecord(kind, value, context) {
   if (kind === "chest") return cloneSlots(value, context);
   if (kind === "furnace") return cloneFurnace(value, context);
-  const { dimension, x, y, z, age } = value;
-  return { dimension, x, y, z, age };
+  if (!validCrop(value)) throw new RangeError("Invalid crop record");
+  const { dimension, x, y, z, age, version, species } = value;
+  return { dimension, x, y, z, age, version, species };
 }
 
 function freezeData(value) {
@@ -116,7 +118,9 @@ const CROP_PROGRESS_BYTES = ',"age":'.length + NUMBER_BYTES;
 /** Includes one array separator; the owner subtracts each nonempty array's last. */
 export function stationRecordBytes(kind, key, value) {
   const position = stationPosition(key);
-  if (kind === "crop") return encodedBytes(position) + CROP_PROGRESS_BYTES + 1;
+  if (kind === "crop")
+    return encodedBytes({ ...position, version: value.version, species: value.species }) +
+      CROP_PROGRESS_BYTES + 1;
   return (
     encodedBytes({
       ...position,
@@ -164,7 +168,7 @@ export function normalizeSettlementSnapshot(data, context) {
     context = normalizeSettlementContext(context);
     if (
       !isRecord(data) ||
-      ![1, 2, SETTLEMENT_VERSION].includes(data.version) ||
+      ![1, 2, 3, SETTLEMENT_VERSION].includes(data.version) ||
       !Array.isArray(data.chests) ||
       !Array.isArray(data.crops) ||
       data.chests.length > MAX_SETTLEMENT_ENTRIES ||
@@ -213,14 +217,21 @@ export function normalizeSettlementSnapshot(data, context) {
     }
     for (const crop of data.crops) {
       const at = position(crop, true);
+      const legacy = data.version < SETTLEMENT_VERSION;
+      const fields = ["dimension", "x", "y", "z", "age",
+        ...(legacy ? [] : ["version", "species"])];
+      const next = {
+        ...at, age: crop.age,
+        version: legacy ? CROP_RECORD_VERSION : crop.version,
+        species: legacy ? "wheat" : crop.species,
+      };
       if (
         !at ||
-        !Number.isFinite(crop.age) ||
-        crop.age < 0 ||
-        crop.age > CROP_GROW_SECONDS
+        Object.keys(crop).some((field) => !fields.includes(field)) ||
+        !validCrop(next)
       )
         return null;
-      crops.push({ ...at, age: crop.age });
+      crops.push(next);
     }
     return { version: SETTLEMENT_VERSION, chests, furnaces, crops };
   } catch {

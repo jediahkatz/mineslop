@@ -79,9 +79,10 @@ function savedStations(context, version = 3) {
 test("contextual v3 stations use each dimension's signed build bounds and preserve real sparse IDs", () => {
   const context = contextFor(4);
   const saved = savedStations(context);
+  const migrated = normalizeSettlementSnapshot(saved, context);
   const settlement = new Settlement({ context });
   assert.equal(settlement.load(saved, { context }), true);
-  assert.deepEqual(settlement.serialize(), saved);
+  assert.deepEqual(settlement.serialize(), migrated);
   assert.deepEqual(
     saved.chests.map(({ dimension, y }) => [dimension, y]),
     [
@@ -103,11 +104,11 @@ test("contextual v3 stations use each dimension's signed build bounds and preser
     restored.load(JSON.parse(JSON.stringify(settlement.serialize()))),
     true
   );
-  assert.deepEqual(restored.serialize(), saved);
+  assert.deepEqual(restored.serialize(), migrated);
   const detached = restored.serialize();
   detached.chests[0].slots[0].data.enchantments.efficiency = 1;
   detached.furnaces[0].slots[2].data.name = "Not the stored output";
-  assert.deepEqual(restored.serialize(), saved);
+  assert.deepEqual(restored.serialize(), migrated);
   saved.chests[0].slots[0].durability = 1;
   saved.chests[0].slots[0].data.name = "Changed input";
   assert.deepEqual(restored.serialize().chests[0].slots[0], tool());
@@ -120,7 +121,7 @@ test("all historical generators retain their bottom-layer and height restriction
     const valid = savedStations(context, 2);
     assert.equal(settlement.load(valid), true);
     const before = settlement.serialize();
-    assert.equal(before.version, 3);
+    assert.equal(before.version, 4);
     for (const dimension of DIMENSIONS) {
       for (const y of [-64, -1, 0, 96, 255]) {
         const invalid = structuredClone(valid);
@@ -198,7 +199,7 @@ test("the pure v3 normalizer detaches records and rejects invalid metadata witho
   const context = contextFor(3);
   const saved = savedStations(context, 2);
   const normalized = normalizeSettlementSnapshot(saved, context);
-  assert.equal(normalized.version, 3);
+  assert.equal(normalized.version, 4);
   assert.deepEqual(normalized.chests[0].slots[0], tool());
   normalized.chests[0].slots[0].data.enchantments.efficiency = 1;
   assert.equal(saved.chests[0].slots[0].data.enchantments.efficiency, 3);
@@ -363,7 +364,7 @@ test("validated over-budget loads retain everything, allow bounded progress, and
   assert.equal(f.settlement.load(saved), false);
   assert.deepEqual(f.settlement.serialize(), before);
   assert.equal(f.settlement.load(saved, { allowOverBudget: true }), true);
-  assert.deepEqual(f.settlement.serialize(), saved);
+  assert.deepEqual(f.settlement.serialize(), normalizeSettlementSnapshot(saved));
   assert.ok(f.coordinator.budget.totalBytes > MAX_RESERVED_BYTES);
   const bytes = f.settlement.reservedBytes;
   assert.equal(f.settlement.update(0.25, f.world), true);
