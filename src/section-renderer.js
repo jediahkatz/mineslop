@@ -121,9 +121,15 @@ export function sectionColumnCovered(group) {
 
 function queue(renderer, limits) {
   const world = renderer.world;
-  const xs = Math.floor(renderer.camera.position.x / CHUNK_SIZE);
-  const zs = Math.floor(renderer.camera.position.z / CHUNK_SIZE);
-  const ys = Math.floor(renderer.camera.position.y / 16);
+  const camera = renderer.camera;
+  const xs = Math.floor(camera.position.x / CHUNK_SIZE);
+  const zs = Math.floor(camera.position.z / CHUNK_SIZE);
+  const ys = Math.floor(camera.position.y / 16);
+  camera.updateMatrixWorld();
+  const frustum = new THREE.Frustum().setFromProjectionMatrix(
+    new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
+  );
+  const bounds = new THREE.Box3();
   const required = sectionYs(world);
   const pending = [];
   for (const [key, chunk] of world.chunks) {
@@ -141,6 +147,12 @@ function queue(renderer, limits) {
         ticket === undefined
       )
         continue;
+      // Column-first ordering can spend the whole budget on a 384-block
+      // vertical stack while an adjacent, visible surface has no geometry.
+      // Include the shape apron in this priority bound; this does not cull
+      // geometry, discard pending work or change any per-frame mesh limit.
+      bounds.min.set(cx * CHUNK_SIZE - 2, sy * 16 - 2, cz * CHUNK_SIZE - 2);
+      bounds.max.set((cx + 1) * CHUNK_SIZE + 2, (sy + 1) * 16 + 2, (cz + 1) * CHUNK_SIZE + 2);
       pending.push({
         key: sectionKey,
         columnKey: key,
@@ -148,6 +160,8 @@ function queue(renderer, limits) {
         cz,
         sy,
         missing: !old,
+        inView: frustum.intersectsBox(bounds),
+        viewDistance: bounds.distanceToPoint(camera.position),
         distance: (cx - xs) ** 2 + (cz - zs) ** 2,
         heightDistance: Math.abs(sy - ys),
         token: [
@@ -168,6 +182,8 @@ function queue(renderer, limits) {
   return pending.sort(
     (a, b) =>
       Number(b.missing) - Number(a.missing) ||
+      Number(b.inView) - Number(a.inView) ||
+      a.viewDistance - b.viewDistance ||
       a.distance - b.distance ||
       a.heightDistance - b.heightDistance
   );
