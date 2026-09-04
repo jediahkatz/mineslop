@@ -1400,8 +1400,8 @@ export class VoxelGame {
 
   resetSwimmingPresentation() {
     const state = this.swimmingObservation(false);
-    this.playerVisual?.update(0, { perspective: "first" });
-    this.effects?.update(0, this.elapsed, false, false, null, state);
+    this.playerVisual?.update?.(0, { perspective: "first" });
+    this.effects?.update?.(0, this.elapsed, false, false, null, state);
   }
 
   frame(now) {
