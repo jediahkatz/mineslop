@@ -225,7 +225,8 @@ function fight(mob, dt, ctx, distance, toward, lineOfSight) {
   }
   if (distance <= spec.reach && verticalDistance < 1.7 && lineOfSight) {
     if (mob.kind === "enderman") resetEndermanPursuit(mob);
-    if (mob.attackCooldown <= 0) {
+    if (mob.attackCooldown <= 0 &&
+      (mob.kind !== "enderman" || (mob.restoreAttackCooldown ?? 0) <= 0)) {
       mob.attackCooldown = spec.cooldown;
       ctx.damagePlayer(spec.damage, spec.name, mob);
     }
@@ -280,6 +281,8 @@ export function stepMob(mob, dt, ctx) {
   // The owner decides dormancy/removal. AI never reads or searches missing
   // columns, and never relocates a retained horse to simulate wolf following.
   if (!footprintLoaded(ctx.world, mob.position.x, mob.position.z, spec.radius)) return;
+  if (mob.kind === "enderman")
+    mob.restoreAttackCooldown = Math.max(0, (mob.restoreAttackCooldown ?? 0) - dt);
   for (const key of [
     "attackCooldown",
     "fleeTime",

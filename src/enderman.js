@@ -21,6 +21,7 @@ export const createEndermanRuntime = () => ({
   pursuitTime: 0,
   blockedTime: 0,
   waterDamageCooldown: 0,
+  restoreAttackCooldown: 0,
 });
 
 export function resetEndermanPursuit(mob) {
@@ -39,7 +40,9 @@ export function restoreEndermanRuntime(mob) {
   Object.assign(mob, createEndermanRuntime());
   mob.lookTimer = mob.hitFlash = 0;
   mob.teleportCooldown = ENDERMAN_LIMITS.teleportCooldown;
-  mob.attackCooldown = Math.max(mob.attackCooldown, ENDERMAN_LIMITS.recovery);
+  // Detached adoption must preserve the canonical saved base exactly.
+  // Post-load melee safety is runtime-only, independent of the saved cooldown.
+  mob.restoreAttackCooldown = ENDERMAN_LIMITS.recovery;
 }
 
 /** Final destination guard, shared by every Enderman relocation reason. */

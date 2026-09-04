@@ -386,7 +386,7 @@ test("Enderman save/load preserves anger and pose but safely resets pending runt
     });
     const original = f.mob;
     const saved = f.wildlife.serialize();
-    for (const field of ["pursuitTime", "blockedTime", "lookTimer", "waterDamageCooldown", "teleportCooldown"])
+    for (const field of ["pursuitTime", "blockedTime", "lookTimer", "waterDamageCooldown", "teleportCooldown", "restoreAttackCooldown"])
       assert.equal(Object.hasOwn(saved.entities[0], field), false, "no save schema changes");
     assert.equal(f.wildlife.load(saved), true);
     f.mob = f.wildlife.byId.get(original.id);
@@ -402,7 +402,9 @@ test("Enderman save/load preserves anger and pose but safely resets pending runt
     assert.equal(f.mob.blockedTime, 0);
     assert.equal(f.mob.waterDamageCooldown, 0);
     assert.equal(f.mob.teleportCooldown, ENDERMAN_LIMITS.teleportCooldown);
-    assert.equal(f.mob.attackCooldown, ENDERMAN_LIMITS.recovery);
+    assert.equal(f.mob.attackCooldown, 0);
+    assert.equal(f.mob.restoreAttackCooldown, ENDERMAN_LIMITS.recovery);
+    assert.deepEqual(f.wildlife.serialize(), saved);
     const events = relocations(f);
     steps(f, 6, { gaze: false });
     assert.equal(f.attacks.length, 0);
