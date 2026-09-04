@@ -21,6 +21,16 @@ import {
 } from "./structure-placement.js";
 import { CHUNK_SIZE } from "./terrain.js";
 import { describeV5Structure } from "./terrain-v5-manifest.js";
+import { describeV6Structure } from "./terrain-v6-manifest.js";
+
+function describeCanonicalStructure(version, kind, terrain, gx, gz) {
+  switch (version) {
+    case 4: return describeStructure(kind, terrain, gx, gz);
+    case 5: return describeV5Structure(kind, terrain, gx, gz);
+    case 6: return describeV6Structure(kind, { ...terrain, generatorVersion: 6 }, gx, gz);
+    default: throw new RangeError("Unsupported native structure generator version");
+  }
+}
 
 const DESCRIPTOR_FIELDS = [
   "id",
@@ -127,9 +137,7 @@ function canonicalColumnStructure(world, terrain, bounds) {
   const gz = Math.floor(bounds.minZ / STRUCTURE_LIMITS.spacing);
   const kind = selectStructureKind(createStructureSite(terrain, gx, gz));
   if (!kind || !kinds.includes(kind)) return null;
-  const descriptor = world.generatorVersion === 5
-    ? describeV5Structure(kind, terrain, gx, gz)
-    : describeStructure(kind, terrain, gx, gz);
+  const descriptor = describeCanonicalStructure(world.generatorVersion, kind, terrain, gx, gz);
   return descriptor &&
     descriptor.bounds.minX < bounds.maxX &&
     descriptor.bounds.maxX > bounds.minX &&

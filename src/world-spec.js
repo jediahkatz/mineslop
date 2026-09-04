@@ -45,7 +45,9 @@ const expanded = Object.freeze({
   }),
 });
 
-/** A storage/build specification does not imply that its generator exists. */
+/** Explicit capabilities: 1–3 are historical; 4, 5 and 6 share expanded bounds.
+ * This does not choose a new-world default or upgrade any persisted version.
+ */
 export function getWorldSpec(generatorVersion, dimension) {
   if (!isDimension(dimension)) throw new RangeError("Unknown dimension");
   if (!isSupportedGeneratorVersion(generatorVersion))

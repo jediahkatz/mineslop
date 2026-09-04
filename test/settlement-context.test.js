@@ -172,7 +172,7 @@ test("malformed contexts fail before replacing state or registering an owner", (
     {},
     "overworld",
     { ...context, seed: 42 },
-    { ...context, generatorVersion: 6 },
+    { ...context, generatorVersion: 7 },
     { ...context, specForDimension: null },
     { ...context, specForDimension: async () => getWorldSpec(4, "overworld") },
     { ...context, specForDimension: () => getWorldSpec(4, "overworld") },

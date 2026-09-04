@@ -8,9 +8,21 @@ import { structureBounds } from "./structure-layouts.js";
 import { V4_MAX_XZ, V4_MIN_XZ } from "./terrain-v4-config.js";
 import { V4_GENERATION_MANIFEST } from "./terrain-v4-manifest.js";
 import { V5_GENERATION_MANIFEST } from "./terrain-v5-manifest.js";
+import { V6_GENERATION_MANIFEST } from "./terrain-v6-manifest.js";
 
-const manifestFor = (job) => job.generatorVersion === 5
-  ? V5_GENERATION_MANIFEST : V4_GENERATION_MANIFEST;
+function manifestFor(job) {
+  switch (job.generatorVersion) {
+    // Historical packets may transport opaque fixture metadata, but have no
+    // native generation manifest and cannot declare canonical structures.
+    case 1:
+    case 2:
+    case 3: return null;
+    case 4: return V4_GENERATION_MANIFEST;
+    case 5: return V5_GENERATION_MANIFEST;
+    case 6: return V6_GENERATION_MANIFEST;
+    default: throw new RangeError("Unsupported native structure generator version");
+  }
+}
 
 // Bounds on the declaration plane, not permission to expand generation work.
 // Native layout-v1 has at most one selected family per 192x192 owner; the
@@ -341,6 +353,8 @@ function validateCanonical(descriptor, job, spec, blocks) {
  * Opaque explicit-fixture metadata is not promoted into a canonical identity.
  */
 export function cloneTerrainStructures(structures, job, spec, blocks) {
+  // Fail closed even when a future-version packet omits its declaration plane.
+  const manifest = manifestFor(job);
   if (structures === undefined) return undefined;
   if (
     !Array.isArray(structures) ||
@@ -358,7 +372,7 @@ export function cloneTerrainStructures(structures, job, spec, blocks) {
     )
       invalid("expected a structure descriptor");
     if (
-      manifestFor(job).structureKinds.includes(descriptor.kind) &&
+      (manifest ?? V4_GENERATION_MANIFEST).structureKinds.includes(descriptor.kind) &&
       (typeof descriptor.id !== "string" ||
         !descriptor.id.startsWith("structure:"))
     )
