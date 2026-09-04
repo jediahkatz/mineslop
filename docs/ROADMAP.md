@@ -20,6 +20,11 @@ loading, and has relevant regression tests and real browser verification.
   the day/night cycle, lighting, underground views or inspection settings.
 - [ ] **Better lighting.** Improve daylight, dusk/night and local-light
   readability while preserving cave darkness, material identity and performance.
+- [ ] **Torch brightness and persistent illumination.** Reproduce dim torch
+  lighting and loss of ambient light as the viewer moves away. Visible receiver
+  surfaces should not lose illumination solely because a light leaves a
+  viewer-centered selection budget. Verify falloff, occlusion, multiple lights
+  and bounded rendering cost separately from overall cave brightness.
 - [ ] **Gradual tunnel lighting.** The complete native cave walk now keeps
   entrance surfaces lit through deep look-backs and retains faint detail in
   darkness. Verified locally with 15 GUI views, Fullbright off, no terrain
@@ -135,3 +140,6 @@ verification is still pending, not that no code exists.
   resource-accounting, save/reload and visual/audio checks as appropriate.
 - Keep the currently deployed site stable while development happens on an
   isolated feature branch. Finish and verify coherent changes before release.
+- Deploy verified batches regularly; unfinished independent work must not hold
+  every improvement until the entire roadmap is complete. Keep unverified
+  changes out of each release.
