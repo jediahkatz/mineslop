@@ -128,7 +128,7 @@ test("duplicate, malformed, non-emissive and distant entries cannot occupy the l
   );
 });
 
-test("renderer refreshes only on schedule and clears both sources when their bucket disappears", () => {
+test("renderer never double-counts static emission in its bounded point-light pool", () => {
   const column = group([
     { id: BLOCK.TORCH, x: 3, y: 20, z: 0.5 },
     { id: BLOCK.GLOW_BERRIES, x: 4, y: 20, z: 0.5 },
@@ -137,13 +137,14 @@ test("renderer refreshes only on schedule and clears both sources when their buc
     chunks: new Map([["0,0", column]]),
     quality: "high",
     lastLightTime: -Infinity,
+    blockLight: { stats: { scans: 32, completed: 1 } },
     localLights: [new THREE.PointLight(), new THREE.PointLight()],
   });
   try {
     const position = new THREE.Vector3(1, 20, 1);
     graphics.updateLocalLights(1, position);
-    assert.equal(graphics.lightStats.selected, 2);
-    assert.ok(graphics.localLights.every((light) => light.intensity > 0));
+    assert.equal(graphics.lightStats, graphics.blockLight.stats);
+    assert.ok(graphics.localLights.every((light) => light.intensity === 0));
     assert.ok(
       graphics.localLights.every(
         (light) => light.distance <= 10 && !light.castShadow
@@ -152,12 +153,12 @@ test("renderer refreshes only on schedule and clears both sources when their buc
     );
     graphics.chunks.clear();
     graphics.updateLocalLights(1.1, position);
-    assert.equal(graphics.lastLightTime, 1);
+    assert.equal(graphics.lastLightTime, 1.1);
     graphics.updateLocalLights(
       1 + LOCAL_LIGHT_LIMITS.refreshSeconds + 0.01,
       position
     );
-    assert.equal(graphics.lightStats.selected, 0);
+    assert.equal(graphics.lightStats, graphics.blockLight.stats);
     assert.ok(graphics.localLights.every((light) => light.intensity === 0));
     assert.ok(
       graphics.localLights.every((light) => light.userData.emitter === null)
