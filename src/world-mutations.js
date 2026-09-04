@@ -179,6 +179,8 @@ function prepare(world, changes, options, allowUnloaded) {
   const event = Object.freeze({
     epoch,
     dimension,
+    // Consumers can reject delayed/replayed publications, even in the same epoch.
+    revision: revision + 1,
     changes: Object.freeze(
       records.map(({ x, y, z, before, after }) =>
         Object.freeze({
