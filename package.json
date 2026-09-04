@@ -18,6 +18,7 @@
     "test:inspection": "node --test test/inspection.browser.integration.mjs",
     "test:lighting": "node --test test/tunnel-lighting.browser.integration.mjs",
     "test:lighting-depth": "node --test test/cave-surface-lighting.gpu.integration.mjs",
+    "test:lighting-mobs": "node --test test/mob-daylight.browser.integration.mjs",
     "test:lighting-native": "node test/native-cave-daylight.probe.mjs",
     "test:lighting-game": "node --test test/full-game-lighting.gpu.integration.mjs",
     "test:lighting-context": "node --test test/daylight-context.gpu.integration.mjs test/effects-context.gpu.integration.mjs",
