@@ -16,6 +16,9 @@ import {
 test("authored high-altitude tree fixture varies native shapes without the old Y=96 cap", () => {
   // A deliberately authored support/climate fixture isolates descriptor logic.
   // Natural terrain and spawn tests live in the v4 integration suites.
+  // Put the support at 160 so even the youngest acacia is wholly above it;
+  // its naturally short crown need not exceed an arbitrary six-block height.
+  const ground = 160;
   const salt = seedHash("v4-tree-shape-unit");
   const heights = new Set();
   const species = new Set();
@@ -32,8 +35,8 @@ test("authored high-altitude tree fixture varies native shapes without the old Y
       x,
       z,
       id,
-      top: 154,
-      landTop: 154,
+      top: ground,
+      landTop: ground,
       depth: 0,
       temperature: 0.65,
       waterLevel: null,
@@ -57,6 +60,8 @@ test("authored high-altitude tree fixture varies native shapes without the old Y
           assert.ok(tree.bounds.maxX <= tree.x + V4_TREE_REACH);
           assert.ok(tree.bounds.minZ >= tree.z - V4_TREE_REACH);
           assert.ok(tree.bounds.maxZ <= tree.z + V4_TREE_REACH);
+          assert.equal(tree.ground, ground);
+          assert.equal(tree.bounds.minY, ground + 1);
           assert.ok(tree.bounds.maxY > 160 && tree.bounds.maxY < 320);
           const logs = new Map();
           let writes = 0;
