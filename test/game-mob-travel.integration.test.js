@@ -246,6 +246,11 @@ test("a real bed survives source-first travel and cross-dimension death/respawn 
   assert.equal(f.game.useActions.tap(), true);
   const base = point(mob.position), life = f.projectiles.projectiles.life;
   assert.equal((await f.game.travel.teleport(destination)).ok, true);
+  assert.equal(f.game.paused, true);
+  assert.equal(f.gameplay.damage(1000, "source-first-test"), 0);
+  assert.equal(f.gameplay.dead, false);
+  await f.game.play();
+  assert.equal(f.game.paused, false);
   f.gameplay.damage(1000, "source-first-test");
   assert.equal(f.gameplay.dead, true);
   assert.equal(f.projectiles.projectiles.life, life + 1);
