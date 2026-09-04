@@ -7,6 +7,7 @@ import { normalizeFluidServicesSnapshot } from "./game-fluid-state.js";
 import { normalizeGameMobArchive } from "./game-mob-state.js";
 import { normalizeProgressionArchive } from "./game-progression-state.js";
 import { normalizeProjectileServicesSnapshot } from "./game-projectile-state.js";
+import { normalizeWeatherArchive } from "./weather-state.js";
 import {
   normalizeVehicleServicesSnapshot,
   vehicleArchiveRiderValid,
@@ -97,6 +98,8 @@ export function normalizeWorldComponents(saved, { normalizers = {} } = {}) {
   if (saved === null || saved === undefined) return null;
   if (typeof saved !== "object" || Array.isArray(saved))
     throw new Error("Invalid saved world components");
+  const weather = normalizeWeatherArchive(saved);
+  if (!weather) throw new Error("Invalid saved weather");
   // These data-only sidecars must reject accessors before generic cloning can
   // invoke or erase them. Clone the other archive fields to derive world bounds.
   const descriptors = Object.getOwnPropertyDescriptors(saved);
@@ -110,13 +113,14 @@ export function normalizeWorldComponents(saved, { normalizers = {} } = {}) {
   delete descriptors.mobs;
   delete descriptors.mobStates;
   delete descriptors.mobsByDimension;
+  delete descriptors.weather;
   const input = structuredClone(Object.defineProperties({}, descriptors));
   const world =
     input.world === undefined ? undefined : normalizeWorldSave(input.world);
   const context = createWorldContext(
     world ?? { seed: "", generatorVersion: GENERATOR_VERSION }
   );
-  const normalized = { context, ...(world === undefined ? {} : { world }) };
+  const normalized = { context, ...weather, ...(world === undefined ? {} : { world }) };
   if (hasExpandedTerrain(context.generatorVersion) || Object.hasOwn(saved, "exploration")) {
     const exploration = normalizeExplorationServicesSnapshot(saved, context);
     if (!exploration) throw new Error("Invalid saved exploration claims");

@@ -23,6 +23,17 @@ export function normalizeWeatherSnapshot(data) {
     ? { version: 1, elapsed } : null;
 }
 
+/** Pass the original archive, before structuredClone can invoke accessors. */
+export function normalizeWeatherArchive(saved) {
+  if (saved === null || saved === undefined)
+    return { weather: normalizeWeatherSnapshot(undefined) };
+  if (typeof saved !== "object" || Array.isArray(saved)) return null;
+  const field = Object.getOwnPropertyDescriptor(saved, "weather");
+  if (field && !("value" in field)) return null;
+  const weather = normalizeWeatherSnapshot(field?.value);
+  return weather ? { weather } : null;
+}
+
 // Rain only. Snow/accumulation is intentionally absent, including frozen oceans.
 // Savannas are explicitly dry; cave labels are not substitutes for surface biome.
 export function precipitationPolicy(biome, dimension) {

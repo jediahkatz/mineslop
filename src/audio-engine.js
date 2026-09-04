@@ -2,6 +2,7 @@ import { AUDIO_VARIANTS, clamp } from "./audio-dsp.js";
 import { AmbientMusic } from "./audio-music.js";
 import { soundDescription } from "./audio-samples.js";
 import { spatialSound } from "./audio-spatial.js";
+import { RAIN_SOUND } from "./rain-sample.js";
 import { MAX_SOUND_BUFFERS, MAX_SOUND_BYTES, SoundBank } from "./sound-bank.js";
 
 export const MAX_AUDIO_VOICES = 12;
@@ -57,6 +58,7 @@ export class AudioEngine {
     this.disposed = false;
     this.resuming = null;
     this.voices = new Set();
+    this.rainVoice = null;
     this.lastPlayed = new Map();
     this.lastAnimal = -Infinity;
     this.serial = 0;
@@ -117,6 +119,7 @@ export class AudioEngine {
     this.enabled = Boolean(enabled);
     this.lifecycleRevision++;
     this.music.reset();
+    if (!this.enabled && this.rainVoice) this._releaseVoice(this.rainVoice, true);
     if (!this.context || !this.master) return;
     const now = this.context.currentTime;
     let faded = false;
@@ -199,6 +202,62 @@ export class AudioEngine {
     this.music.update(dt, (note) => this.play("music", note));
   }
 
+  /** Current projection, never an event queue. No context creation or unlock.
+   * Steady rain reuses one source/buffer and leaves its gain automation alone.
+   */
+  setRain(level = 0) {
+    const amount = Number.isFinite(level) ? clamp(level, 0, 1) : 0;
+    if (!amount || this.disposed || !this.enabled || this.hidden || this.paused ||
+        this.volume === 0 || this.context?.state !== "running") {
+      if (this.rainVoice) this._releaseVoice(this.rainVoice, true);
+      return false;
+    }
+    const now = this.context.currentTime;
+    const gain = Math.min(MAX_VOICE_GAIN, RAIN_SOUND.gain) * amount;
+    if (this.rainVoice) {
+      if (this.rainVoice.level !== gain) {
+        try {
+          const parameter = this.rainVoice.gain.gain;
+          parameter.cancelScheduledValues(now);
+          parameter.setValueAtTime(parameter.value, now);
+          parameter.linearRampToValueAtTime(gain, now + 0.04);
+          this.rainVoice.level = gain;
+        } catch {
+          this._releaseVoice(this.rainVoice, true);
+          return false;
+        }
+      }
+      return true;
+    }
+    for (const voice of this.voices)
+      if (voice.endTime <= now) this._releaseVoice(voice, true);
+    if (this.voices.size >= MAX_AUDIO_VOICES - AUDIO_LIMITS.reservedVoices)
+      return false;
+    const voice = {
+      source: null, gain: null, panner: null, group: "weather", animal: false,
+      released: false, endTime: Infinity, level: gain,
+    };
+    try {
+      const buffer = this.bufferFor(RAIN_SOUND, 0);
+      if (!buffer) return false;
+      voice.source = this.context.createBufferSource();
+      voice.gain = this.context.createGain();
+      voice.source.buffer = buffer;
+      voice.source.loop = true;
+      voice.gain.gain.setValueAtTime(0, now);
+      voice.gain.gain.linearRampToValueAtTime(gain, now + 0.04);
+      voice.source.connect(voice.gain).connect(this.master);
+      voice.source.onended = () => this._releaseVoice(voice);
+      this.rainVoice = voice;
+      this.voices.add(voice);
+      voice.source.start(this.context.currentTime);
+      return true;
+    } catch {
+      this._releaseVoice(voice, true);
+      return false;
+    }
+  }
+
   /** Admission only. Refused/suspended sounds are dropped, never queued. */
   play(kind = "mine", id = 3, options = {}, listener = null) {
     if (this.disposed || !this.enabled || this.hidden || this.volume === 0 ||
@@ -238,6 +297,8 @@ export class AudioEngine {
     };
     try {
       let sample;
+      // Keep the live loop's PCM inside (not beside) the existing LRU budget.
+      if (this.rainVoice) this.bank.get(RAIN_SOUND, 0);
       if (kind === "music") {
         const buffer = this.bufferFor(definition, 0);
         if (buffer) sample = { buffer, variant: 0 };
@@ -298,12 +359,14 @@ export class AudioEngine {
   }
 
   bufferFor(definition, variant = 0) {
+    if (this.rainVoice && definition?.family !== "rain") this.bank?.get(RAIN_SOUND, 0);
     return this.bank?.get(definition, variant) ?? null;
   }
 
   _releaseVoice(voice, stop = false) {
     if (voice.released) return;
     voice.released = true;
+    if (this.rainVoice === voice) this.rainVoice = null;
     this.voices.delete(voice);
     if (voice.source) {
       voice.source.onended = null;
@@ -342,6 +405,7 @@ export class AudioEngine {
       paused: this.paused,
       hidden: this.hidden,
       voices: this.voices.size,
+      rainVoices: this.rainVoice ? 1 : 0,
       animalVoices: [...this.voices].filter((voice) => voice.animal).length,
       cachedBuffers: this.buffers.size,
       cachedBytes: this.cachedBytes,

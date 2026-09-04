@@ -2,6 +2,7 @@ const serviceSlots = [
   "buildingServices",
   "fluidServices",
   "gravityServices",
+  "weatherServices",
   "vehicleServices",
   "explorationServices",
   "ecologyServices",

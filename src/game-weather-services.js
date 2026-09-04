@@ -1,21 +1,13 @@
 import { CloudField } from "./cloud-field.js";
+import { audioOperation } from "./audio-lifecycle.js";
 import { geometryWorldSpec } from "./geometry-world.js";
 import { WeatherRender, SILENT_WEATHER } from "./weather-render.js";
-import { normalizeWeatherSnapshot, WeatherState } from "./weather-state.js";
+import { normalizeWeatherArchive, WeatherState } from "./weather-state.js";
 
-/** Pass the original archive, before structuredClone can invoke accessors. */
-export function normalizeWeatherArchive(saved) {
-  if (saved === null || saved === undefined)
-    return { weather: normalizeWeatherSnapshot(undefined) };
-  if (typeof saved !== "object" || Array.isArray(saved)) return null;
-  const field = Object.getOwnPropertyDescriptor(saved, "weather");
-  if (field && !("value" in field)) return null;
-  const weather = normalizeWeatherSnapshot(field?.value);
-  return weather ? { weather } : null;
-}
+export { normalizeWeatherArchive } from "./weather-state.js";
 
 /**
- * Detached staging owner; intentionally not wired into shared files here.
+ * Detached staging owner installed by Game alongside the other world owners.
  *
  * prepareWorld: construct with {world: staged.world, saved}, add to cleanup
  * owners, return weatherServices. No scene writes until activate(game), after
@@ -66,11 +58,16 @@ export class GameWeatherServices {
   get active() {
     return !this.disposed && !this.world._disposed &&
       this.game?.world === this.world && this.game?.weatherServices === this &&
+      this.game?.gameplay === this.gameplay && this.game?.player === this.player &&
+      this.game?.graphics === this.graphics &&
       this.world.seed === this.seed && this.world.generatorVersion === this.generatorVersion &&
       this.world.epoch === this.epoch;
   }
 
   activate(game) {
+    if (this.game)
+      return this.game === game && this.active ? { ok: true }
+        : { ok: false, reason: "stale-weather-host" };
     if (this.disposed || this.world._disposed || !game ||
         game.world !== this.world || this.world.epoch !== this.epoch ||
         this.world.seed !== this.seed || this.world.generatorVersion !== this.generatorVersion ||
@@ -78,6 +75,9 @@ export class GameWeatherServices {
         (game.weatherServices && game.weatherServices !== this))
       return { ok: false, reason: "stale-weather-host" };
     this.game = game;
+    this.gameplay = game.gameplay;
+    this.player = game.player;
+    this.graphics = game.graphics;
     game.weatherServices = this;
     return { ok: true };
   }
@@ -136,6 +136,8 @@ export class GameWeatherServices {
   rebindWorldEpoch() {
     if (this.disposed || this.world._disposed ||
         this.game?.world !== this.world || this.game?.weatherServices !== this ||
+        this.game?.gameplay !== this.gameplay || this.game?.player !== this.player ||
+        this.game?.graphics !== this.graphics ||
         this.world.seed !== this.seed || this.world.generatorVersion !== this.generatorVersion)
       return { ok: false, reason: "stale-weather-host" };
     this.epoch = this.world.epoch;
@@ -145,7 +147,13 @@ export class GameWeatherServices {
     return { ok: true };
   }
 
-  serialize() { return { weather: this.state.serialize() }; }
+  serialize() {
+    if (this.disposed || this.world._disposed ||
+        this.world.seed !== this.seed || this.world.generatorVersion !== this.generatorVersion ||
+        this.world.epoch !== this.epoch || (this.game && !this.active))
+      throw new Error("Cannot serialize stale weather");
+    return { weather: this.state.serialize() };
+  }
 
   dispose() {
     if (this.disposed) return;
@@ -153,7 +161,10 @@ export class GameWeatherServices {
     this.renderer?.dispose();
     this.desiredAudio = SILENT_WEATHER;
     this.running = false;
-    if (this.game?.weatherServices === this) this.game.weatherServices = null;
+    if (this.game?.weatherServices === this) {
+      audioOperation(this.game.audioEngine, "setRain", 0);
+      this.game.weatherServices = null;
+    }
     this.game = null;
   }
 }

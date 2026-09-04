@@ -22,6 +22,7 @@ import { bindGameControls } from "./game-controls.js";
 import { GameExplorationServices } from "./game-exploration-services.js";
 import { GameFluidServices } from "./game-fluid-services.js";
 import { GameGravityServices } from "./game-gravity-services.js";
+import { GameWeatherServices, normalizeWeatherArchive } from "./game-weather-services.js";
 import { GameMobActions, GameMobHarvestActions } from "./game-mob-actions.js";
 import { GameMobIntegration } from "./game-mob-integration.js";
 import { GameInventoryActions } from "./game-inventory-actions.js";
@@ -239,6 +240,16 @@ export class VoxelGame {
     audioOperation(this.audioEngine, "update", dt);
   }
 
+  renderWeather() {
+    const weather = this.weatherServices;
+    if (this.renderedWeather && this.renderedWeather !== weather)
+      this.renderedWeather.frame(0, { simulating: false });
+    this.renderedWeather = weather ?? null;
+    const projection = weather?.render();
+    audioOperation(this.audioEngine, "setRain",
+      weather?.active && weather.running ? projection?.level ?? 0 : 0);
+  }
+
   disposeAudio() {
     if (this._audioDisposed) return;
     this._audioDisposed = true;
@@ -318,6 +329,9 @@ export class VoxelGame {
   }
 
   async prepareWorld(seed, saved, options = {}) {
+    // Direct staging callers also pass original archives, not necessarily the
+    // already-normalized initialize() input.
+    if (!normalizeWeatherArchive(saved)) throw new Error("Invalid saved weather");
     const staged = await stageWorld({
       seed,
       saved,
@@ -383,6 +397,8 @@ export class VoxelGame {
       owners.push(fluidServices);
       const gravityServices = new GameGravityServices({ world: staged.world });
       owners.push(gravityServices);
+      const weatherServices = new GameWeatherServices({ world: staged.world, saved });
+      owners.push(weatherServices);
       const projectileServices = new GameProjectileServices({
         world: staged.world,
         gameplay,
@@ -435,6 +451,7 @@ export class VoxelGame {
         buildingServices,
         fluidServices,
         gravityServices,
+        weatherServices,
         projectileServices,
         progressionIntegration,
         vehicleServices,
@@ -488,10 +505,23 @@ export class VoxelGame {
       }
       throw error;
     }
+    try {
+      await this.installPreparedWorld(staged, saved);
+    } catch (error) {
+      staged.weatherServices.dispose();
+      audioOperation(this.audioEngine, "setRain", 0);
+      throw error;
+    }
+  }
+
+  async installPreparedWorld(staged, saved) {
     await new Promise((resolve) => requestAnimationFrame(resolve));
     // Required terrain and a collision-checked pose exist before live teardown.
     this.unbindWorldEvents?.();
     this.unbindWorldEvents = null;
+    this.weatherServices?.dispose();
+    this.weatherServices = null;
+    this.renderedWeather = null;
     this.gravityServices?.dispose();
     this.gravityServices = null;
     this.vehicleServices?.dispose();
@@ -637,6 +667,8 @@ export class VoxelGame {
     }
     if (!staged.mobIntegration.activate({ safeSpawn: true }))
       throw new Error("The staged ecology services could not be activated");
+    if (!staged.weatherServices.activate(this).ok)
+      throw new Error("The staged weather services could not be activated");
     this.bindWorldServiceEvents();
     if (!this.applyVehiclePose()) this.player.update(0);
     const closed = this.gameplay.inventoryAction(
@@ -664,6 +696,7 @@ export class VoxelGame {
       )
     );
     this.graphics.update(0, this.elapsed, this.player.position);
+    this.renderWeather();
     this.graphics.render();
     this.building = false;
     this.ui.ready();
@@ -1410,6 +1443,12 @@ export class VoxelGame {
     const dt = Math.min(frameTime, 0.1);
     this.lastFrame = now;
     this.updateAudio?.(dt);
+    this.weatherServices?.frame(dt, {
+      simulating: this.simulating && !!this.graphics,
+      hidden: document.hidden,
+    });
+    if (!this.weatherServices?.running)
+      audioOperation(this.audioEngine, "setRain", 0);
     this.graphics?.observeFrame?.(frameTime * 1000, {
       paused: this.paused || this.building || this.failed || this.gameplay.dead,
       hidden: document.hidden,
@@ -1619,6 +1658,9 @@ export class VoxelGame {
     );
     this.vehicleServices?.render(this.simulating ? dt : 0);
     this.projectileServices?.render();
+    // Atmosphere has already updated. Apply world-anchored clouds and the final
+    // admitted rain/audio projection immediately before the scene draw.
+    this.renderWeather();
     this.hurtFeedback.render(this.graphics.camera, hurt, () =>
       this.graphics.render()
     );
@@ -1638,6 +1680,8 @@ export class VoxelGame {
 
   showError(error) {
     this.disposeAudio();
+    this.weatherServices?.dispose();
+    this.renderedWeather = null;
     console.error(error);
     this.browserCapture?.dispose();
     this.hurtFeedback?.dispose();

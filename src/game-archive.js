@@ -43,6 +43,7 @@ export class GameArchive {
       ...game.progressionIntegration?.serialize(),
       ...game.vehicleServices?.serialize(),
       ...game.explorationServices?.serialize(),
+      ...game.weatherServices?.serialize(),
       quality: game.quality,
       soundEnabled: game.soundEnabled,
     };

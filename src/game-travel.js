@@ -1,4 +1,5 @@
 import { getBiomeById } from "./biomes.js";
+import { audioOperation } from "./audio-lifecycle.js";
 import {
   installTravelLanding, installTravelPortal, stageTravelDestination,
 } from "./game-travel-stage.js";
@@ -136,6 +137,7 @@ export class GameTravel {
       wildlife: game.wildlife,
       progression: game.progressionIntegration,
       projectiles: game.projectileServices,
+      weather: game.weatherServices,
       dimension: game.world.dimension,
       epoch: game.world.epoch,
       position: point(vehiclePose?.position ?? game.player.position),
@@ -152,8 +154,11 @@ export class GameTravel {
       game.vehicleServices === previous.vehicles && game.mobIntegration === previous.mobs &&
       game.progressionIntegration === previous.progression &&
       game.projectileServices === previous.projectiles &&
+      game.weatherServices === previous.weather &&
       game.player.world === previous.world && !previous.world._disposed;
     game.paused = true;
+    audioOperation(game.audioEngine, "setPaused", true);
+    previous.weather?.frame(0, { simulating: false });
     game.resetActions?.();
     game.heldAction = null;
     game.player.enabled = false;
@@ -239,6 +244,8 @@ export class GameTravel {
         throw new Error("Destination owners changed during admission");
       if (!installTravelLanding(world, stage))
         throw new Error("The prepared destination is no longer safe");
+      if (previous.weather && !previous.weather.rebindWorldEpoch().ok)
+        throw new Error("Could not rebind destination weather");
       const safe = stage.position;
       game.player.setPosition(safe);
       game.player.flying = safe.flying === true && !respawn;
@@ -349,6 +356,8 @@ export class GameTravel {
             if (!ownersCurrent() || world.epoch !== epoch || world.dimension !== previous.dimension)
               throw new Error("Source owners changed during recovery");
           }
+          if (previous.weather && !previous.weather.rebindWorldEpoch().ok)
+            throw new Error("Could not rebind recovered weather");
           // This is deliberately an UNSEATED recovery. A committed departure
           // is not rolled back to the archived rider, even at the same feet.
           game.player.setPosition(previous.position);

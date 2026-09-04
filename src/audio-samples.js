@@ -1,4 +1,5 @@
 import { animalCallProfile, synthesizeAnimal } from "./animal-audio.js";
+import { synthesizeRain } from "./rain-sample.js";
 import { extraSampleKey, extraSoundDescription, synthesizeExtra } from "./audio-extra-samples.js";
 import {
   AUDIO_SAMPLE_RATE,
@@ -37,6 +38,7 @@ export function soundMaterial(id) {
 /** Canonical keys never include raw entity IDs, amounts, levels or coordinates. */
 export function soundSampleKey(definition) {
   if (!definition) return null;
+  if (definition.family === "rain") return "rain";
   const extra = extraSampleKey(definition);
   if (extra) return extra;
   if (definition.family === "animal") {
@@ -88,6 +90,7 @@ export function soundDescription(kind = "mine", id = BLOCK.STONE) {
 /** The material/action DSP is retained; animal PCM uses its own vocal gestures. */
 export function synthesizeSound(description, variant = 0) {
   if (!soundSampleKey(description)) return null;
+  if (description.family === "rain") return synthesizeRain();
   const variation = clamp(Math.trunc(variant) || 0, 0, AUDIO_VARIANTS - 1);
   if (extraSampleKey(description)) return synthesizeExtra(description, variation);
   if (description.family === "animal")
