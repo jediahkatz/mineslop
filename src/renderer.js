@@ -645,7 +645,7 @@ export class GameRenderer {
     if (!this.skyColumns) {
       this.skyColumns = new SkyColumns();
       this.caveDaylight = new CaveDaylight(this.skyColumns);
-      this.daylightMaterial = new DaylightMaterial(this.skyColumns);
+      this.daylightMaterial = new DaylightMaterial(this.skyColumns, this.scene);
       this.daylightPosition = new THREE.Vector3();
       this.daylightForward = new THREE.Vector3();
       for (const material of Object.values(this.materials))
@@ -909,6 +909,7 @@ export class GameRenderer {
   dispose() {
     clearSectionJobs(this);
     this.distant?.dispose();
+    this.daylightMaterial?.dispose();
     this.skyColumns?.dispose();
     window.removeEventListener("resize", this.resizeHandler);
     this.renderer.domElement.removeEventListener("webglcontextlost", this.contextLostHandler);
