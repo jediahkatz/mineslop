@@ -53,7 +53,7 @@ test("every supported awkward-potion ingredient produces its declared Java effec
 
 test("lead content and crafting requirements stay symbolic with explicit bottle/use/fuel capabilities", () => {
   assert.equal(POTION_DRINK_SECONDS, 1.6);
-  assert.equal(BREWING_CONTENT_REQUIREMENTS.stand.inventoryOwner, "Settlement");
+  assert.equal(BREWING_CONTENT_REQUIREMENTS.stand.inventoryOwner, "ProgressionStations");
   assert.equal(BREWING_CONTENT_REQUIREMENTS.fuel.brewingFuelOperations, 20);
   assert.equal(BREWING_CONTENT_REQUIREMENTS.use.drinkable.alwaysConsumable, true);
   assert.equal(BREWING_CONTENT_REQUIREMENTS.use.drinkable.survivalRemainder, "GLASS_BOTTLE");
