@@ -11,6 +11,8 @@ export const DETAIL_MESH_LIMITS = Object.freeze({
   maxGpuBytes: 128 * 1024 * 1024,
   maxDrawCalls: 1024,
   maxSliceMs: 8,
+  maxStepsPerSlice: 16,
+  maxCellsPerSlice: 8192,
 });
 
 export function usesSectionMeshing(world) {
@@ -298,8 +300,13 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
   let pending = queue(renderer, limits);
   let completed = 0;
   const stepped = new Set();
+  const blocked = new Set();
+  let steps = 0;
   while (
     completed < maximum &&
+    (maximum === Infinity ||
+      (steps < limits.maxStepsPerSlice &&
+        renderer.meshStats.lastSliceCells < limits.maxCellsPerSlice)) &&
     (maximum === Infinity || performance.now() - started < limits.maxSliceMs)
   ) {
     while (renderer.sectionJobs.size < limits.maxJobs) {
@@ -322,17 +329,29 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
       );
     }
     const entry = [...renderer.sectionJobs].find(
-      ([key]) => maximum === Infinity || !stepped.has(key)
+      ([key]) => maximum === Infinity || !blocked.has(key)
     );
     if (!entry) break;
     const [key, job] = entry;
     stepped.add(key);
+    steps++;
+    // Rotate across calls too: an expensive first job must not starve its peer.
+    renderer.sectionJobs.delete(key);
+    renderer.sectionJobs.set(key, job);
     job.step({
+      maxCells: maximum === Infinity ? Infinity : Math.max(0,
+        limits.maxCellsPerSlice - renderer.meshStats.lastSliceCells),
       budgetMs: Math.max(0, limits.maxSliceMs - (performance.now() - started)),
       flush: maximum === Infinity,
     });
     renderer.meshStats.lastSliceCells += job.lastSlice.cells;
-    if (!job.done) continue;
+    if (!job.done) {
+      // A zero-progress job cannot spin even with a stopped/coarse clock.
+      if (!job.lastSlice.cells) blocked.add(key);
+      continue;
+    }
+    // Retry invalidated/rejected keys next call, not repeatedly in this slice.
+    blocked.add(key);
     const item = pending.find((candidate) => candidate.key === key);
     if (job.status === "stale") renderer.meshStats.staleJobs++;
     const old = renderer.chunks
