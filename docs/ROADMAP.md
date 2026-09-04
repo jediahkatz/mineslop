@@ -30,7 +30,10 @@ loading, and has relevant regression tests and real browser verification.
   excessive cave brightness; neither was established by the controlled sample.
   Observer-dependent creature lighting is fixed and verified separately in
   [mob lighting](mob-lighting.md). Keep the remaining appearance reports open
-  without reintroducing blackouts or merely darkening the whole scene.
+  without reintroducing blackouts or merely darkening the whole scene. The user
+  now suspects visible unloaded space: test partial loading, queued meshing,
+  culling and sky/LOD leakage separately. The preloaded lighting comparison
+  does not establish streaming coverage.
 - [ ] **World-anchored clouds and weather.** Clouds must drift independently of
   player movement. Add rain/weather with bounded rendering/audio, appropriate
   biome/dimension/roof behavior, and coherent time, pause and save semantics.
