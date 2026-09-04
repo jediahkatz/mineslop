@@ -1,4 +1,5 @@
 import { animalCallProfile, synthesizeAnimal } from "./animal-audio.js";
+import { extraSampleKey, extraSoundDescription, synthesizeExtra } from "./audio-extra-samples.js";
 import {
   AUDIO_SAMPLE_RATE,
   AUDIO_VARIANTS,
@@ -36,6 +37,8 @@ export function soundMaterial(id) {
 /** Canonical keys never include raw entity IDs, amounts, levels or coordinates. */
 export function soundSampleKey(definition) {
   if (!definition) return null;
+  const extra = extraSampleKey(definition);
+  if (extra) return extra;
   if (definition.family === "animal") {
     const call = animalCallProfile(definition.species);
     return call ? `animal:${call.species}` : null;
@@ -50,6 +53,8 @@ export function soundSampleKey(definition) {
 
 /** Add animal calls to the existing material/action definitions, not a second bank. */
 export function soundDescription(kind = "mine", id = BLOCK.STONE) {
+  const extra = extraSoundDescription(kind, id);
+  if (extra) return extra;
   if (kind === "animal") {
     const call = animalCallProfile(id);
     if (!call) return null;
@@ -71,6 +76,8 @@ export function soundDescription(kind = "mine", id = BLOCK.STONE) {
   if (!definition) return null;
   return {
     ...definition,
+    // Keep the surface's contact character, but avoid foreground walking thuds.
+    ...(kind === "step" ? { gain: 0.036, rate: definition.rate * 0.94 } : null),
     key: soundSampleKey(definition),
     cooldownKey: definition.kind,
     cooldown: definition.interval,
@@ -82,6 +89,7 @@ export function soundDescription(kind = "mine", id = BLOCK.STONE) {
 export function synthesizeSound(description, variant = 0) {
   if (!soundSampleKey(description)) return null;
   const variation = clamp(Math.trunc(variant) || 0, 0, AUDIO_VARIANTS - 1);
+  if (extraSampleKey(description)) return synthesizeExtra(description, variation);
   if (description.family === "animal")
     return synthesizeAnimal(description.species, variation);
   const data = sampleArray(soundDuration(description));

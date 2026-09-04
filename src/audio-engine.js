@@ -1,4 +1,5 @@
 import { AUDIO_VARIANTS, clamp } from "./audio-dsp.js";
+import { AmbientMusic } from "./audio-music.js";
 import { soundDescription } from "./audio-samples.js";
 import { spatialSound } from "./audio-spatial.js";
 import { MAX_SOUND_BUFFERS, MAX_SOUND_BYTES, SoundBank } from "./sound-bank.js";
@@ -48,6 +49,11 @@ export class AudioEngine {
     this.master = null;
     this.bank = null;
     this.enabled = true;
+    this.volume = 1;
+    this.paused = false;
+    this.hidden = false;
+    this.lifecycleRevision = 0;
+    this.music = new AmbientMusic();
     this.disposed = false;
     this.resuming = null;
     this.voices = new Set();
@@ -67,14 +73,14 @@ export class AudioEngine {
 
   /** Call only from a user gesture. Never create/resume contexts from play(). */
   unlock() {
-    if (this.disposed || !this.enabled) return Promise.resolve(false);
+    if (this.disposed || !this.enabled || this.hidden) return Promise.resolve(false);
     if (this.context?.state === "closed") this._clearGraph();
     if (!this.context) {
       try {
         this.context = this.createContext();
         if (!this.context) return Promise.resolve(false);
         this.master = this.context.createGain();
-        this.master.gain.setValueAtTime(AUDIO_MASTER_GAIN, this.context.currentTime);
+        this.master.gain.setValueAtTime(AUDIO_MASTER_GAIN * this.volume, this.context.currentTime);
         this.master.connect(this.context.destination);
         this.bank = new SoundBank(this.context);
       } catch {
@@ -92,6 +98,7 @@ export class AudioEngine {
             this.context === context &&
             !this.disposed &&
             this.enabled &&
+            !this.hidden &&
             context.state === "running",
           () => false
         )
@@ -108,6 +115,8 @@ export class AudioEngine {
   setEnabled(enabled) {
     if (this.disposed || this.enabled === Boolean(enabled)) return;
     this.enabled = Boolean(enabled);
+    this.lifecycleRevision++;
+    this.music.reset();
     if (!this.context || !this.master) return;
     const now = this.context.currentTime;
     let faded = false;
@@ -120,7 +129,7 @@ export class AudioEngine {
         gain.setValueAtTime(value, now);
       }
       if (this.enabled) gain.setValueAtTime(0, now);
-      gain.linearRampToValueAtTime(this.enabled ? AUDIO_MASTER_GAIN : 0, now + MUTE_FADE);
+      gain.linearRampToValueAtTime(this.enabled ? AUDIO_MASTER_GAIN * this.volume : 0, now + MUTE_FADE);
       faded = true;
     } catch {
       // A suspended/closing context may refuse automation; still stop voices.
@@ -142,9 +151,58 @@ export class AudioEngine {
     }
   }
 
+  setVolume(volume) {
+    if (this.disposed || !Number.isFinite(volume)) return;
+    const next = clamp(volume, 0, 1);
+    if (next === this.volume) return;
+    this.volume = next;
+    this.lifecycleRevision++;
+    if (this.master && this.context?.state !== "closed") {
+      const now = this.context.currentTime;
+      const gain = this.master.gain;
+      if (gain.cancelAndHoldAtTime) gain.cancelAndHoldAtTime(now);
+      else {
+        const value = gain.value;
+        gain.cancelScheduledValues(now);
+        gain.setValueAtTime(value, now);
+      }
+      gain.linearRampToValueAtTime(this.enabled ? AUDIO_MASTER_GAIN * this.volume : 0, now + MUTE_FADE);
+    }
+    if (!this.volume) {
+      this.music.reset();
+      for (const voice of this.voices) this._releaseVoice(voice, true);
+    }
+  }
+
+  setPaused(paused) {
+    if (this.disposed || this.paused === Boolean(paused)) return;
+    this.paused = Boolean(paused);
+    this.lifecycleRevision++;
+    this.music.reset();
+    if (this.paused)
+      for (const voice of this.voices)
+        if (voice.group !== "ui") this._releaseVoice(voice, true);
+  }
+
+  setHidden(hidden) {
+    if (this.disposed || this.hidden === Boolean(hidden)) return;
+    this.hidden = Boolean(hidden);
+    this.lifecycleRevision++;
+    this.music.reset();
+    if (this.hidden)
+      for (const voice of this.voices) this._releaseVoice(voice, true);
+  }
+
+  update(dt) {
+    if (this.disposed || !this.enabled || this.paused || this.hidden ||
+      this.volume === 0 || this.context?.state !== "running") return;
+    this.music.update(dt, (note) => this.play("music", note));
+  }
+
   /** Admission only. Refused/suspended sounds are dropped, never queued. */
   play(kind = "mine", id = 3, options = {}, listener = null) {
-    if (this.disposed || !this.enabled || this.context?.state !== "running")
+    if (this.disposed || !this.enabled || this.hidden || this.volume === 0 ||
+      (this.paused && kind !== "ui-click") || this.context?.state !== "running")
       return false;
     const definition = soundDescription(kind, id);
     if (!definition) return false;
@@ -180,7 +238,10 @@ export class AudioEngine {
     };
     try {
       let sample;
-      if (typeof this.random === "function") {
+      if (kind === "music") {
+        const buffer = this.bufferFor(definition, 0);
+        if (buffer) sample = { buffer, variant: 0 };
+      } else if (typeof this.random === "function") {
         const draw = this.random();
         const variant = Math.floor(
           clamp(Number.isFinite(draw) ? draw : 0, 0, 0.999999) * AUDIO_VARIANTS
@@ -197,7 +258,7 @@ export class AudioEngine {
       const start = this.context.currentTime;
       this.serial = (this.serial + 1) >>> 0;
       const jitter = ((Math.imul(this.serial, 1103515245) >>> 8) & 65535) / 65535;
-      const rate = kind === "animal"
+      const rate = kind === "animal" || kind === "music"
         ? 1
         : clamp(definition.rate * (0.97 + jitter * 0.06), 0.75, 1.5);
       const level = Math.min(
@@ -277,6 +338,9 @@ export class AudioEngine {
     return {
       state: this.disposed ? "disposed" : this.context?.state ?? "locked",
       enabled: this.enabled,
+      volume: this.volume,
+      paused: this.paused,
+      hidden: this.hidden,
       voices: this.voices.size,
       animalVoices: [...this.voices].filter((voice) => voice.animal).length,
       cachedBuffers: this.buffers.size,
@@ -288,6 +352,7 @@ export class AudioEngine {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.lifecycleRevision++;
     this.enabled = false;
     this._clearGraph();
   }

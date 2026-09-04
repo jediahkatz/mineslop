@@ -1,4 +1,8 @@
 import * as THREE from "three";
+import { AudioEngine } from "./audio-engine.js";
+import { audioOperation } from "./audio-lifecycle.js";
+import { attachAudioUI } from "./audio-ui-events.js";
+import { WaterAudioTracker } from "./audio-water-events.js";
 import { BLOCK, BLOCKS } from "./blocks.js";
 import { BrowserCapture } from "./browser-capture.js";
 import { CombatFeedback, MELEE_COOLDOWN_SECONDS } from "./combat-feedback.js";
@@ -75,6 +79,7 @@ export class VoxelGame {
     this.overlayOpen = false;
     this.started = false;
     this.failed = false;
+    this.initializeAudio();
     this.currentTime = 0.36;
     this.elapsed = 0;
     this.lastFrame = performance.now();
@@ -121,11 +126,8 @@ export class VoxelGame {
         this.graphics?.setQuality(value);
       },
       onSoundChange: (enabled) => {
-        this.soundEnabled = enabled;
-        if (this.effects) {
-          this.effects.soundEnabled = enabled;
-          if (enabled) this.effects.unlockAudio();
-        }
+        this.setSoundEnabled(enabled);
+        if (enabled) audioOperation(this.audioEngine, "unlock");
       },
       onControlPreferencesChange: (preferences) =>
         this.setControlPreferences(preferences),
@@ -192,6 +194,59 @@ export class VoxelGame {
     this.unbindControls = bindGameControls(this);
   }
 
+  initializeAudio({ createContext, document: doc = globalThis.document } = {}) {
+    if (this.audioEngine || this._audioDisposed) return;
+    this.audioEngine = new AudioEngine({ createContext });
+    audioOperation(this.audioEngine, "setEnabled", this.soundEnabled !== false);
+    audioOperation(this.audioEngine, "setPaused", true);
+    this.detachAudioUI = attachAudioUI(() => this.audioEngine, doc);
+    const view = doc?.defaultView;
+    const pagehide = (event) => {
+      if (event.persisted) audioOperation(this.audioEngine, "setHidden", true);
+      else this.disposeAudio();
+    };
+    view?.addEventListener("pagehide", pagehide);
+    this.detachAudioPage = () => view?.removeEventListener("pagehide", pagehide);
+  }
+
+  setSoundEnabled(enabled) {
+    this.soundEnabled = Boolean(enabled);
+    audioOperation(this.audioEngine, "setEnabled", this.soundEnabled);
+    try {
+      if (this.effects) this.effects.soundEnabled = this.soundEnabled;
+    } catch {
+      // An optional audio observer cannot reject a settings/save transition.
+    }
+  }
+
+  bindPlayerAudio() {
+    const effects = this.effects;
+    const player = this.player;
+    const play = (kind, id) => {
+      if (this.player !== player || this.effects !== effects) return false;
+      return audioOperation(effects, "sound", kind, id);
+    };
+    const water = new WaterAudioTracker((kind) => play(kind));
+    player.onStep = (id) => play("step", id);
+    player.onWaterSample = (sample, state) => water.observe(sample, state);
+  }
+
+  updateAudio(dt) {
+    audioOperation(this.audioEngine, "setHidden", Boolean(globalThis.document?.hidden));
+    audioOperation(this.audioEngine, "setPaused",
+      !this.started || !this.simulating || this.failed);
+    audioOperation(this.audioEngine, "update", dt);
+  }
+
+  disposeAudio() {
+    if (this._audioDisposed) return;
+    this._audioDisposed = true;
+    audioOperation(this, "detachAudioUI");
+    audioOperation(this, "detachAudioPage");
+    this.detachAudioUI = this.detachAudioPage = null;
+    audioOperation(this.audioEngine, "dispose");
+  }
+
   createGameplay(mode = "survival", options = {}) {
     return this.bindGameplay(new Gameplay({ mode, ...options }));
   }
@@ -206,6 +261,7 @@ export class VoxelGame {
       },
       onDeath: () => {
         if (this.gameplay !== gameplay) return;
+        audioOperation(this.audioEngine, "setPaused", true);
         const departure = this.vehicleServices?.onDeath();
         if (departure?.ok && this.player?.seated) {
           this.player.setPosition(this.player.position);
@@ -406,6 +462,7 @@ export class VoxelGame {
     if (!(await this.closeScreens()))
       throw new Error("Close the inventory safely before replacing this world");
     this.building = true;
+    audioOperation(this.audioEngine, "setPaused", true);
     this.resetFrameRate();
     this.paused = true;
     this.overlayOpen = false;
@@ -470,7 +527,7 @@ export class VoxelGame {
     this.overflow = staged.overflow;
     this.fuses = staged.fuses;
     this.quality = staged.quality;
-    this.soundEnabled = saved?.soundEnabled ?? this.soundEnabled;
+    this.setSoundEnabled(saved?.soundEnabled ?? this.soundEnabled);
     this.world = staged.world;
     this.graphics = new GameRenderer(this.container, this.world);
     this.graphics.setQuality(this.quality);
@@ -500,12 +557,13 @@ export class VoxelGame {
     this.graphics.setTime(this.currentTime);
     this.effects = new Effects(this.graphics.scene, this.graphics.camera, {
       registerContextOwner: (owner) => this.graphics.registerContextResourceOwner(owner),
+      audioEngine: this.audioEngine,
     });
     this.heldItemId = undefined;
     this.offhandItemId = undefined;
     this.playerVisual = new PlayerVisual(this.graphics.scene);
     this.effects.soundEnabled = this.soundEnabled;
-    this.player.onStep = (id) => this.effects.sound("step", id);
+    this.bindPlayerAudio();
     this.player.onFlightChange = (flying) =>
       this.ui.toast(
         flying
@@ -765,9 +823,10 @@ export class VoxelGame {
     }
     this.paused = false;
     this.started = true;
+    audioOperation(this.audioEngine, "setPaused", false);
     this.overlayOpen = false;
     this.ui.hideMenu();
-    this.effects.unlockAudio();
+    audioOperation(this.effects, "unlockAudio");
     this.player.enabled = true;
     if ((await this.player.lock()) === false)
       this.ui.toast(
@@ -819,6 +878,7 @@ export class VoxelGame {
   async pause() {
     if (!this.player || this.building) return false;
     this.paused = true;
+    audioOperation(this.audioEngine, "setPaused", true);
     this.resetActions();
     this.player.enabled = false;
     this.player.unlock();
@@ -1306,6 +1366,7 @@ export class VoxelGame {
     const frameTime = (now - this.lastFrame) / 1000;
     const dt = Math.min(frameTime, 0.1);
     this.lastFrame = now;
+    this.updateAudio?.(dt);
     this.graphics?.observeFrame?.(frameTime * 1000, {
       paused: this.paused || this.building || this.failed || this.gameplay.dead,
       hidden: document.hidden,
@@ -1521,6 +1582,7 @@ export class VoxelGame {
   }
 
   showError(error) {
+    this.disposeAudio();
     console.error(error);
     this.browserCapture?.dispose();
     this.hurtFeedback?.dispose();

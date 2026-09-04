@@ -11,15 +11,16 @@ import { createAtlas } from "./textures.js";
 
 /** Recycled particles and quiet, synthesized effects: no downloaded assets. */
 export class Effects {
-  constructor(scene, camera, { registerContextOwner } = {}) {
+  constructor(scene, camera, { registerContextOwner, audioEngine } = {}) {
     this.scene = scene;
     this.camera = camera;
-    this.audioEngine = new AudioEngine();
+    this.audioEngine = audioEngine ?? new AudioEngine();
+    this.ownsAudioEngine = audioEngine == null;
     this.audioListener = {
       position: new THREE.Vector3(),
       right: new THREE.Vector3(),
     };
-    this.soundEnabled = true;
+    this.soundEnabled = this.audioEngine.enabled;
     this.audio = null;
     this.particles = [];
     this.arrows = [];
@@ -197,7 +198,7 @@ export class Effects {
     this._disposed = true;
     this.unregisterContextOwner?.();
     this.unregisterContextOwner = null;
-    this.audioEngine?.dispose();
+    if (this.ownsAudioEngine !== false) this.audioEngine?.dispose();
     this.audio = null;
     for (const arrow of this.arrows) this.scene.remove(arrow.mesh);
     this.arrowGeometry.dispose();

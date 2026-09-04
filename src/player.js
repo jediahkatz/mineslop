@@ -163,6 +163,7 @@ export class Player {
     this._boatViewContext = null;
     this.climbing = false;
     this.onStep = null;
+    this.onWaterSample = null;
     this.onFlightChange = null;
     this.onFall = null;
     this.onJump = null;
@@ -466,6 +467,7 @@ export class Player {
     this._updateStance();
     this._syncCamera(0);
     this.sampleFluids();
+    this._notifyWaterAudio(true);
   }
 
   async lock() {
@@ -641,6 +643,24 @@ export class Player {
     return sample;
   }
 
+  _notifyWaterAudio(reset = false) {
+    const observer = this.onWaterSample;
+    const changedWorld = this._audioWorld !== this.world;
+    this._audioWorld = this.world;
+    if (!observer) return;
+    try {
+      observer(this.fluidState, {
+        reset: reset || changedWorld,
+        flying: this.flying,
+        seated: this.seated,
+        jumping: this._keys.has("Space") && this.velocity.y > 0,
+      });
+    } catch {
+      // Disable a failed optional observer once, not on every physics substep.
+      if (this.onWaterSample === observer) this.onWaterSample = null;
+    }
+  }
+
   /**
    * Refresh once after fluid/player updates (also while an inventory is open).
    * Gameplay remains the ONLY owner of air and hazard clocks. Required options:
@@ -761,6 +781,7 @@ export class Player {
     if (hasPose || this.seated) {
       this._updateKeyboardLook(dt);
       this.sampleFluids();
+      this._notifyWaterAudio(true);
       this._syncCamera(dt);
       return hasPose ? true : undefined;
     }
@@ -816,6 +837,7 @@ export class Player {
     const stepDt = dt / steps;
     let landedFlying = false;
     let fluid = this.sampleFluids();
+    this._notifyWaterAudio();
     for (let i = 0; i < steps; i++) {
       if (this.fluidMovementBlocked) {
         this.velocity.set(0, 0, 0);
@@ -933,6 +955,7 @@ export class Player {
       // Reuse this post-move sample for the next substep. Even a fast landing
       // in shallow flowing water must cancel fall damage before onFall fires.
       fluid = this.sampleFluids();
+      this._notifyWaterAudio();
       if (fluid.waterImmersion > 0) this.fallDistance = 0;
       if (
         !this.flying &&
@@ -969,13 +992,17 @@ export class Player {
       this._bobPhase += distance * 9;
       if (this._stepDistance >= 1.7) {
         this._stepDistance %= 1.7;
-        this.onStep?.(
-          this.world.get(
-            Math.floor(this.position.x),
-            Math.floor(this.position.y - 0.05),
-            Math.floor(this.position.z)
-          )
+        const floor = this.world.get(
+          Math.floor(this.position.x),
+          Math.floor(this.position.y - 0.05),
+          Math.floor(this.position.z)
         );
+        const observer = this.onStep;
+        try {
+          observer?.(floor);
+        } catch {
+          if (this.onStep === observer) this.onStep = null;
+        }
       }
     } else {
       this._stepDistance = 0;
@@ -1042,6 +1069,7 @@ export class Player {
   }
 
   dispose() {
+    this.onStep = this.onWaterSample = null;
     this.enabled = false;
     this.unlock();
     this._document.removeEventListener("keydown", this._onKeyDown);
