@@ -498,7 +498,9 @@ export class VoxelGame {
       this.gameplay.damage(Math.ceil(distance - 3), "fall");
     this.currentTime = staged.buildingServices.worldClock.time;
     this.graphics.setTime(this.currentTime);
-    this.effects = new Effects(this.graphics.scene, this.graphics.camera);
+    this.effects = new Effects(this.graphics.scene, this.graphics.camera, {
+      registerContextOwner: (owner) => this.graphics.registerContextResourceOwner(owner),
+    });
     this.heldItemId = undefined;
     this.offhandItemId = undefined;
     this.playerVisual = new PlayerVisual(this.graphics.scene);

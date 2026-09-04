@@ -4,6 +4,7 @@ import { FLUID, isWaterFluid } from "./block-state.js";
 import { CaveDaylight } from "./cave-daylight.js";
 import { buildChunkGeometry } from "./chunk-mesh.js";
 import { fluidAtPoint } from "./collision.js";
+import { releaseLostContextResources } from "./context-resources.js";
 import { DaylightMaterial } from "./daylight-material.js";
 import { DistantTerrain } from "./distant-terrain.js";
 import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
@@ -255,6 +256,21 @@ export class GameRenderer {
       world.getBiome?.(this.camera.position.x, this.camera.position.z)
     );
     this.atmosphere.update(0, 0, this.camera.position, this.camera);
+    this.contextResourceOwners = new Set();
+    this.contextLostHandler = () => releaseLostContextResources(
+      this.renderer, this.scene, [
+        this.atlas.texture, this.atlas.emissiveTexture, ...this.miningTextures,
+        this.skyColumns?.texture, this.skyColumns?.surfaceLight.texture,
+      ], this.contextResourceOwners
+    );
+    this.contextRestoredHandler = () => { this.shadowDirty = true; };
+    this.renderer.domElement.addEventListener("webglcontextlost", this.contextLostHandler);
+    this.renderer.domElement.addEventListener("webglcontextrestored", this.contextRestoredHandler);
+  }
+
+  registerContextResourceOwner(owner) {
+    this.contextResourceOwners.add(owner);
+    return () => this.contextResourceOwners.delete(owner);
   }
 
   get timeOfDay() {
@@ -895,6 +911,9 @@ export class GameRenderer {
     this.distant?.dispose();
     this.skyColumns?.dispose();
     window.removeEventListener("resize", this.resizeHandler);
+    this.renderer.domElement.removeEventListener("webglcontextlost", this.contextLostHandler);
+    this.renderer.domElement.removeEventListener("webglcontextrestored", this.contextRestoredHandler);
+    this.contextResourceOwners?.clear();
     for (const key of this.chunks.keys()) this.removeChunk(key);
     for (const material of Object.values(this.materials)) material.dispose();
     this.atlas.texture.dispose();

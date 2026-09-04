@@ -269,6 +269,29 @@ test("the existing square sun stays readable inside a compact, faint halo", () =
   });
 });
 
+test("glow canvas restoration reuses the texture without changing physical lighting", () => {
+  let canvas;
+  withAtmosphere((atmosphere, scene, camera) => {
+    atmosphere.timeOfDay = 0.5;
+    atmosphere.update(0, 0, camera.position, camera);
+    const before = atmosphereSnapshot(atmosphere, scene);
+    const texture = atmosphere.glowTexture;
+    const version = texture.version;
+    canvas = texture.image;
+    for (let restored = 1; restored <= 2; restored++) {
+      canvas.oncontextrestored();
+      assert.equal(atmosphere.glowTexture, texture);
+      assert.equal(texture.version, version + restored);
+      assert.equal(texture.image, canvas);
+      assert.equal(texture.colorSpace, THREE.SRGBColorSpace);
+      assert.equal(texture.minFilter, THREE.LinearMipmapLinearFilter);
+      assert.equal(texture.magFilter, THREE.LinearFilter);
+      assert.deepEqual(atmosphereSnapshot(atmosphere, scene), before);
+    }
+  });
+  assert.equal(canvas.oncontextrestored, null, "disposal detaches recovery");
+});
+
 test("moonlight comes from the visible moon and daylight uses a warm key with cooler fill", () => {
   withAtmosphere((atmosphere, _scene, camera) => {
     atmosphere.timeOfDay = 0.5;

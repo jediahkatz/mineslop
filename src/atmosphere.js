@@ -90,14 +90,21 @@ export class Atmosphere {
     const glowCanvas = document.createElement("canvas");
     glowCanvas.width = glowCanvas.height = 64;
     const ctx = glowCanvas.getContext("2d");
-    const glow = ctx.createRadialGradient(32, 32, 1, 32, 32, 32);
-    glow.addColorStop(0, "rgba(255,243,192,.5)");
-    glow.addColorStop(0.25, "rgba(255,223,142,.13)");
-    glow.addColorStop(1, "rgba(255,223,142,0)");
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, 64, 64);
+    const paintGlow = () => {
+      const glow = ctx.createRadialGradient(32, 32, 1, 32, 32, 32);
+      glow.addColorStop(0, "rgba(255,243,192,.5)");
+      glow.addColorStop(0.25, "rgba(255,223,142,.13)");
+      glow.addColorStop(1, "rgba(255,223,142,0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, 64, 64);
+    };
+    paintGlow();
     this.glowTexture = new THREE.CanvasTexture(glowCanvas);
     this.glowTexture.colorSpace = THREE.SRGBColorSpace;
+    glowCanvas.oncontextrestored = () => {
+      paintGlow();
+      this.glowTexture.needsUpdate = true;
+    };
     this.sunGlow = new THREE.Sprite(
       new THREE.SpriteMaterial({
         map: this.glowTexture,
@@ -447,6 +454,7 @@ export class Atmosphere {
       object.material.dispose();
       this.scene.remove(object);
     }
+    this.glowTexture.image.oncontextrestored = null;
     this.glowTexture.dispose();
     this.sunlight.dispose();
     this.hemi.dispose();

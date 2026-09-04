@@ -146,7 +146,7 @@ test("berry emission covers only small fruit pixels, never green leaves, stems o
   assert.throws(() => blockEmissionPixels(9999), RangeError);
 });
 
-test("the foliage emission atlas shares diffuse UVs and leaves all other tiles black", () => {
+test("CPU atlases preserve every texel, gutter and UV with fruit-only emission", () => {
   const previous = globalThis.document;
   globalThis.document = {
     createElement() {
@@ -165,29 +165,67 @@ test("the foliage emission atlas shares diffuse UVs and leaves all other tiles b
     },
   };
   let atlas;
+  let second;
   try {
     atlas = createAtlas();
+    second = createAtlas();
+    assert.equal(atlas.texture.isDataTexture, true);
+    assert.equal(atlas.texture.flipY, false);
+    assert.equal(second.texture.image.data, atlas.texture.image.data);
+    assert.equal(
+      second.emissiveTexture.image.data,
+      atlas.emissiveTexture.image.data
+    );
+    assert.notEqual(
+      second.texture, atlas.texture, "renderer owners dispose their own textures"
+    );
     assert.equal(atlas.texture.colorSpace, THREE.SRGBColorSpace);
     assert.equal(atlas.texture.magFilter, THREE.NearestFilter);
     assert.equal(atlas.texture.minFilter, THREE.NearestFilter);
     assert.equal(atlas.texture.generateMipmaps, false);
+    const { width, height, data } = atlas.texture.image;
+    assert.equal(data.byteLength, width * height * 4);
+    const checked = new Set();
     for (const block of BLOCK_CATALOG) {
-      for (const face of ["side", "top", "bottom"]) {
-        const first = tileFor(block.id, face) * 9;
-        const draws = atlas.texture.image.draws.slice(first, first + 9);
-        assert.equal(draws.length, 9, "each tile has eight edge/corner copies");
-        const [source, x, y] = draws[0];
-        assert.deepEqual(source.pixels, blockTexturePixels(block.id, face));
-        for (const gutter of draws.slice(1))
-          assert.equal(gutter[0], source, "gutters sample their own material");
-        const [u0, v0, u1, v1] = atlas.uvFor(block.id, face);
-        assert.ok(Math.abs(u0 * atlas.canvas.width - x) < 0.00001);
-        assert.ok(Math.abs((1 - v1) * atlas.canvas.height - y) < 0.00001);
-        assert.ok(Math.abs((u1 - u0) * atlas.canvas.width - 16) < 0.00001);
-        assert.ok(Math.abs((v1 - v0) * atlas.canvas.height - 16) < 0.00001);
+      for (const part of block.textureParts ?? [undefined]) {
+        for (const face of ["side", "top", "bottom"]) {
+          const tile = tileFor(block.id, face, part);
+          const first = tile * 9;
+          const draws = atlas.canvas.draws.slice(first, first + 9);
+          assert.equal(draws.length, 9, "each tile has eight edge/corner copies");
+          const [source, x, y] = draws[0];
+          const pixels = blockTexturePixels(block.id, face, part);
+          assert.deepEqual(source.pixels, pixels);
+          source.pixels = null; // Model a cleared icon-source canvas.
+          source.oncontextrestored();
+          assert.deepEqual(source.pixels, pixels, "uncached icons recover too");
+          for (const gutter of draws.slice(1))
+            assert.equal(gutter[0], source, "gutters sample their own material");
+          const [u0, v0, u1, v1] = atlas.uvFor(block.id, face, part);
+          assert.ok(Math.abs(u0 * atlas.canvas.width - x) < 0.00001);
+          assert.ok(Math.abs((1 - v1) * atlas.canvas.height - y) < 0.00001);
+          assert.ok(Math.abs((u1 - u0) * atlas.canvas.width - 16) < 0.00001);
+          assert.ok(Math.abs((v1 - v0) * atlas.canvas.height - 16) < 0.00001);
+          if (checked.has(tile)) continue;
+          checked.add(tile);
+          for (let dy = -2; dy < 18; dy++) {
+            for (let dx = -2; dx < 18; dx++) {
+              const sx = Math.max(0, Math.min(15, dx));
+              const sy = Math.max(0, Math.min(15, dy));
+              const from = (sy * 16 + sx) * 4;
+              const to = ((height - 1 - y - dy) * width + x + dx) * 4;
+              assert.deepEqual(
+                Array.from(data.subarray(to, to + 4)),
+                Array.from(pixels.subarray(from, from + 4)),
+                `${block.name} ${part ?? ""} ${face} ${dx},${dy}: texel or gutter`
+              );
+            }
+          }
+        }
       }
     }
     const emission = atlas.emissiveTexture;
+    assert.equal(emission.isDataTexture, true);
     assert.equal(emission.image.width, atlas.texture.image.width);
     assert.equal(emission.image.height, atlas.texture.image.height);
     assert.equal(emission.flipY, atlas.texture.flipY);
@@ -195,17 +233,24 @@ test("the foliage emission atlas shares diffuse UVs and leaves all other tiles b
     assert.equal(emission.magFilter, THREE.NearestFilter);
     assert.equal(emission.minFilter, THREE.NearestFilter);
     assert.equal(emission.generateMipmaps, false);
-    assert.equal(emission.image.draws.length, 1);
-    const [sprite, x, y] = emission.image.draws[0];
     const [u0, , , v1] = atlas.uvFor(BLOCK.GLOW_BERRIES);
-    assert.ok(Math.abs(u0 * emission.image.width - x) < 0.00001);
-    assert.ok(Math.abs((1 - v1) * emission.image.height - y) < 0.00001);
-    assert.deepEqual(sprite.pixels, blockEmissionPixels(BLOCK.GLOW_BERRIES));
-    assert.equal(sprite.width, 16);
-    assert.equal(sprite.height, 16);
+    const x = Math.round(u0 * width);
+    const y = Math.round((1 - v1) * height);
+    const expected = new Uint8Array(data.byteLength);
+    const pixels = blockEmissionPixels(BLOCK.GLOW_BERRIES);
+    for (let row = 0; row < 16; row++)
+      expected.set(
+        pixels.subarray(row * 64, (row + 1) * 64),
+        ((height - 1 - y - row) * width + x) * 4
+      );
+    assert.deepEqual(
+      emission.image.data, expected, "only fruit emits, including every gutter"
+    );
   } finally {
     atlas?.texture.dispose();
     atlas?.emissiveTexture.dispose();
+    second?.texture.dispose();
+    second?.emissiveTexture.dispose();
     if (previous === undefined) delete globalThis.document;
     else globalThis.document = previous;
   }

@@ -483,7 +483,25 @@ function canvasFromPixels(pixels) {
   const image = ctx.createImageData(SIZE, SIZE);
   image.data.set(pixels);
   ctx.putImageData(image, 0, 0);
+  // Cached icon sources also lose their canvas pixels on a GPU restart.
+  canvas.oncontextrestored = () => ctx.putImageData(image, 0, 0);
   return canvas;
+}
+
+function writeAtlasPixels(target, pixels, tile, padding = PAD) {
+  const width = COLS * STRIDE, height = ROWS * STRIDE;
+  const x = (tile % COLS) * STRIDE + PAD;
+  const y = Math.floor(tile / COLS) * STRIDE + PAD;
+  for (let dy = -padding; dy < SIZE + padding; dy++) {
+    const sy = Math.max(0, Math.min(SIZE - 1, dy));
+    for (let dx = -padding; dx < SIZE + padding; dx++) {
+      const sx = Math.max(0, Math.min(SIZE - 1, dx));
+      const source = (sy * SIZE + sx) * 4;
+      // DataTexture rows start at the bottom; keep the existing canvas UVs.
+      const destination = ((height - 1 - y - dy) * width + x + dx) * 4;
+      target.set(pixels.subarray(source, source + 4), destination);
+    }
+  }
 }
 
 function getAtlasCanvas() {
@@ -493,9 +511,14 @@ function getAtlasCanvas() {
   canvas.height = ROWS * STRIDE;
   const ctx = canvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
-  const sources = tileEntries.map(({ id, face, part }) =>
-    canvasFromPixels(blockTexturePixels(id, face, part))
-  );
+  // A restored 2D canvas is blank after GPU-process loss. Retain the original
+  // CPU pixels, not a readback from that lossy cache, as the GPU upload source.
+  const data = new Uint8Array(canvas.width * canvas.height * 4);
+  const sources = tileEntries.map(({ id, face, part }, tile) => {
+    const pixels = blockTexturePixels(id, face, part);
+    writeAtlasPixels(data, pixels, tile);
+    return canvasFromPixels(pixels);
+  });
   for (let tile = 0; tile < sources.length; tile++) {
     const source = sources[tile];
     const x = (tile % COLS) * STRIDE + PAD;
@@ -518,31 +541,35 @@ function getAtlasCanvas() {
   emissiveCanvas.width = canvas.width;
   emissiveCanvas.height = canvas.height;
   const berryTile = tileFor(BLOCK.GLOW_BERRIES);
+  const berryPixels = blockEmissionPixels(BLOCK.GLOW_BERRIES);
+  const emissiveData = new Uint8Array(data.length);
+  writeAtlasPixels(emissiveData, berryPixels, berryTile, 0);
   // Fruit stays inside the tile, so the emission gutters remain black.
   emissiveCanvas
     .getContext("2d")
     .drawImage(
-      canvasFromPixels(blockEmissionPixels(BLOCK.GLOW_BERRIES)),
+      canvasFromPixels(berryPixels),
       (berryTile % COLS) * STRIDE + PAD,
       Math.floor(berryTile / COLS) * STRIDE + PAD
     );
-  cachedAtlas = { canvas, sources, emissiveCanvas };
+  cachedAtlas = { canvas, sources, emissiveCanvas, data, emissiveData };
   return cachedAtlas;
 }
 
-function atlasTexture(canvas) {
-  const texture = new THREE.CanvasTexture(canvas);
+function atlasTexture(data, canvas) {
+  const texture = new THREE.DataTexture(data, canvas.width, canvas.height);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;
   texture.generateMipmaps = false;
+  texture.needsUpdate = true;
   return texture;
 }
 
 export function createAtlas() {
-  const { canvas, emissiveCanvas } = getAtlasCanvas();
-  const texture = atlasTexture(canvas);
-  const emissiveTexture = atlasTexture(emissiveCanvas);
+  const { canvas, emissiveCanvas, data, emissiveData } = getAtlasCanvas();
+  const texture = atlasTexture(data, canvas);
+  const emissiveTexture = atlasTexture(emissiveData, emissiveCanvas);
   const uvs = tileEntries.map((_, tile) => {
     const x = (tile % COLS) * STRIDE + PAD;
     const y = Math.floor(tile / COLS) * STRIDE + PAD;

@@ -11,7 +11,7 @@ import { createAtlas } from "./textures.js";
 
 /** Recycled particles and quiet, synthesized effects: no downloaded assets. */
 export class Effects {
-  constructor(scene, camera) {
+  constructor(scene, camera, { registerContextOwner } = {}) {
     this.scene = scene;
     this.camera = camera;
     this.audioEngine = new AudioEngine();
@@ -47,6 +47,21 @@ export class Effects {
       true
     );
     scene.add(camera);
+    this.unregisterContextOwner = registerContextOwner?.(this);
+  }
+
+  /** Retained GPU owners include cached sprites and expired, off-scene arrows. */
+  contextResources() {
+    if (this._disposed) return [];
+    const hand = (view) => view ? [
+      view.handGeometry, view.handMaterial, view.itemGeometry,
+      view.itemMaterial, view.armGeometry, view.armMaterial,
+    ] : [];
+    return [
+      this.mesh, this.geometry, this.material, this.arrowGeometry, this.arrowMaterial,
+      this.atlas.texture, this.atlas.emissiveTexture, ...this.itemTextures.values(),
+      hand(this), hand(this.offhand),
+    ];
   }
 
   get soundEnabled() {
@@ -180,6 +195,8 @@ export class Effects {
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    this.unregisterContextOwner?.();
+    this.unregisterContextOwner = null;
     this.audioEngine?.dispose();
     this.audio = null;
     for (const arrow of this.arrows) this.scene.remove(arrow.mesh);

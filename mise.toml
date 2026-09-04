@@ -56,6 +56,19 @@ run = "npm run test:lighting-depth"
 description = "Check native cave daylight continuity and bounded cold/warm work"
 run = "npm run test:lighting-native"
 
+[tasks."test:lighting-game"]
+description = "Verify full-Game GL calls and native terrain pixels in a fresh browser"
+run = "npm run test:lighting-game"
+
+[tasks."test:lighting-recovery"]
+description = "Verify full-Game pixels and resource cleanup after an isolated GPU restart"
+env = { MINESLOP_GL_GPU_CRASH = "1" }
+run = "npm run test:lighting-game"
+
+[tasks."test:lighting-context"]
+description = "Verify retained cave atlas layers and off-scene Effects owners after context loss"
+run = "npm run test:lighting-context"
+
 [tasks."test:ui"]
 description = "Verify classic menus and real inventory/container interactions in a browser"
 run = "npm run test:ui"
