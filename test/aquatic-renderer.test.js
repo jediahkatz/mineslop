@@ -7,6 +7,7 @@ import {
   createAquaticSkin,
   paintAquaticSkinFace,
 } from "../src/aquatic-skins.js";
+import { ECOLOGY_SPECIES } from "../src/expansion-ecology.js";
 import {
   animateMob,
   createMobModel,
@@ -30,6 +31,8 @@ import {
   paintMobSkinFace,
 } from "../src/mob-skins.js";
 import { MAX_MOBS, MAX_PROJECTILES, MOB_SPECIES } from "../src/mob-species.js";
+import { NPC_KINDS, paintNpcSkinFace } from "../src/npc-skins.js";
+import { catalogSkins, LEGACY_MOB_KINDS } from "./mob-asset-fixtures.js";
 
 function signature(model) {
   model.root.updateMatrixWorld(true);
@@ -41,26 +44,61 @@ function signature(model) {
   }));
 }
 
-function catalogSkins() {
-  const kinds = new Set([...Object.keys(MOB_SPECIES), ...AQUATIC_KINDS]);
-  const models = [...kinds].map(createMobModel);
-  models.push(
-    createProjectileModel("arrow"),
-    createProjectileModel("fireball")
-  );
-  return models.flatMap((model) => model.parts.map((part) => part.skin));
-}
-
 function texel(data, width, x, y) {
   const start = (y * width + x) * 4;
   return data.subarray(start, start + 4);
 }
 
-test("shared factory dispatches aquatic visuals without changing the gameplay registry", () => {
-  const registered = Object.keys(MOB_SPECIES);
+test("shared factory fits authored aquatic visuals to ecology bounds without mutating the registry", () => {
+  const registered = Object.entries(MOB_SPECIES);
+  for (const kind of LEGACY_MOB_KINDS) {
+    assert.ok(Object.hasOwn(MOB_SPECIES, kind), `${kind}: legacy entry retained`);
+    assert.notEqual(MOB_SPECIES[kind].ecology, true, kind);
+  }
+  for (const [kind, spec] of registered) {
+    if (LEGACY_MOB_KINDS.includes(kind)) continue;
+    assert.equal(spec, ECOLOGY_SPECIES[kind], `${kind}: native ecology entry`);
+    assert.equal(spec.ecology, true);
+    assert.ok(Number.isFinite(spec.height) && spec.height > 0, kind);
+    const family = AQUATIC_KINDS.includes(kind) ? "aquatic" : "npc";
+    assert.ok(AQUATIC_KINDS.includes(kind) || NPC_KINDS.includes(kind), kind);
+    assert.ok(
+      createMobModel(kind).parts.every((part) => part.skin.family === family)
+    );
+  }
   for (const kind of AQUATIC_KINDS) {
     const model = createMobModel(kind);
-    assert.deepEqual(signature(model), signature(createAquaticModel(kind)));
+    const authored = createAquaticModel(kind);
+    const scale = Math.min(
+      1, MOB_SPECIES[kind].height / authored.localBounds.max.y
+    );
+    const actual = signature(model);
+    const original = signature(authored);
+    assert.equal(actual.length, original.length);
+    for (let index = 0; index < actual.length; index++) {
+      const { matrix, ...part } = actual[index];
+      const { matrix: originalMatrix, ...originalPart } = original[index];
+      assert.deepEqual(
+        part, originalPart, `${kind}/${index}: authored skin and role`
+      );
+      const expected = new THREE.Matrix4()
+        .makeScale(scale, scale, scale)
+        .multiply(new THREE.Matrix4().fromArray(originalMatrix)).elements;
+      for (let element = 0; element < 16; element++)
+        assert.ok(
+          Math.abs(matrix[element] - expected[element]) < 1e-12,
+          `${kind}/${index}: only the declared ecology display scale may change`
+        );
+      assert.deepEqual(
+        model.parts[index].node.scale, authored.parts[index].node.scale
+      );
+    }
+    assert.deepEqual(
+      model.root.scale.toArray(), [1, 1, 1], "root scale stays available for age"
+    );
+    assert.ok(model.localBounds.max.y <= MOB_SPECIES[kind].height + 1e-12);
+    assert.ok(Math.abs(model.pickHeight - authored.pickHeight * scale) < 1e-12);
+    assert.ok(Math.abs(model.pickRadius - authored.pickRadius * scale) < 1e-12);
     assert.equal(model.animation.swim.node, model.visual);
     assert.ok(model.parts.length <= MAX_PARTS_PER_MOB);
     assert.ok(
@@ -69,13 +107,13 @@ test("shared factory dispatches aquatic visuals without changing the gameplay re
     );
     assert.ok(model.parts.every((part) => part.skin.family === "aquatic"));
   }
-  assert.deepEqual(Object.keys(MOB_SPECIES), registered);
+  assert.deepEqual(Object.entries(MOB_SPECIES), registered);
   assert.throws(() => createMobModel("not-a-mob"), /Unknown mob/);
 });
 
 test("legacy factories, skin descriptors, animator path and projectiles remain intact", () => {
-  for (const [kind, spec] of Object.entries(MOB_SPECIES)) {
-    if (AQUATIC_KINDS.includes(kind)) continue;
+  for (const kind of LEGACY_MOB_KINDS) {
+    const spec = MOB_SPECIES[kind];
     const model = createMobModel(kind);
     assert.equal(model.animation, undefined);
     for (const part of model.parts)
@@ -93,7 +131,14 @@ test("legacy factories, skin descriptors, animator path and projectiles remain i
       stride: 0,
       phase: 0.2,
       velocityY: 0,
+      groundY: 0,
     };
+    if (kind === "horse") {
+      // Horse gait samples real grounded movement, not a blocked AI intent.
+      animateMob(entity, 0.05, 0);
+      assert.equal(entity.stride, 0);
+      entity.position.x += 0.1;
+    }
     const before = entity.position.toArray();
     animateMob(entity, 0.05, 0.05);
     assert.ok(Number.isFinite(entity.stride) && entity.stride > 0);
@@ -114,7 +159,7 @@ test("legacy factories, skin descriptors, animator path and projectiles remain i
   }
 });
 
-test("the shared painter dispatches only the aquatic family and preserves legacy pixels", () => {
+test("the shared painter dispatches aquatic and NPC families and preserves legacy pixels", () => {
   const aquatic = createMobModel("guardian").parts.find(
     (part) => part.role === "eye"
   ).skin;
@@ -122,6 +167,14 @@ test("the shared painter dispatches only the aquatic family and preserves legacy
     (part) => part.role === "head"
   ).skin;
   for (const face of MOB_SKIN_FACES) {
+    for (const kind of NPC_KINDS) {
+      const npc = createMobModel(kind).parts.find(
+        (part) => part.role === "head"
+      ).skin;
+      assert.deepEqual(
+        paintMobAtlasFace(npc, face), paintNpcSkinFace(npc, face)
+      );
+    }
     assert.deepEqual(
       paintMobAtlasFace(aquatic, face),
       paintAquaticSkinFace(aquatic, face)
@@ -161,14 +214,16 @@ test("the actual combined atlas is painted once within the unchanged bounded all
   );
 });
 
-test("actual atlas texels, emission channels and every gutter agree with both original painters", () => {
+test("actual atlas texels, emission channels and every gutter agree with all three original painters", () => {
   const atlas = getMobSkinAtlasData();
   for (const entry of atlas.entries.values()) {
     for (const face of MOB_SKIN_FACES) {
       const source =
-        entry.skin.family === "aquatic"
-          ? paintAquaticSkinFace(entry.skin, face)
-          : paintMobSkinFace(entry.skin, face);
+        entry.skin.family === "npc"
+          ? paintNpcSkinFace(entry.skin, face)
+          : entry.skin.family === "aquatic"
+            ? paintAquaticSkinFace(entry.skin, face)
+            : paintMobSkinFace(entry.skin, face);
       const rect = mobSkinFaceRect(entry.skin, face);
       assert.equal(rect.width, source.width);
       assert.equal(rect.height, source.height);

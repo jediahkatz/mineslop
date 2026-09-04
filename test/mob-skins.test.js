@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import * as THREE from "three";
-import { AQUATIC_KINDS } from "../src/aquatic-skins.js";
 import { BLOCK } from "../src/blocks.js";
+import { releaseLostContextResources } from "../src/context-resources.js";
 import {
   createMobModel,
   createProjectileModel,
@@ -30,23 +30,17 @@ import {
   mobSkinFaceSize,
   paintMobSkinFace,
 } from "../src/mob-skins.js";
-import { MAX_MOBS, MAX_PROJECTILES, MOB_SPECIES } from "../src/mob-species.js";
+import { MAX_MOBS, MAX_PROJECTILES } from "../src/mob-species.js";
 import { CHUNK_SIZE } from "../src/terrain.js";
+import { catalogSkins, LEGACY_MOB_KINDS } from "./mob-asset-fixtures.js";
 import { ecosystem } from "./mob-fixtures.js";
 
-const models = Object.keys(MOB_SPECIES)
-  .filter((kind) => !AQUATIC_KINDS.includes(kind))
-  .map(createMobModel);
+const models = LEGACY_MOB_KINDS.map(createMobModel);
 const projectiles = ["arrow", "fireball"].map(createProjectileModel);
 const skins = [...models, ...projectiles].flatMap((model) =>
   model.parts.map((part) => part.skin)
 );
-const atlasSkins = [
-  ...skins,
-  ...AQUATIC_KINDS.flatMap((kind) =>
-    createMobModel(kind).parts.map((part) => part.skin)
-  ),
-];
+const atlasSkins = catalogSkins();
 const digest = (data) => createHash("sha256").update(data).digest("hex");
 const pixel = (image, x, y) => [
   ...image.data.subarray(
@@ -463,6 +457,61 @@ test("GPU texture, material, geometry, and instance ownership dispose exactly on
     "disposing one world does not invalidate another's texture"
   );
   second.dispose();
+});
+
+test("real mob atlas bytes and fixed buffers remain reuploadable after repeated context loss", () => {
+  const resources = createMobSkinResources(1);
+  const gel = createMobGelResources(resources);
+  const scene = new THREE.Scene();
+  scene.add(new THREE.Mesh(resources.geometry, resources.material));
+  scene.add(new THREE.Mesh(gel.geometry, gel.material));
+  const texture = resources.texture;
+  const bytes = texture.image.data;
+  const before = digest(bytes);
+  const buffers = [
+    resources.rects.array, resources.sizes.array, resources.flashes.array,
+  ];
+  let losses = 0;
+  texture.addEventListener("dispose", () => losses++);
+  try {
+    assert.equal(texture.isDataTexture, true);
+    assert.equal(
+      bytes, resources.atlas.data, "real upload bytes, not a canvas placeholder"
+    );
+    assert.equal(bytes.byteLength, MOB_SKIN_ATLAS_SIZE ** 2 * 4);
+    assert.deepEqual(
+      [texture.image.width, texture.image.height],
+      [MOB_SKIN_ATLAS_SIZE, MOB_SKIN_ATLAS_SIZE]
+    );
+    const renderer = { getContext: () => ({ isContextLost: () => true }) };
+    for (let generation = 1; generation <= 3; generation++) {
+      releaseLostContextResources(renderer, scene);
+      assert.equal(
+        losses, generation, "shared opaque/gel map releases once per loss"
+      );
+      // Ordinary DataTextures reupload into fresh Three caches at any positive
+      // version; only partially updated DataArrayTextures need invalidation.
+      assert.ok(texture.version > 0, "retained CPU texture remains uploadable");
+      assert.equal(texture.image.data, bytes);
+      assert.equal(
+        digest(texture.image.data), before, "albedo and emission survive intact"
+      );
+      assert.equal(getMobSkinAtlasData(), resources.atlas);
+      assert.equal(gel.texture, texture);
+      resources.write(0, skins[0], 0);
+      resources.update();
+      assert.deepEqual(
+        [...resources.rects.array.subarray(0, 4)],
+        resources.atlas.entries.get(skins[0].key).rect
+      );
+      assert.equal(resources.rects.array, buffers[0]);
+      assert.equal(resources.sizes.array, buffers[1]);
+      assert.equal(resources.flashes.array, buffers[2]);
+    }
+  } finally {
+    gel.dispose();
+    resources.dispose();
+  }
 });
 
 test("the bounded gel batch borrows the opaque atlas without changing alpha or light semantics", () => {
