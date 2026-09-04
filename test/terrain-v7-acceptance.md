@@ -151,3 +151,150 @@ columns. They validate natural floor and two-cell headroom along those paths.
 
 Generation-only tests deliberately do not claim GUI/LOD acceptance or a working
 return portal.
+
+## Parent-run real-browser gate (validated on frozen source)
+
+The parent-run clean r4 Vite build and headless browser gate pass on source
+`6ea12b135d8e30d8434b4f5156ab5bd08c417478`, build label
+`v7-clean-staging-r4-20260904`, served at
+`http://127.0.0.1:6553/test/terrain-v7-worker.html`.
+The supplied TAP confirms five transport cases, nine staging rows and 21 real
+workers in Chromium `150.0.7871.186`; visual/performance/ecology acceptance
+and ordinary-new-world activation remain separate, pending gates.
+Evidence:
+`/opt/cursor/artifacts/mineslop_v7_clean_r4_handoff_3ca15922-c9f2-44ae-a47b-54274718ce76/successful_browser.tap`
+(SHA-256 `19033b2e94c9692e5f58b333ec488c1fc2df0a1ec2b51d8767c7a078807a42af`).
+
+Entry: `test/terrain-v7-worker.browser.integration.mjs`.
+Build config: `test/terrain-v7-browser.vite.config.mjs`.
+The fixture deliberately imports the actual `terrain.worker.js` through
+`new Worker(new URL(...), {type:"module"})`, and creates unmodified production
+Worlds with worker enabled and explicitly disabled. It does not inject a
+generator factory or call `handleTerrainRequest` as a substitute for a Worker.
+
+Work is fixed and sequential:
+
+- Five cases: pillar0, pillar5, bowl0, shipwreck container owner(-19,-22),
+  Nether-fortress container owner(-22,-24), all using `cedar-valley`.
+- Each compares full blocks, biomes, effective states/fluids, sparse auxiliary
+  planes, specs, and complete declarations/markers against cold native output.
+  Opposite request orders and a repeated direct-worker request check warm-cache
+  parity. Public `World.ensureArea` moves eight chunks away and back, proving
+  normal World-cache eviction/reload and a changed resident incarnation.
+- Real worker packets undergo an onward transferable-buffer round trip and
+  detachment checks. Two adversarial delivery tests replay genuine worker
+  payloads as synthetic `MessageEvent`s: stale epoch/unknown ID are ignored;
+  wrong-version6 is rejected, then genuine v7 fallback supplies the chunk.
+  The faulty worker is warmed first so the guard cannot pass on a worker that
+  never started. Real direct-worker requests exercise7→6→unsupported8→7.
+- Nine calls use Game's actual `stageWorld` entry point, native World,
+  generation, landing and player-save validation. Fresh ordinary Overworld
+  remains3; explicit7 has Overworld[-64,320). Saved End1–6 and7 override both
+  requested Overworld and requested7 without migration. Every stage is low
+  quality, exactly49 chunks:441 staged columns total. A native untouched chunk
+  is compared in full; a stateful edit and saved pose survive staging,
+  archive3 file export/import, and isolated-origin IndexedDB round trips.
+- Fresh worlds intentionally generate nine synchronous spawn chunks, then
+  queue exactly40 worker requests; saved poses generate zero synchronous
+  chunks and queue49. The original zero-count fresh-world assertion was a
+  test false positive, not observed worker fallback. The exact allowance is
+  fixed, not measured dynamically; even one extra fallback chunk fails.
+  Expanded4–7 counters are mandatory; legacy1–3 counters are unavailable,
+  but exact request counts and empty pending/in-flight maps are still checked.
+- There are21 actual Worker instances total, disposed sequentially; no shared
+  browser/profile or application server is closed. The replay guards create at
+  most three simultaneous workers. Diagnostics and network capture are capped
+  at32 entries and fail on overflow.
+
+This is native Game **staging**, not construction/rendering of `VoxelGame`.
+No DOM, renderer or fabricated World stands in for native generation. The Node
+fixture test uses the same production staging function with native Node
+fallback and `fake-indexeddb`; its output explicitly says `browserGateRun:false`.
+Source-cache eviction is also covered by the earlier v7 Node tests; this browser
+gate specifically proves World-cache eviction and warm/order parity.
+
+### Prepare a disposable frozen source and build (parent commands)
+
+Do not copy fixtures into the immutable checkpoint or build the changing
+development tree. Export the committed source and overlay only these test
+files. The source SHA is pinned to shared-factory commit
+`6ea12b135d8e30d8434b4f5156ab5bd08c417478`; v6 goldens are in the separate
+`38ea7029f541595914b93d8a3aac699bfc97f987` checkpoint. Neither production
+source nor any golden is rewritten.
+
+```bash
+DEV=/tmp/mineslop-development
+SOURCE=/tmp/mineslop-v7-shared-checkpoint
+SHA=6ea12b135d8e30d8434b4f5156ab5bd08c417478
+test "$(git -C "$SOURCE" rev-parse HEAD)" = "$SHA"
+CANDIDATE=$(mktemp -d /tmp/mineslop-v7-browser-src.XXXXXX)
+OUT=$(mktemp -d /tmp/mineslop-v7-browser-build.XXXXXX)
+git -C "$SOURCE" archive "$SHA" | tar -x -C "$CANDIDATE"
+ln -s "$SOURCE/node_modules" "$CANDIDATE/node_modules"
+for file in \
+  terrain-v7-browser-host.js terrain-v7-browser-contract.js \
+  terrain-v7-browser-staging.js terrain-v7-browser-fixture.js \
+  terrain-v7-staging-generation.js terrain-v7-staging-generation.test.js \
+  terrain-v7-browser.vite.config.mjs terrain-v7-worker.html \
+  terrain-v7-worker.browser.integration.mjs terrain-v7-browser-fixture.test.js
+do
+  cp "$DEV/test/$file" "$CANDIDATE/test/$file"
+done
+export VITE_NATIVE_V7_SOURCE_SHA="$SHA"
+export VITE_BENCHMARK_LABEL="v7-native-${OUT##*/}"
+export VOXELCRAFT_NATIVE_V7_OUT_DIR="$OUT"
+(cd "$CANDIDATE" && NODE_ENV=production mise exec node@22.22.0 -- node node_modules/vite/bin/vite.js build \
+  --config test/terrain-v7-browser.vite.config.mjs)
+chmod -R a-w "$OUT"
+```
+
+Prerequisites: the checkpoint's installed dependencies (Vite, Playwright,
+fake-indexeddb), supported Node, and Playwright Chromium or an executable
+`CHROME_BIN`. The output directory must be empty and absolute. The fixture
+rejects missing/mismatched source SHA or label, HMR, raw source entries,
+redirects, off-origin requests and nonnumeric/shared origins.
+
+### Serve and run (parent commands; leave the frozen server running)
+
+Use a fresh numeric-loopback port.6550 is an example; fail if already listening,
+then choose another unused port instead of stopping an existing service.
+
+```bash
+PORT=6550
+if ss -H -ltn "sport = :$PORT" | rg -q .; then
+  echo "Choose an unused dedicated test port" >&2
+  exit 1
+fi
+tmux -f /exec-daemon/tmux.portal.conf ls
+SESSION="mineslop-v7-browser-${PORT}"
+tmux -f /exec-daemon/tmux.portal.conf new-session -d -s "$SESSION" \
+  -c "$CANDIDATE" -- python3 -m http.server "$PORT" \
+  --bind 127.0.0.1 --directory "$OUT"
+export VOXELCRAFT_TEST_URL="http://127.0.0.1:${PORT}/"
+export VOXELCRAFT_NATIVE_V7_BUILD_LABEL="$VITE_BENCHMARK_LABEL"
+RESULT_LOG=/opt/cursor/artifacts/mineslop_v7_real_browser_gate.tap
+(cd "$CANDIDATE" && mise exec node@22.22.0 -- node --test --test-concurrency=1 \
+  test/terrain-v7-worker.browser.integration.mjs) > "$RESULT_LOG" 2>&1
+```
+
+Use a new `RESULT_LOG` name for each run. Inspect its TAP result and JSON
+diagnostic: source/build label, actual source URL, HTML SHA-256, compiled script
+and worker URLs, Chromium version, all five comparisons, both replay guards and
+all nine staging results. This gate requires one fresh headless browser and no
+GPU/rendered scene. It sets `performanceCertification:false` and
+`visualCertification:false`; LOD body/cap/Y256 support and the separate
+visual/performance/ecology gates remain required before default activation.
+
+Preservation validation on2026-09-04 in `/tmp/mineslop-development`:
+9/9 focused Node tests pass under Node22.22.0, including all441 native staging
+columns, saved1–6 preservation, explicit expanded7 staging, fixture cells,
+comparison/prerequisite guards, syntax and five spawn-generation regression
+tests. Evidence:
+`/opt/cursor/artifacts/mineslop_v7_preservation_20260904_1336_node.tap`.
+All ten browser fixture/helper/test files match the successful clean r4
+overlay byte-for-byte, including all three handoff postimage hashes.
+The overlay's tracked production source and existing test prerequisites match
+the pinned commit; debug-instrumentation scans pass in both actual development
+and clean overlay `src/test`. Identity evidence:
+`/opt/cursor/artifacts/mineslop_v7_preservation_20260904_1336_identity.log`.
+No further browser run is needed for these exact tested postimages.
