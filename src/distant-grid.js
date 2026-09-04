@@ -1,4 +1,5 @@
 import { CHUNK_SIZE } from "./terrain.js";
+import { pillarFootprint } from "./distant-landmarks.js";
 
 // Detail chunks keep their own radius. These are visual-only sample densities;
 // even the outermost cell fits inside one independently owned detail chunk.
@@ -14,11 +15,32 @@ export const DISTANT_GRID_LIMITS = Object.freeze({
   cells: 8192,
   indices: 65536,
 });
+export const DISTANT_NATIVE_GRID_LIMITS = Object.freeze({
+  vertices: 16384, cells: 16384, indices: 131072,
+});
+
+// Native pillar foundations must not be buried by a coarse neighboring anchor.
+// A two-chunk halo preserves 2:1 steps even for an isolated far-away footprint.
+export function* landmarkGridRefinement(pillars) {
+  const chunks = new Set();
+  for (const pillar of pillars)
+    for (const [dx, dz] of pillarFootprint(pillar)) {
+      const cx = Math.floor((pillar.x + dx) / CHUNK_SIZE);
+      const cz = Math.floor((pillar.z + dz) / CHUNK_SIZE);
+      const key = `${cx},${cz}`;
+      if (chunks.has(key)) continue;
+      chunks.add(key);
+      if (chunks.size > 40) throw new RangeError("Native landmark refinement exceeds its chunk bound");
+      for (let z = -2; z <= 2; z++)
+        for (let x = -2; x <= 2; x++)
+          yield { key: `${cx + x},${cz + z}`, step: 2 << Math.max(Math.abs(x), Math.abs(z)) };
+    }
+}
 
 // Yields one cell at a time so topology construction shares the sampling frame
 // budget. Chunk-aligned bounds and 2:1 transitions make every shared edge exact:
 // a coarse edge includes the fine neighbor's midpoint, not a T-junction/skirt.
-export function* distantGridCells(cx, cz, bounds, quality = "medium") {
+export function* distantGridCells(cx, cz, bounds, quality = "medium", refinement = new Map()) {
   if (
     !Number.isSafeInteger(cx) ||
     !Number.isSafeInteger(cz) ||
@@ -40,14 +62,20 @@ export function* distantGridCells(cx, cz, bounds, quality = "medium") {
   const maxCX = Math.ceil(bounds.maxX / CHUNK_SIZE);
   const minCZ = Math.floor(bounds.minZ / CHUNK_SIZE);
   const maxCZ = Math.ceil(bounds.maxZ / CHUNK_SIZE);
-  const stepAt = (x, z) => {
+  const desiredStep = (x, z) => {
     const distance = Math.max(Math.abs(x - cx), Math.abs(z - cz));
-    return distance <= settings.nearRadius
+    const base = distance <= settings.nearRadius
       ? 4
       : distance <= settings.middleRadius
         ? 8
         : CHUNK_SIZE;
+    return Math.min(base, refinement.get(`${x},${z}`) ?? base);
   };
+  const stepAt = refinement.size === 0 ? desiredStep : (x, z) => Math.min(
+    desiredStep(x, z),
+    desiredStep(x - 1, z) * 2, desiredStep(x + 1, z) * 2,
+    desiredStep(x, z - 1) * 2, desiredStep(x, z + 1) * 2
+  );
   for (let z = minCZ; z < maxCZ; z++) {
     for (let x = minCX; x < maxCX; x++) {
       const step = stepAt(x, z);

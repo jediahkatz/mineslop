@@ -8,12 +8,13 @@ export const DISTANT_TERRACE_LIMITS = Object.freeze({
 });
 
 function edgeKey(a, b) {
-  return Math.min(a, b) * DISTANT_GRID_LIMITS.vertices + Math.max(a, b);
+  return Math.min(a, b) * 65536 + Math.max(a, b);
 }
 
 /**
  * Render-only terraces over the existing stitched grid. Each cell uses its
- * lower-X/lower-Z native column's integer top. Fine/coarse boundaries already
+ * native anchor's integer top (coarse badlands choose a representative corner).
+ * Fine/coarse boundaries already
  * share segmented edges, so their vertical risers meet without diagonal walls,
  * skirts below the world, new generator queries, or per-cell meshes.
  */
@@ -31,12 +32,21 @@ export class DistantTerraces {
     this.positions = null;
     this.normals = null;
     this.colors = null;
+    this.ranges = [];
+  }
+
+  range(cell, start, count) {
+    if (!count) return;
+    const previous = this.ranges.at(-1);
+    if (previous && previous.key === cell.key) previous.count += count;
+    else this.ranges.push({ key: cell.key, start, count });
   }
 
   link(cell) {
     if (this.flat) {
       cell.terraceStart = cell.start;
       cell.terraceCount = cell.count;
+      this.range(cell, cell.start, cell.count);
       return;
     }
     const ring = cell.ring;
@@ -67,16 +77,17 @@ export class DistantTerraces {
     // arrays or copying every vertex during the final publication frame.
     this.positions = new Float32Array(capacity * 3);
     this.colors = new Float32Array(capacity * 3);
+    this.surfaceData = new Float32Array(capacity * 3);
     this.normals = new Float32Array(capacity * 3);
     this.indices = new Uint32Array(indices);
     // At a grid point at most four rectangular cells meet. For any wall
-    // normal, at most two segments meet (four endpoint levels). Fixed slots
-    // avoid a per-vertex Map allocation while retaining exact hard normals.
+    // normal, at most two segments meet (four endpoint/owner combinations).
+    // Fixed slots avoid a per-vertex Map while retaining hard normals and owners.
     this.tops = new Int32Array(this.source.count * 4);
     this.walls = new Int32Array(this.source.count * 16);
   }
 
-  vertex(point, y, normal, wall = false) {
+  vertex(point, y, normal, wall = false, owner = point) {
     if (this.vertexCount >= this.positions.length / 3)
       throw new RangeError("Distant terraces exceeded their vertex budget");
     const at = this.vertexCount++;
@@ -93,16 +104,23 @@ export class DistantTerraces {
     this.colors[target] = colors[offset];
     this.colors[target + 1] = colors[offset + 1];
     this.colors[target + 2] = colors[offset + 2];
+    this.surfaceData.set(source.surfaceData.subarray(owner * 3, owner * 3 + 3), target);
     return at;
   }
 
-  cachedVertex(slots, start, point, y, normal, wall) {
+  cachedVertex(slots, start, point, y, normal, wall, owner = point) {
     for (let slot = start; slot < start + 4; slot++) {
       const existing = slots[slot] - 1;
       if (existing >= 0) {
-        if (this.positions[existing * 3 + 1] === y) return existing;
+        const at = existing * 3, from = owner * 3;
+        if (
+          this.positions[at + 1] === y &&
+          this.surfaceData[at] === this.source.surfaceData[from] &&
+          this.surfaceData[at + 1] === this.source.surfaceData[from + 1] &&
+          this.surfaceData[at + 2] === this.source.surfaceData[from + 2]
+        ) return existing;
       } else {
-        const vertex = this.vertex(point, y, normal, wall);
+        const vertex = this.vertex(point, y, normal, wall, owner);
         slots[slot] = vertex + 1;
         return vertex;
       }
@@ -114,9 +132,9 @@ export class DistantTerraces {
     return this.cachedVertex(this.tops, point * 4, point, y, [0, 1, 0], false);
   }
 
-  wall(point, y, normal) {
+  wall(point, y, normal, owner) {
     const direction = normal[0] === -1 ? 0 : normal[0] === 1 ? 1 : normal[2] === -1 ? 2 : 3;
-    return this.cachedVertex(this.walls, point * 16 + direction * 4, point, y, normal, true);
+    return this.cachedVertex(this.walls, point * 16 + direction * 4, point, y, normal, true, owner);
   }
 
   emit(cell) {
@@ -124,7 +142,8 @@ export class DistantTerraces {
     cell.terraceCount = 0;
     if (!cell.valid) return;
     const source = this.source;
-    const height = source.heights[cell.ring[0]];
+    const owner = cell.anchor ?? cell.ring[0];
+    const height = source.heights[owner];
     for (let i = cell.start; i < cell.start + cell.count; i++)
       this.indices[this.indexCount++] = this.top(source.indices[i], height);
     for (let i = 0; i < cell.ring.length; i++) {
@@ -140,16 +159,19 @@ export class DistantTerraces {
       )
         continue;
       const bottom = neighbor.valid
-        ? source.heights[neighbor.ring[0]]
+        ? source.heights[neighbor.anchor ?? neighbor.ring[0]]
         : source.spec.minY;
       if (bottom >= height) continue;
       const dx = source.positions[b * 3] - source.positions[a * 3];
       const dz = source.positions[b * 3 + 2] - source.positions[a * 3 + 2];
       const normal = [-Math.sign(dz), 0, Math.sign(dx)];
-      const ah = this.wall(a, height, normal);
-      const al = this.wall(a, bottom, normal);
-      const bl = this.wall(b, bottom, normal);
-      const bh = this.wall(b, height, normal);
+      // The higher cell owns the entire riser. Endpoint samples can belong to
+      // lower/different biomes; interpolating them clips or shifts its strata.
+      // Include this shader metadata in cache identity at shared endpoints.
+      const ah = this.wall(a, height, normal, owner);
+      const al = this.wall(a, bottom, normal, owner);
+      const bl = this.wall(b, bottom, normal, owner);
+      const bh = this.wall(b, height, normal, owner);
       this.indices.set(
         [ah, al, bl, ah, bl, bh],
         this.indexCount
@@ -157,6 +179,7 @@ export class DistantTerraces {
       this.indexCount += 6;
     }
     cell.terraceCount = this.indexCount - cell.terraceStart;
+    this.range(cell, cell.terraceStart, cell.terraceCount);
     if (this.indexCount > this.indices.length)
       throw new RangeError("Distant terraces exceeded their index budget");
   }
@@ -168,7 +191,9 @@ export class DistantTerraces {
         positions: this.source.positions.subarray(0, count),
         normals: this.source.normals.subarray(0, count),
         colors: this.source.colors.subarray(0, count),
+        surfaceData: this.source.surfaceData.subarray(0, count),
         indices: this.source.indices.subarray(0, this.source.indexCount),
+        ranges: this.ranges,
       };
     }
     const indices = this.indices.subarray(0, this.indexCount);
@@ -179,7 +204,9 @@ export class DistantTerraces {
       positions: this.positions.subarray(0, this.vertexCount * 3),
       normals: this.normals.subarray(0, this.vertexCount * 3),
       colors: this.colors.subarray(0, this.vertexCount * 3),
+      surfaceData: this.surfaceData.subarray(0, this.vertexCount * 3),
       indices,
+      ranges: this.ranges,
     };
     return result;
   }

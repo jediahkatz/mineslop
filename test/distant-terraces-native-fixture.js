@@ -15,8 +15,14 @@ export function assertRenderedNativeTerraces(lod, nativeHeight) {
   const caps = new Map();
   const point = (id) => [data.positions[id * 3], data.positions[id * 3 + 2]];
   for (const cell of data.cells) {
+    for (let i = 0; i < cell.ring.length; i++) {
+      const key = edgeKey(point(cell.ring[i]), point(cell.ring[(i + 1) % cell.ring.length]));
+      const cells = edges.get(key) ?? [];
+      cells.push(cell);
+      edges.set(key, cells);
+    }
     if (!cell.valid) continue;
-    const [x, z] = point(cell.ring[0]);
+    const [x, z] = point(cell.anchor ?? cell.ring[0]);
     const height = nativeHeight(
       Math.min(WORLD_MAX - 1, x + data.originX),
       Math.min(WORLD_MAX - 1, z + data.originZ)
@@ -25,12 +31,6 @@ export function assertRenderedNativeTerraces(lod, nativeHeight) {
     caps.set(cell, cap);
     for (let i = cell.terraceStart; i < cell.terraceStart + cell.count; i += 3)
       capTriangles.set([...data.terraces.indices.subarray(i, i + 3)].join(","), cap);
-    for (let i = 0; i < cell.ring.length; i++) {
-      const key = edgeKey(point(cell.ring[i]), point(cell.ring[(i + 1) % cell.ring.length]));
-      const cells = edges.get(key) ?? [];
-      cells.push(cell);
-      edges.set(key, cells);
-    }
   }
   let renderedCaps = 0, renderedRisers = 0;
   const referenced = new Set();
@@ -52,7 +52,10 @@ export function assertRenderedNativeTerraces(lod, nativeHeight) {
       assert.equal(endpoints.length, 2, "riser lies on one axis-aligned cell boundary");
       const neighbors = edges.get(edgeKey(...endpoints));
       assert.equal(neighbors?.length, 2, "riser joins two native terrain cells");
-      const levels = neighbors.map((cell) => caps.get(cell)).sort((a, b) => a - b);
+      // The existing End void-side policy terminates at the world floor.
+      // This is a bounded-skirt check, not native underside visual acceptance.
+      const levels = neighbors.map((cell) => !cell.valid && data.request.dimension === "end"
+        ? data.spec.minY : caps.get(cell)).sort((a, b) => a - b);
       assert.ok(levels[0] < levels[1]);
       assert.deepEqual([...new Set(ys)].sort((a, b) => a - b), levels);
       for (const id of ids) assert.ok(normal.getY(id) === 0);

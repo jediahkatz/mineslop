@@ -964,6 +964,15 @@ export function createGenerator(
     generateChunk,
     getBiome,
     terrainHeight,
+    // Visual descriptors only. Versions 4–6 return their own generators above
+    // and do not expose these legacy landmarks. Generation remains unchanged.
+    getEndPillars: () => dimension !== "end" ? [] : Array.from({ length: 10 }, (_, i) => {
+      const angle = (i * Math.PI) / 5 + phase * 0.03;
+      const x = Math.round(Math.cos(angle) * 58);
+      const z = Math.round(Math.sin(angle) * 58);
+      const base = column(x, z).top;
+      return { id: i, x, z, base, top: base + 20 + (i % 4) * 5 };
+    }),
     getSpawn,
     getTrees: trees.getTrees,
     getCaveEntrances: (gx, gz) => surfaceCaves?.getFeatures(gx, gz) ?? [],
