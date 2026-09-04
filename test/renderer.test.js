@@ -11,6 +11,7 @@ import {
   qualityFogDistance,
 } from "../src/renderer.js";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "../src/terrain.js";
+import { attachRendererLight, rendererLightWorld, settleRendererLight } from "./renderer-block-light-fixture.js";
 
 const atlas = {
   texture: new THREE.Texture(),
@@ -422,19 +423,18 @@ function disposeRenderer(renderer) {
   Object.values(renderer.materials).forEach((material) => material.dispose());
 }
 
-test("a berry-only light survives a real chunk rebuild without emissive cube geometry", () => {
-  const world = streamingWorld([
-    [
-      0,
-      0,
-      [
-        [3, 25, 5, BLOCK.STONE],
-        [3, 24, 5, BLOCK.GLOW_BERRIES],
-      ],
-    ],
+test("a berry-only light survives a real chunk rebuild without emissive cube geometry", (t) => {
+  const world = rendererLightWorld(t, [
+    [3, 25, 5, BLOCK.STONE],
+    [3, 24, 5, BLOCK.GLOW_BERRIES],
+    [4, 23, 5, BLOCK.STONE],
   ]);
   const renderer = headlessRenderer(world);
+  renderer.camera.position.set(3.5, 23, 5.5);
   renderer.localLights = [new THREE.PointLight(), new THREE.PointLight()];
+  attachRendererLight(t, renderer);
+  // Neighboring rock's top face: not the emitter cell or emissive plant art.
+  const receiver = { x: 4.5, y: 24.02, z: 5.5 };
   try {
     renderer.rebuildDirty(Infinity);
     const group = renderer.chunks.get("0,0");
@@ -450,18 +450,30 @@ test("a berry-only light survives a real chunk rebuild without emissive cube geo
       (mesh) => mesh.material === renderer.materials.berryFoliage
     );
     assert.ok(plant?.castShadow && plant.receiveShadow);
-    renderer.updateLocalLights(1, new THREE.Vector3(3.5, 23, 5.5));
-    assert.ok(renderer.localLights[0].intensity > 0);
-    assert.deepEqual(
-      renderer.localLights[0].position.toArray(),
-      [3.5, 24.3, 5.5]
-    );
-
-    world.chunks.get("0,0").blocks[24 * 256 + 5 * 16 + 3] = BLOCK.AIR;
+    settleRendererLight(renderer);
+    const lit = renderer.blockLight.sample(receiver);
+    assert.equal(world.get(4, 23, 5), BLOCK.STONE);
+    assert.equal(world.get(4, 24, 5), BLOCK.AIR);
+    assert.ok(lit[0] > 0.3 && lit[1] > 0 && lit[2] > 0, "berry field reaches the neighboring stone receiver");
+    assert.deepEqual(renderer.blockLight.sample({ x: 3.5, y: 25.5, z: 5.5 }), [0, 0, 0], "opaque rock interior is not a receiver");
+    const page = renderer.blockLight.cache.get("0,0,1");
+    renderer.removeChunk("0,0");
+    settleRendererLight(renderer);
+    assert.deepEqual(renderer.blockLight.sample(receiver), lit, "mesh removal cannot remove world emission");
     world.dirtyChunks.add("0,0");
     renderer.rebuildDirty(Infinity);
-    renderer.updateLocalLights(2, new THREE.Vector3(3.5, 23, 5.5));
-    assert.equal(renderer.localLights[0].intensity, 0);
+    settleRendererLight(renderer);
+    assert.deepEqual(renderer.blockLight.sample(receiver), lit, "rebuilding unchanged geometry preserves light");
+    assert.equal(renderer.blockLight.cache.get("0,0,1"), page, "unchanged field page is reused");
+
+    assert.equal(world.set(3, 24, 5, BLOCK.AIR), true);
+    settleRendererLight(renderer);
+    assert.deepEqual(renderer.blockLight.sample(receiver), [0, 0, 0], "real World removal invalidates the light before remeshing");
+    renderer.rebuildDirty(Infinity);
+    settleRendererLight(renderer);
+    assert.deepEqual(renderer.chunks.get("0,0").userData.emitters, []);
+    assert.deepEqual(renderer.blockLight.sample(receiver), [0, 0, 0], "rebuild cannot resurrect a removed berry");
+    t.diagnostic(JSON.stringify({ berryReceiver: receiver, lit, removed: renderer.blockLight.sample(receiver) }));
   } finally {
     disposeRenderer(renderer);
     renderer.localLights.forEach((light) => light.dispose());
@@ -641,40 +653,39 @@ test("quality changes update the mesh radius, fog and GPU feature budgets", () =
   }
 });
 
-test("placed torches illuminate nearby cave geometry even in Performance quality", () => {
+test("placed torches illuminate nearby cave geometry even in Performance quality", (t) => {
   for (const quality of ["low", "medium", "high"]) {
-    const renderer = Object.create(GameRenderer.prototype);
-    const group = new THREE.Group();
-    const source = { id: BLOCK.TORCH, x: 3.5, y: 14.5, z: -2.5 };
-    group.userData.emitters = [source];
-    Object.assign(renderer, {
-      quality,
-      lastLightTime: -Infinity,
-      chunks: new Map([["0,-1", group]]),
-      localLights: [new THREE.PointLight(), new THREE.PointLight()],
-    });
-    renderer.updateLocalLights(1, new THREE.Vector3(1, 14, -1));
-    assert.ok(renderer.localLights[0].intensity > 0, quality);
-    assert.deepEqual(
-      renderer.localLights[0].position.toArray(),
-      [3.5, 14.5, -2.5]
-    );
-    assert.ok(renderer.localLights[0].color.equals(new THREE.Color("#ffd18b")));
-    group.userData.emitters = [];
-    renderer.updateLocalLights(2, new THREE.Vector3(1, 14, -1));
-    assert.equal(
-      renderer.localLights[0].intensity,
-      0,
-      "removing a torch removes its light"
-    );
-    group.userData.emitters = [source];
-    renderer.updateLocalLights(3, new THREE.Vector3(100, 14, -1));
-    assert.equal(
-      renderer.localLights[0].intensity,
-      0,
-      "a torch is local, not cave-wide illumination"
-    );
-    for (const light of renderer.localLights) light.dispose();
+    const world = rendererLightWorld(t, [
+      [3, 14, -3, BLOCK.TORCH],
+      [4, 13, -3, BLOCK.STONE],
+      [15, 13, -15, BLOCK.STONE],
+    ], { x: 1, y: 14, z: -1 });
+    const renderer = headlessRenderer(world);
+    renderer.quality = quality;
+    renderer.camera.position.set(1, 14, -1);
+    renderer.localLights = [new THREE.PointLight(), new THREE.PointLight()];
+    attachRendererLight(t, renderer);
+    const receiver = { x: 4.5, y: 14.02, z: -2.5 };
+    try {
+      settleRendererLight(renderer);
+      const lit = renderer.blockLight.sample(receiver);
+      assert.equal(world.get(4, 13, -3), BLOCK.STONE);
+      assert.equal(world.get(4, 14, -3), BLOCK.AIR);
+      assert.ok(lit[0] > 0.7 && lit[1] > lit[2] && lit[2] > 0, `${quality}: warm torch illumination reaches adjacent stone`);
+      assert.ok(lit[0] > lit[1], quality);
+      assert.equal(renderer.blockLight.valid[renderer.blockLight.index(0, -1, 0)], 255, "receiver page is published, not merely queued");
+      assert.deepEqual(renderer.blockLight.sample({ x: 15.5, y: 14.02, z: -14.5 }), [0, 0, 0], "loaded distant stone stays dark: light is local, not cave-wide");
+      assert.equal(world.set(3, 14, -3, BLOCK.AIR), true);
+      settleRendererLight(renderer);
+      assert.deepEqual(renderer.blockLight.sample(receiver), [0, 0, 0], "removing a torch removes its field");
+      assert.equal(world.set(3, 14, -3, BLOCK.TORCH), true);
+      settleRendererLight(renderer);
+      assert.deepEqual(renderer.blockLight.sample(receiver), lit, "placing a torch restores the same field");
+      t.diagnostic(JSON.stringify({ quality, torchReceiver: receiver, lit, restored: renderer.blockLight.sample(receiver) }));
+    } finally {
+      disposeRenderer(renderer);
+      for (const light of renderer.localLights) light.dispose();
+    }
   }
 });
 

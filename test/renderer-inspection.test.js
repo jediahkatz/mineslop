@@ -5,6 +5,9 @@ import { Atmosphere } from "../src/atmosphere.js";
 import { getBiomeById } from "../src/biomes.js";
 import { BLOCK } from "../src/blocks.js";
 import { GameRenderer, QUALITY } from "../src/renderer.js";
+import { attachRendererLight, rendererLightWorld, settleRendererLight } from "./renderer-block-light-fixture.js";
+
+const receiver = { x: 2.5, y: 14.02, z: 2.5 };
 
 function fixture(t, quality = "low", biome = "dripstone_caves") {
   const previous = globalThis.document;
@@ -24,14 +27,16 @@ function fixture(t, quality = "low", biome = "dripstone_caves") {
     { id: BLOCK.GLOW_BERRIES, x: 4.5, y: 14.5, z: 1.5 },
   ];
   const water = new THREE.MeshLambertMaterial();
+  const world = rendererLightWorld(t, [
+    [1, 40, 1, BLOCK.STONE],
+    [2, 13, 2, BLOCK.STONE],
+    [3, 14, 2, BLOCK.TORCH],
+    [4, 14, 1, BLOCK.GLOW_BERRIES],
+  ]);
   const graphics = Object.assign(Object.create(GameRenderer.prototype), {
     scene,
     quality,
-    world: {
-      dimension: "overworld",
-      dirtyChunks: new Set(),
-      get: (_x, y) => (y === 40 ? BLOCK.STONE : BLOCK.AIR),
-    },
+    world,
     camera: new THREE.PerspectiveCamera(),
     atmosphere: new Atmosphere(scene),
     renderer: { shadowMap: {} },
@@ -51,7 +56,9 @@ function fixture(t, quality = "low", biome = "dripstone_caves") {
   graphics.setQuality(quality);
   graphics.setBiome(getBiomeById(biome));
   graphics.setTime(0.5);
-  graphics.updateLocalLights(10, graphics.camera.position);
+  attachRendererLight(t, graphics);
+  settleRendererLight(graphics);
+  world.dirtyChunks.clear();
   t.after(() => {
     graphics.atmosphere.dispose();
     for (const light of graphics.localLights) light.dispose();
@@ -70,6 +77,8 @@ function lights(graphics) {
     fog: graphics.scene.fog.color.toArray(),
     shadowMap: graphics.renderer.shadowMap.enabled,
     castShadow: graphics.atmosphere.sunlight.castShadow,
+    fieldEnabled: graphics.daylightMaterial.uniforms.uBlockLightEnabled.value,
+    receiver: graphics.blockLight.sample(receiver),
     sources: graphics.localLights.map((light) => ({
       intensity: light.intensity,
       visible: light.visible,
@@ -82,6 +91,8 @@ function lights(graphics) {
 test("inspection toggles immediately without changing chunks, view distance, pose or time", (t) => {
   const { graphics, group } = fixture(t);
   const natural = lights(graphics);
+  assert.equal(natural.fieldEnabled, 1);
+  assert.ok(natural.receiver[0] > 0.7, "real stone receiver starts torch-lit");
   const fogRange = [graphics.scene.fog.near, graphics.scene.fog.far];
   const camera = graphics.camera.position.toArray();
   const direction = graphics.camera.quaternion.toArray();
@@ -97,6 +108,8 @@ test("inspection toggles immediately without changing chunks, view distance, pos
   assert.equal(graphics.atmosphere.sunlight.intensity, 0);
   assert.equal(graphics.atmosphere.hemi.intensity, 0);
   assert.equal(graphics.renderer.shadowMap.enabled, false);
+  assert.equal(graphics.daylightMaterial.uniforms.uBlockLightEnabled.value, 0);
+  assert.deepEqual(graphics.blockLight.sample(receiver), natural.receiver, "inspection suppresses shading, not the world field");
   assert.ok(
     graphics.localLights.every((light) => !light.visible && !light.intensity)
   );
@@ -140,12 +153,14 @@ test("quality and biome switches retain fullbright, then restore the current bud
       "the_end",
     ]) {
       const biome = getBiomeById(id);
-      graphics.world.dimension = biome.dimension;
+      graphics.world.setDimension(biome.dimension).generate(0);
       graphics.setBiome(biome);
       for (const time of [0, 0.5]) {
         graphics.setTime(time);
-        graphics.updateLocalLights(20, graphics.camera.position);
+        settleRendererLight(graphics);
         assert.equal(graphics.fullbrightInspection, true);
+        assert.equal(graphics.daylightMaterial.uniforms.uBlockLightEnabled.value, 0);
+        assert.ok(graphics.blockLight.sample(receiver)[0] > 0.7, `${quality}/${id}: field remains populated during inspection`);
         assert.equal(
           graphics.atmosphere.inspectionLight.intensity / Math.PI,
           1
@@ -159,6 +174,7 @@ test("quality and biome switches retain fullbright, then restore the current bud
           )
         );
       }
+      const currentField = graphics.blockLight.sample(receiver);
       graphics.setFullbrightInspection(false);
       assert.equal(
         graphics.renderer.shadowMap.enabled,
@@ -167,50 +183,56 @@ test("quality and biome switches retain fullbright, then restore the current bud
           biome.category !== "cave"
       );
       assert.equal(
-        graphics.localLights.filter(
-          (light) => light.visible && light.intensity > 0
-        ).length,
+        graphics.localLights.filter((light) => light.visible).length,
         QUALITY[quality].localLights
       );
-      assert.ok(
-        graphics.localLights[0].color.equals(new THREE.Color("#ffd18b"))
-      );
+      assert.ok(graphics.localLights.every((light) => light.intensity === 0), "static pool stays inert within its quality budget");
+      assert.equal(graphics.daylightMaterial.uniforms.uBlockLightEnabled.value, 1);
+      assert.equal(graphics.daylightMaterial.uniforms.uBlockLightAtlas.value, graphics.blockLight.texture);
+      assert.equal(graphics.daylightMaterial.uniforms.uBlockLightValid.value, graphics.blockLight.validTexture);
+      assert.deepEqual(graphics.blockLight.sample(receiver), currentField, "current natural field restores without a frame");
+      assert.equal(graphics.atmosphere.inspectionLight.intensity, 0);
+      if (biome.category === "cave") {
+        assert.equal(graphics.atmosphere.sunlight.intensity, 0);
+        assert.equal(graphics.atmosphere.hemi.intensity, 0.05);
+      }
       graphics.setFullbrightInspection(true);
     }
   }
   graphics.setFullbrightInspection(false);
   assert.equal(graphics.quality, "low");
   assert.equal(
-    graphics.localLights[0].visible,
-    true,
-    "Performance keeps its torch"
+    graphics.daylightMaterial.uniforms.uBlockLightEnabled.value,
+    1,
+    "Performance keeps world-space torch illumination"
   );
+  assert.ok(graphics.blockLight.sample(receiver)[0] > 0.7);
   assert.equal(graphics.localLights[1].visible, false);
 });
 
 test("placed light sources are read afresh when leaving inspection, not restored from stale state", (t) => {
   const { graphics, group } = fixture(t);
   graphics.setFullbrightInspection(true);
-  group.userData.emitters = [];
-  graphics.updateLocalLights(11, graphics.camera.position);
+  assert.equal(graphics.world.set(3, 14, 2, BLOCK.AIR), true);
+  assert.equal(graphics.world.set(4, 14, 1, BLOCK.AIR), true);
+  // Intentionally retain stale mesh emitters until the next rebuild.
+  settleRendererLight(graphics);
   graphics.setFullbrightInspection(false);
-  assert.equal(
-    graphics.localLights[0].intensity,
-    0,
-    "a removed torch stays removed"
-  );
+  assert.equal(graphics.daylightMaterial.uniforms.uBlockLightEnabled.value, 1);
+  assert.deepEqual(graphics.blockLight.sample(receiver), [0, 0, 0], "removed sources stay dark despite stale mesh metadata");
   graphics.setFullbrightInspection(true);
-  group.userData.emitters = [{ id: BLOCK.TORCH, x: 2.5, y: 15.7, z: 1.5 }];
-  graphics.updateLocalLights(12, graphics.camera.position);
-  assert.equal(graphics.localLights[0].intensity, 0);
+  group.userData.emitters = [];
+  assert.equal(graphics.world.set(2, 15, 1, BLOCK.TORCH), true);
+  assert.equal(graphics.world.set(2, 14, 2, BLOCK.STONE), true);
+  const placedReceiver = { x: 2.5, y: 15.02, z: 2.5 };
+  settleRendererLight(graphics);
+  const placed = graphics.blockLight.sample(placedReceiver);
+  assert.ok(placed[0] > 0.7, "new torch reaches the neighboring stone face without mesh emitters");
+  assert.ok(placed[0] > placed[1] && placed[1] > placed[2], "torch keeps its warm color");
+  assert.equal(graphics.daylightMaterial.uniforms.uBlockLightEnabled.value, 0);
   graphics.setFullbrightInspection(false);
-  assert.ok(
-    graphics.localLights[0].visible && graphics.localLights[0].intensity > 0
-  );
-  assert.deepEqual(
-    graphics.localLights[0].position.toArray(),
-    [2.5, 15.7, 1.5]
-  );
+  assert.equal(graphics.daylightMaterial.uniforms.uBlockLightEnabled.value, 1);
+  assert.deepEqual(graphics.blockLight.sample(placedReceiver), placed, "leaving inspection immediately uses current receiver data");
 });
 
 test("shadows restore for Beautiful outdoors, never underground or in cheaper quality", (t) => {
