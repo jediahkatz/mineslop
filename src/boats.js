@@ -1,4 +1,4 @@
-import { intersectRayBox } from "./aabb.js";
+import { intersectRayBox, overlaps } from "./aabb.js";
 import {
   BOAT_ACTIVE_DISTANCE,
   BOAT_HEADER_RESERVED_BYTES,
@@ -175,6 +175,25 @@ export class Boats {
   }
   get reservedBytes() {
     return this._bytes;
+  }
+
+  /** Read-only physical occupancy, including stationary and unmounted hulls. */
+  intersectsBounds(bounds) {
+    if (
+      !this._ready() ||
+      !Array.isArray(bounds) ||
+      bounds.length !== 6 ||
+      !bounds.every(Number.isFinite) ||
+      ![0, 1, 2].every((axis) => bounds[axis] <= bounds[axis + 3])
+    )
+      return true;
+    for (const boat of this._boats.values())
+      if (
+        boat.dimension === this.world.dimension &&
+        overlaps(bounds, boatBox(boat))
+      )
+        return true;
+    return false;
   }
 
   _ready(loading = false) {

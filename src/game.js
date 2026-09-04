@@ -21,6 +21,7 @@ import { GameBuildingServices } from "./game-building-services.js";
 import { bindGameControls } from "./game-controls.js";
 import { GameExplorationServices } from "./game-exploration-services.js";
 import { GameFluidServices } from "./game-fluid-services.js";
+import { GameGravityServices } from "./game-gravity-services.js";
 import { GameMobActions, GameMobHarvestActions } from "./game-mob-actions.js";
 import { GameMobIntegration } from "./game-mob-integration.js";
 import { GameInventoryActions } from "./game-inventory-actions.js";
@@ -380,6 +381,8 @@ export class VoxelGame {
         allowOverBudget: saved != null,
       });
       owners.push(fluidServices);
+      const gravityServices = new GameGravityServices({ world: staged.world });
+      owners.push(gravityServices);
       const projectileServices = new GameProjectileServices({
         world: staged.world,
         gameplay,
@@ -431,6 +434,7 @@ export class VoxelGame {
         fuses,
         buildingServices,
         fluidServices,
+        gravityServices,
         projectileServices,
         progressionIntegration,
         vehicleServices,
@@ -488,6 +492,8 @@ export class VoxelGame {
     // Required terrain and a collision-checked pose exist before live teardown.
     this.unbindWorldEvents?.();
     this.unbindWorldEvents = null;
+    this.gravityServices?.dispose();
+    this.gravityServices = null;
     this.vehicleServices?.dispose();
     this.vehicleServices = this.boats = this.fishing = this.horses = null;
     this.mobIntegration?.dispose();
@@ -606,6 +612,10 @@ export class VoxelGame {
     if (!staged.fluidServices.activate(this).ok) {
       staged.fluidServices.dispose();
       throw new Error("The staged fluid services could not be activated");
+    }
+    if (!staged.gravityServices.activate(this).ok) {
+      staged.gravityServices.dispose();
+      throw new Error("The staged gravity services could not be activated");
     }
     if (!staged.projectileServices.activate(this).ok) {
       staged.projectileServices.dispose();
@@ -1508,14 +1518,14 @@ export class VoxelGame {
         this.graphics.renderRadius
       );
     }
-    this.graphics.rebuildDirty(this.quality === "high" ? 2 : 1);
     this.graphics.setTarget(
       this.active && this.ui.isHudVisible !== false && !this.meleeTarget
         ? this.target
         : null,
       this.miningProgress
     );
-    this.graphics.update(0, this.elapsed, this.player.position);
+    // Wildlife's view sorting needs the current camera direction, not the
+    // renderer's later lighting/LOD snapshot. Keep this sample before AI.
     this.graphics.camera.getWorldDirection(this.renderDirection);
     const difficulty = this.readWorldDifficulty();
     this.wildlife.context && Object.assign(this.wildlife.context, {
@@ -1543,6 +1553,14 @@ export class VoxelGame {
     const lateExit = this.vehicleServices?.takeExitPose();
     if (lateExit && !this.gameplay.dead)
       this.player.update(0, { recoverFromVoid: false, exitPose: lateExit });
+    // Resolve every physical owner and late dismount before testing swept
+    // falling-cell occupancy. Keep one mesh budget, after these World edits.
+    this.gravityServices?.frame(dt, { simulating: this.simulating });
+    this.graphics.rebuildDirty(this.quality === "high" ? 2 : 1);
+    // Snapshot daylight and cut LOD only after final poses, mutations and mesh
+    // admission: an earlier snapshot can overlap new detail or hide fallback
+    // for a row culled by a late dismount.
+    this.graphics.update(0, this.elapsed, this.player.position);
     this.pickups.update(
       this.simulating ? dt : 0,
       this.elapsed,
