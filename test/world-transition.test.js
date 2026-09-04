@@ -16,10 +16,15 @@ function fixture(t) {
   const saving = Promise.withResolvers();
   const reading = Promise.withResolvers();
   const initializing = Promise.withResolvers();
+  const replacing = Promise.withResolvers();
   const traveling = Promise.withResolvers();
   const firstInitialization = Promise.withResolvers();
+  const firstReplacement = Promise.withResolvers();
   const state = {
     saves: 0,
+    replacements: 0,
+    durableSeed: "original",
+    initializationOptions: [],
     fileReads: 0,
     initialized: [],
     activeInitializations: 0,
@@ -81,10 +86,12 @@ function fixture(t) {
     async save() {
       state.saves++;
       await saving.promise;
+      state.durableSeed = game.world.seed;
       return { ok: true };
     },
-    async initialize(seed) {
+    async initialize(seed, _saved, options = {}) {
       state.initialized.push(seed);
+      state.initializationOptions.push(options);
       state.activeInitializations++;
       state.maxConcurrent = Math.max(
         state.maxConcurrent,
@@ -93,6 +100,16 @@ function fixture(t) {
       game.building = true;
       firstInitialization.resolve();
       await initializing.promise;
+      if (options.persistNewWorld) {
+        // Production initialize owns the awaited atomic storage replacement.
+        // Keep that phase separate from preparation so the gate must span both.
+        options.validate();
+        firstReplacement.resolve();
+        await replacing.promise;
+        options.validate();
+        state.replacements++;
+        state.durableSeed = seed;
+      }
       state.activeInitializations--;
       game.world.seed = seed;
       game.building = false;
@@ -128,8 +145,10 @@ function fixture(t) {
     saving,
     reading,
     initializing,
+    replacing,
     traveling,
     firstInitialization,
+    firstReplacement,
   };
 }
 
@@ -150,8 +169,20 @@ for (const scenario of [
     f.reading.resolve(JSON.stringify(f.imported));
     f.saving.resolve();
     await f.firstInitialization.promise;
+    assert.equal(f.state.durableSeed, "original", "preparation cannot publish a new save");
     f.traveling.resolve();
     f.initializing.resolve();
+    const generating = scenario.startsWith("generate");
+    if (generating) {
+      await f.firstReplacement.promise;
+      assert.equal(f.game.transitionGate.busy, true, "the gate covers asynchronous replacement");
+      assert.equal(f.state.activeInitializations, 1);
+      assert.equal(f.state.durableSeed, "original", "replacement is not committed yet");
+      const duringReplacement = await VoxelGame.prototype.newWorld.call(f.game, "third");
+      assert.equal(duringReplacement.ok, false);
+      assert.match(duringReplacement.message, /transition.*in progress/);
+      f.replacing.resolve();
+    }
     const results = await Promise.all([first, second]);
     assert.deepEqual(results[0], { ok: true });
     assert.equal(results[1].ok, false);
@@ -164,7 +195,12 @@ for (const scenario of [
     assert.deepEqual(f.state.initialized, [
       scenario.startsWith("generate") ? "first" : "imported",
     ]);
-    assert.equal(f.state.saves, 2);
+    assert.equal(f.state.saves, generating ? 1 : 2);
+    assert.equal(f.state.replacements, generating ? 1 : 0);
+    assert.equal(f.state.saves + f.state.replacements, 2,
+      "one old-world checkpoint and one persisted replacement/import");
+    assert.equal(f.state.initializationOptions[0].persistNewWorld, generating ? true : undefined);
+    assert.equal(f.state.durableSeed, generating ? "first" : "imported");
     assert.equal(f.state.fileReads, scenario.startsWith("import") ? 1 : 0);
     assert.equal(f.state.activeInitializations, 0);
     assert.equal(f.state.activeTravels, 0);
