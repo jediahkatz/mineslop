@@ -57,8 +57,14 @@ test("real New World form routes the numeric opt-in, keyboard submission and bus
   await page.locator("#world-seed").fill("  chosen-seed  ");
   await page.keyboard.press("Tab");
   assert.equal(await choice.evaluate((element) => element === document.activeElement), true);
+  // Real Game HUD refreshes continue while the New World form has focus.
+  // Focusing the generation selector must not overwrite the seed draft.
+  await page.evaluate(() => ui.update({ seed: "cedar-valley" }));
+  assert.equal(await page.locator("#world-seed").inputValue(), "  chosen-seed  ");
   await page.keyboard.press("End");
   assert.equal(await choice.inputValue(), "7");
+  await page.evaluate(() => ui.update({ seed: "cedar-valley" }));
+  assert.equal(await page.locator("#world-seed").inputValue(), "  chosen-seed  ");
   await page.keyboard.press("Tab");
   assert.equal(await page.locator(".generate-button").evaluate((element) => element === document.activeElement), true);
   await page.keyboard.press("Enter");
@@ -74,6 +80,8 @@ test("real New World form routes the numeric opt-in, keyboard submission and bus
   await page.waitForFunction(() => !document.querySelector("#world-generation").disabled);
   assert.match(await page.locator(".storage-status").textContent(), /unchanged/);
   assert.equal(await choice.inputValue(), "7");
+  await page.evaluate(() => ui.update({ seed: "cedar-valley" }));
+  assert.equal(await page.locator("#world-seed").inputValue(), "chosen-seed");
   // HUD/import version updates must not feed back into the opt-in control.
   await page.evaluate(() => ui.update({ generatorVersion: 1 }));
   assert.equal(await choice.inputValue(), "7");

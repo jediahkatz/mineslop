@@ -573,7 +573,9 @@ export function createUI({
     if (seed !== undefined) {
       setText($(".footer-world b"), seed);
       setText($(".world-seed-value"), seed);
-      if (document.activeElement !== seedInput) seedInput.value = String(seed);
+      // HUD refreshes describe the active world, not the new-world draft.
+      if (menuNavigation.page !== "new-world" && document.activeElement !== seedInput)
+        seedInput.value = String(seed);
     }
     if (generatorVersion !== undefined)
       $(".terrain-generation-note").hidden =
