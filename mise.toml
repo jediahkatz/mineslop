@@ -93,6 +93,10 @@ run = "npm run test:held"
 description = "Verify real-input pearl flight, impact, persistence and lifecycle cleanup"
 run = "npm run test:pearls"
 
+[tasks."test:boats"]
+description = "Verify native Survival boat acquisition, controls and browser save/reload"
+run = "npm run test:boats"
+
 [tasks."test:fluids"]
 description = "Verify finite browser fluid interactions, retention and saved replay"
 run = "npm run test:fluids"
