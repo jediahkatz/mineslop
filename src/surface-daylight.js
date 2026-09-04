@@ -1,15 +1,15 @@
 import * as THREE from "three";
-import { resolveShape } from "./block-shapes.js";
-import { BLOCK } from "./blocks.js";
 import { CAVE_DAYLIGHT_LIMITS, entranceLightWeight } from "./cave-daylight.js";
-import { readChunkCell } from "./chunk-data.js";
-import { columnLoaded, readGeometryCell } from "./geometry-world.js";
-import { opaqueCube } from "./mesh-palette.js";
+import { columnLoaded } from "./geometry-world.js";
+import { prioritizeDaylight, SurfaceTopology } from "./surface-topology.js";
 import { CHUNK_SIZE } from "./terrain.js";
 
 export const SURFACE_DAYLIGHT_LIMITS = Object.freeze({
   chunkBuilds: 2,
   cachedChunks: 121,
+  // At most the former two builds' nine source columns worth of cell reads.
+  topologyBuilds: 18,
+  topologyChunks: 169,
   radius: CAVE_DAYLIGHT_LIMITS.lightRadius,
   atlasWidth: 64,
 });
@@ -34,6 +34,9 @@ export class SurfaceDaylight {
     this.ids = new WeakMap();
     this.serial = 0;
     this.nextId = 0;
+    this.age = 0;
+    this.waiting = new Map();
+    this.topology = new SurfaceTopology(columns, SURFACE_DAYLIGHT_LIMITS);
     this.allocate(1);
   }
 
@@ -59,11 +62,15 @@ export class SurfaceDaylight {
     Object.assign(this.columns.stats, {
       surfaceBuilds: 0, surfaceCellReads: 0, surfaceShapeReads: 0,
       surfaceVoxelVisits: 0, surfaceFloodVisits: 0, surfaceUploadBytes: 0,
-      surfaceStampChecks: 0,
+      surfaceStampChecks: 0, surfaceMaskReads: 0, surfaceTopologyBuilds: 0,
+      surfaceTopologyComparisons: 0, surfaceDependencyChecks: 0, surfaceQueueComparisons: 0,
     });
+    this.age++;
     if (this.height !== (this.valid ? height : 1)) this.allocate(this.valid ? height : 1);
     if (reset) {
       this.cache.clear();
+      this.waiting.clear();
+      this.topology.clear();
       for (let slot = 0; slot < this.uploaded.length; slot++) this.upload(slot, null);
     }
     this.pending = 0;
@@ -87,7 +94,7 @@ export class SurfaceDaylight {
     if (!this.valid || this.columns.world.dimension !== "overworld") return;
     const world = this.columns.world;
     const cx = Math.floor(position.x / CHUNK_SIZE), cz = Math.floor(position.z / CHUNK_SIZE);
-    const stamps = new Map(), pending = [];
+    const stamps = new Map(), pending = [], waiting = new Map();
     // The 16-block solve halo plus one shape-neighbor halo. Check identities,
     // not an unbounded resident-map scan; don't retain chunks or their buffers.
     for (let z = cz - radius - 2; z <= cz + radius + 2; z++)
@@ -98,57 +105,69 @@ export class SurfaceDaylight {
         stamps.set(`${x},${z}`, known ? `${this.ids.get(chunk)}:${chunk.revision}:${chunk.incarnation}` : "0");
         this.columns.stats.surfaceStampChecks++;
       }
+    this.sources = this.topology.update(cx, cz, radius, stamps, this.age, this.waiting);
     for (let z = cz - radius; z <= cz + radius; z++)
       for (let x = cx - radius; x <= cx + radius; x++) {
         const key = `${x},${z}`, slot = this.slot(x, z);
-        if (stamps.get(key) === "0") {
+        if (this.sources.get(key) === null) {
           this.cache.delete(key);
           this.upload(slot, null);
           continue;
         }
         const dependencies = [];
-        for (let dz = -2; dz <= 2; dz++)
-          for (let dx = -2; dx <= 2; dx++) dependencies.push(stamps.get(`${x + dx},${z + dz}`));
-        const stamp = dependencies.join("|");
+        for (let dz = -1; dz <= 1; dz++)
+          for (let dx = -1; dx <= 1; dx++) {
+            dependencies.push(this.sources.get(`${x + dx},${z + dz}`));
+            this.columns.stats.surfaceDependencyChecks++;
+          }
+        const ready = dependencies.every((entry) => entry !== undefined);
+        const stamp = dependencies.map((entry) => entry?.serial ?? 0).join("|");
         const old = this.cache.get(key);
-        if (old?.stamp === stamp) {
+        if (ready && old?.stamp === stamp) {
           this.cache.delete(key);
           this.cache.set(key, old);
           this.upload(slot, old);
         } else {
-          // Invalidation is immediate, even when the rebuild must wait its turn.
+          // Unknown/unverified topology and real closures clear immediately.
+          // Repeated changes keep the original queue age, never stale light.
           this.cache.delete(key);
           this.upload(slot, null);
-          pending.push({ x, z, key, stamp, distance: (x - cx) ** 2 + (z - cz) ** 2 });
+          const age = this.waiting.get(key) ?? this.age;
+          waiting.set(key, age);
+          pending.push({ x, z, key, stamp, ready, age, distance: (x - cx) ** 2 + (z - cz) ** 2 });
         }
       }
-    pending.sort((a, b) => a.distance - b.distance || a.z - b.z || a.x - b.x);
+    prioritizeDaylight(pending, this.columns.stats);
     const budget = Math.max(0, SURFACE_DAYLIGHT_LIMITS.chunkBuilds - this.columns.stats.surfaceBuilds);
-    for (const tile of pending.slice(0, budget)) {
+    let built = 0;
+    for (const tile of pending) {
+      if (built >= budget) break;
+      if (!tile.ready) continue;
       const entry = { stamp: tile.stamp, values: this.build(tile.x, tile.z), serial: ++this.serial };
       this.cache.set(tile.key, entry);
       this.upload(this.slot(tile.x, tile.z), entry);
+      waiting.delete(tile.key);
+      built++;
       if (this.cache.size > SURFACE_DAYLIGHT_LIMITS.cachedChunks)
         this.cache.delete(this.cache.keys().next().value);
     }
-    this.pending = Math.max(0, pending.length - budget);
+    this.waiting = waiting;
+    this.pending = pending.length - built;
   }
 
   build(cx, cz) {
-    const { world, spec, stats } = this.columns;
+    const { spec, stats } = this.columns;
     const chunks = [];
     let top = spec.minY, centerTop = spec.minY;
     stats.surfaceBuilds++;
     for (let dz = -1; dz <= 1; dz++)
       for (let dx = -1; dx <= 1; dx++) {
-        const x = cx + dx, z = cz + dz;
-        const sky = columnLoaded(world, x * CHUNK_SIZE, z * CHUNK_SIZE) && this.columns.chunk(x, z);
+        const sky = this.sources.get(`${cx + dx},${cz + dz}`);
         if (!sky) continue;
-        const chunk = world.chunks.get(`${x},${z}`);
-        const maximum = Math.min(spec.maxY, Math.max(spec.minY, ...sky.heights));
+        const maximum = spec.minY + sky.depth;
         top = Math.max(top, maximum);
         if (!dx && !dz) centerTop = maximum;
-        chunks.push({ chunk, sky, dx, dz, x, z });
+        chunks.push({ sky, dx, dz });
       }
     const depth = Math.ceil(top) - spec.minY;
     const centerDepth = Math.ceil(centerTop) - spec.minY;
@@ -156,7 +175,7 @@ export class SurfaceDaylight {
     const d = this.distance, queue = this.queue;
     d.fill(BLOCKED, 0, count);
     stats.surfaceVoxelVisits += count;
-    for (const { chunk, sky, dx, dz, x: cx, z: cz } of chunks)
+    for (const { sky, dx, dz } of chunks)
       for (let y = 0; y < depth; y++)
         for (let z = 0; z < CHUNK_SIZE; z++)
           for (let x = 0; x < CHUNK_SIZE; x++) {
@@ -167,16 +186,8 @@ export class SurfaceDaylight {
               continue;
             }
             const cellIndex = y * LAYER + column;
-            const id = chunk.blocks[cellIndex];
-            stats.surfaceCellReads++;
-            if (id === BLOCK.AIR) d[index] = UNLIT;
-            else if (!opaqueCube[id]) {
-              const shape = resolveShape(readChunkCell(chunk, cellIndex), (nx, ny, nz) => {
-                stats.surfaceShapeReads++;
-                return readGeometryCell(world, cx * CHUNK_SIZE + x + nx, y + spec.minY + ny, cz * CHUNK_SIZE + z + nz);
-              });
-              if (!shape.occlusion.length) d[index] = UNLIT;
-            }
+            stats.surfaceMaskReads++;
+            if (!(sky.blocked[cellIndex >>> 5] & (1 << (cellIndex & 31)))) d[index] = UNLIT;
           }
     let head = 0, tail = 0;
     // Seed only roofed air adjacent to direct sky, not the huge exterior volume.
@@ -236,11 +247,15 @@ export class SurfaceDaylight {
       atlasBytes: this.data.byteLength, cacheBytes, cachedChunks: this.cache.size,
       scratchBytes: this.distance.byteLength + this.queue.byteLength,
       layers: this.tiles * this.tiles, pending: this.pending,
+      ...this.topology.resources(),
     };
   }
 
   dispose() {
     this.cache.clear();
+    this.waiting.clear();
+    this.topology.clear();
+    this.sources?.clear();
     this.texture.dispose();
   }
 }

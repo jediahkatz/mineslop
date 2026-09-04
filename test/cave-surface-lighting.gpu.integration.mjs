@@ -15,7 +15,7 @@ import { SKY_COLUMN_LIMITS } from "../src/sky-columns.js";
 import { SURFACE_DAYLIGHT_LIMITS } from "../src/surface-daylight.js";
 import { chromeExecutable } from "./realtime/config.mjs";
 
-const files = ["cave-daylight.js", "daylight-material.js", "surface-daylight.js", "sky-columns.js", "atmosphere.js", "renderer.js"];
+const files = ["cave-daylight.js", "daylight-material.js", "surface-daylight.js", "surface-topology.js", "sky-columns.js", "atmosphere.js", "renderer.js"];
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const sourceHashes = async () => Object.fromEntries(await Promise.all(files.map(async (name) =>
   [name, hash(await readFile(new URL(`../src/${name}`, import.meta.url)))])));
@@ -167,6 +167,7 @@ test("authored cave fixed-surface and darkness-floor WebGL regressions", { timeo
     assert.equal(result.exterior.mask.direct, 1);
     assert.deepEqual(result.exterior.rgba, result.originalExterior.rgba, "direct-sky art is not brightened");
     assert.ok(result.closedFirstFrame.pending > 0, "exercise invalidation before the remote tile can rebuild");
+    assert.equal(result.closedFirstFrame.entranceTilePending, true, "the measured entrance tile must still await its budgeted rebuild");
     for (let i = 0; i < result.closedFirstFrame.natural.length; i++) {
       assert.deepEqual(result.closedFirstFrame.natural[i].mask, { direct: 0, ambient: 0 });
       assert.deepEqual(result.closedFirstFrame.natural[i].rgba, result.closed.natural[i].rgba);

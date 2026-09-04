@@ -237,15 +237,18 @@ export function runSurfaceLightingProbe({ fullDepth = true } = {}) {
 
     fixture.close();
     meshColumn("-1,0");
-    // A simultaneous local wall edit consumes the near-camera rebuild slots;
-    // the remote entrance must clear before its tile can be rebuilt.
-    fixture.world.put(Math.floor(deepX), 9, 4, BLOCK.DIRT);
+    // A nearby opaque addition consumes the near-camera rebuild slots. A
+    // stone-to-dirt wall swap is now correctly light-irrelevant. Keep this
+    // blocker outside the sampled rays so the remote entrance must clear
+    // before its tile can be rebuilt, without hiding the measured faces.
+    fixture.world.put(Math.floor(deepX), 9, 8, BLOCK.DIRT);
     meshColumn(`${Math.floor(deepX / 16)},0`);
     g.camera.position.copy(fixture.position(deepX));
     g.update(0, ++frame, { x: deepX, y: 8, z: 2.5 });
     const closedFirstFrame = {
       natural: readPoints(ENTRANCE_SURFACES), work: { ...g.skyColumns.stats },
       pending: g.skyColumns.surfaceLight?.pending,
+      entranceTilePending: g.skyColumns.surfaceLight?.waiting.has("0,0"),
     };
     fixture.close(false);
     for (let x = 1; x <= 5; x++)
