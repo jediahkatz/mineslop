@@ -134,6 +134,47 @@ Some of these systems already have implementations and focused tests. Their
 unchecked status means their complete gameplay integration or final acceptance
 verification is still pending, not that no code exists.
 
+## Verified development checkpoints — September 4, 2026
+
+These checkpoints are on the development branch, not a claim that GitHub Pages
+has deployed them or that the full expansion checklist is complete.
+
+- [Explicit expanded-world creation](https://github.com/jediahkatz/mineslop/commit/68cc6a2)
+  now exposes experimental generation 7 through the real New World form.
+  Classic remains the default; imported saves retain their recorded version.
+  Atomic replacement tests cover activation failure, transaction abort,
+  cross-tab ownership and closing a real browser tab during activation.
+  A clean GUI walkthrough on the later
+  [scheduler checkpoint](https://github.com/jediahkatz/mineslop/commit/e2c34b1feebc8574d0cb5db1a1f1a2cfbe5ab53f)
+  confirms new expanded Survival creation, movement, mining, saving and reload
+  with the seed, edited terrain and collected dirt retained. This does not yet
+  establish the full enchanting, ocean or structure-acquisition route.
+- [Live armor consumers](https://github.com/jediahkatz/mineslop/commit/abffe5a90a48306b6c5a97c2a78a7248167c638f)
+  apply toughness, protection, armor wear and source-specific rules to actual
+  damage paths, including fall and pearl damage. The
+  [oversized-hit correction](https://github.com/jediahkatz/mineslop/commit/677e7b4dacf2e3fc31f3b6a269670eeb3484a0bf)
+  preserves ordinary RNG behavior while bounding large armor/shield wear.
+  Sixty focused regressions pass; full equipped-combat GUI acceptance remains.
+- [Respiration and Depth Strider](https://github.com/jediahkatz/mineslop/commit/8efe574)
+  now drive the live air clock and horizontal swimming. Saved fractional ticks,
+  effect expiry, stale observations and idle transaction avoidance are tested.
+  [Renewable carrots and wart](https://github.com/jediahkatz/mineslop/commit/ce0e045894f07abbda78ee233c9abc74fc5047df)
+  have finite planting, growth and harvesting, with a paid new-farmer carrot
+  offer. Historical farmer catalogs and legacy crop records remain loadable.
+  The combined consumer/migration suite passes 146 checks. Native acquisition
+  and GUI growth/swimming comparisons remain unverified.
+- The bounded section scheduler passes 35 focused tests. Separate wall-material,
+  End-landmark/fog and visibility-priority work still needs combined rendered
+  acceptance. A successful isolated pillar handoff is not a frame-rate claim.
+- Barrels, blast furnaces and conduits still need complete live behavior and
+  acceptance; catalog entries and recipes do not satisfy that requirement.
+
+GUI testing exposed root-backed Chrome allocation failures on a nearly full VM
+disk. Routing the test browser's temporary files, cache and crash storage into a
+bounded tmpfs allowed the unchanged build to load and complete the GUI flow.
+The exact native fatal stack remains unknown. Software-rendered, contended-VM
+timings do not establish hardware-GPU performance or a 60 FPS guarantee.
+
 ## Invariants and verification
 
 - Preserve every existing save and device preference. Do not silently regenerate
