@@ -239,7 +239,7 @@ test("endermen stay neutral until a sustained visible stare; creative staring is
   const forward = { x: 6, y: mobEye(enderman).y - player.y - 1.45, z: 0 };
   advance(wildlife, 0.8, player, { playerForward: forward });
   assert.ok(enderman.angry > 0);
-  assert.ok(enderman.position.x < 6);
+  assert.equal(enderman.position.x, 6, "an angry Enderman freezes while stared at");
   const attacks = [];
   wildlife.onDamage = (...event) => attacks.push(event);
   advance(wildlife, 4, player, { mode: "creative", playerForward: forward });
@@ -247,7 +247,7 @@ test("endermen stay neutral until a sustained visible stare; creative staring is
   wildlife.dispose();
 });
 
-test("Enderman staring intersects the head instead of a distance-independent cone", (t) => {
+test("Enderman staring uses a distance-dependent physical eye tolerance", (t) => {
   const eye = player.clone().add(new THREE.Vector3(0, 1.62, 0));
   for (const distance of [4, 12, 18]) {
     for (const degrees of [0, 2, 8, 11, 14]) {
@@ -265,8 +265,8 @@ test("Enderman staring intersects the head instead of a distance-independent con
         playerEye: eye,
         playerForward: forward,
       });
-      // 11 degrees at 18m used to provoke despite missing by over three blocks.
-      const hitsHead = degrees === 0 || (distance === 4 && degrees === 2);
+      // The eye-direction tolerance narrows with distance; wide glances miss.
+      const hitsHead = degrees === 0 || degrees === 2;
       assert.equal(
         enderman.angry > 0,
         hitsHead,
@@ -276,7 +276,7 @@ test("Enderman staring intersects the head instead of a distance-independent con
   }
 });
 
-test("Enderman stare uses the camera ray, rejects the torso and cover, and requires continuous aim", (t) => {
+test("Enderman stare uses physical eyes, rejects the torso and cover, and requires continuous aim", (t) => {
   const world = flatWorld();
   const wildlife = ecosystem(world);
   t.after(() => wildlife.dispose());
@@ -296,14 +296,14 @@ test("Enderman stare uses the camera ray, rejects the torso and cover, and requi
   look(atHeight(2.1), 0.8);
   assert.equal(enderman.angry, 0, "looking at its torso is not a stare");
   const lowerHead = atHeight(2.64);
-  look(lowerHead, 0.4);
+  look(lowerHead, 0.2);
   assert.ok(
     enderman.lookTimer > 0,
     "actual camera height matters near the head edge"
   );
   look({ x: -1, y: 0, z: 0 }, 0.1);
   assert.equal(enderman.lookTimer, 0);
-  look(lowerHead, 0.4);
+  look(lowerHead, 0.2);
   assert.equal(enderman.angry, 0, "separate brief glances cannot accumulate");
   wall(world, 3);
   look(lowerHead, 0.8);
@@ -329,9 +329,9 @@ test("grace prevents Enderman stare buildup but leaves later stares and hit reta
   advance(wildlife, 7.9, player, { timeOfDay: 0.5, playerForward: forward });
   assert.equal(enderman.angry, 0);
   assert.equal(enderman.lookTimer, 0);
-  advance(wildlife, 0.4, player, { timeOfDay: 0.5, playerForward: forward });
+  advance(wildlife, 0.2, player, { timeOfDay: 0.5, playerForward: forward });
   assert.equal(enderman.angry, 0, "no deferred stare from the grace period");
-  advance(wildlife, 0.4, player, { timeOfDay: 0.5, playerForward: forward });
+  advance(wildlife, 0.2, player, { timeOfDay: 0.5, playerForward: forward });
   assert.ok(enderman.angry > 0);
   enderman.angry = 0;
   enderman.lookTimer = 0;

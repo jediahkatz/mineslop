@@ -6,6 +6,16 @@ import {
   planAnimalBehavior,
   planAnimalVocalization,
 } from "./animal-behavior.js";
+import {
+  ENDERMAN_LIMITS,
+  createEndermanRuntime,
+  resetEndermanCombat,
+  resetEndermanPursuit,
+  stepEndermanGaze,
+  stepEndermanPursuit,
+  stepEndermanWater,
+  teleportEnderman,
+} from "./enderman.js";
 import { readGeometryCell } from "./geometry-world.js";
 import {
   difficultyPolicy,
@@ -214,16 +224,18 @@ function fight(mob, dt, ctx, distance, toward, lineOfSight) {
     return;
   }
   if (distance <= spec.reach && verticalDistance < 1.7 && lineOfSight) {
+    if (mob.kind === "enderman") resetEndermanPursuit(mob);
     if (mob.attackCooldown <= 0) {
       mob.attackCooldown = spec.cooldown;
       ctx.damagePlayer(spec.damage, spec.name, mob);
     }
   } else {
+    const previousDistance = Math.hypot(
+      mob.position.x - ctx.player.x, mob.position.y - ctx.player.y, mob.position.z - ctx.player.z,
+    );
     steer(mob, toward, spec.speed, dt, ctx);
-    if (mob.kind === "enderman" && !mob.moving && mob.teleportCooldown <= 0) {
-      mob.teleportCooldown = 5;
-      ctx.relocate(mob, ctx.player, 4, 8);
-    }
+    if (mob.kind === "enderman")
+      return stepEndermanPursuit(mob, dt, ctx, previousDistance);
   }
 }
 
@@ -233,6 +245,13 @@ export function stepMob(mob, dt, ctx) {
   dt = Math.min(dt, ANIMAL_BEHAVIOR_LIMITS.step);
   const spec = mob.spec;
   const policy = difficultyPolicy(ctx.difficulty);
+  const canAttack =
+    policy.mobCombat &&
+    !spec.harmless &&
+    !ctx.spawnProtected &&
+    ctx.mode !== "creative" &&
+    ctx.health > 0;
+  if (mob.kind === "enderman" && !canAttack) resetEndermanCombat(mob);
   // Motion authority includes bareback/untamed rides AND this frame's dismount.
   // It is independent of tamed/saddled/retained state and must precede gravity,
   // knockback, relocation, hopping, turning and the generic movement flags.
@@ -276,8 +295,16 @@ export function stepMob(mob, dt, ctx) {
   mob.moving = mob.grazing = false;
   if (policy.mobCombat) sunlight(mob, dt, ctx);
   if (mob.dead) return;
+  if (mob.kind === "enderman" && stepEndermanWater(mob, dt, ctx)) return;
   if (!applyGravity(ctx.world, mob, dt)) {
     if (retained) return;
+    if (mob.kind === "enderman") {
+      mob.attacking = false;
+      mob.lookTimer = 0;
+      resetEndermanPursuit(mob);
+      teleportEnderman(mob, ctx, mob.position, 1, 5);
+      return;
+    }
     if (!ctx.relocate(mob, mob.position, 1, 5)) ctx.cull(mob);
     return;
   }
@@ -291,19 +318,13 @@ export function stepMob(mob, dt, ctx) {
     dz = ctx.player.z - mob.position.z;
   const distance = Math.hypot(dx, dz);
   const toward = Math.atan2(dx, dz);
-  const canAttack =
-    policy.mobCombat &&
-    !spec.harmless &&
-    !ctx.spawnProtected &&
-    ctx.mode !== "creative" &&
-    ctx.health > 0;
+  const vision = mob.kind === "enderman" ? ENDERMAN_LIMITS.gazeRange : spec.vision;
+  const inVision = mob.kind === "enderman" ? distance <= vision : distance < vision;
   const lineOfSight =
-    distance < spec.vision &&
+    inVision &&
     hasLineOfSight(ctx.world, mobEye(mob), ctx.playerEye);
-  if (mob.kind === "enderman") {
-    mob.lookTimer = canAttack && ctx.isLookingAt(mob) ? mob.lookTimer + dt : 0;
-    if (mob.lookTimer > 0.65) mob.angry = 20;
-  }
+  const heldByGaze = mob.kind === "enderman" &&
+    stepEndermanGaze(mob, dt, ctx, canAttack);
   const aggro =
     canAttack &&
     !mob.tamed &&
@@ -312,9 +333,14 @@ export function stepMob(mob, dt, ctx) {
       (spec.temperament === "hostile" &&
         !(spec.dayNeutral && isDaylight(ctx.timeOfDay))));
   mob.attacking = aggro;
-  const fighting = aggro && distance < spec.vision && (lineOfSight || mob.angry > 0);
+  const fighting = aggro && inVision && (lineOfSight || mob.angry > 0);
   let plannedAnimal = false;
-  if (mob.tamed && mob.kind === "wolf") {
+  if (heldByGaze) {
+    mob.fuse = 0;
+    mob.fusing = false;
+    resetEndermanPursuit(mob);
+    return;
+  } else if (mob.tamed && mob.kind === "wolf") {
     wolfCompanion(mob, dt, ctx, distance, toward, canAttack);
   } else if (hasAnimalBehavior(mob.kind) && (mob.fleeTime > 0 || !fighting)) {
     mob.fuse = Math.max(0, mob.fuse - dt * 2);
@@ -331,8 +357,9 @@ export function stepMob(mob, dt, ctx) {
         : toward + Math.PI;
     steer(mob, yaw, spec.speed * 2.6, dt, ctx);
   } else if (fighting) {
-    fight(mob, dt, ctx, distance, toward, lineOfSight);
+    if (fight(mob, dt, ctx, distance, toward, lineOfSight)) return;
   } else {
+    if (mob.kind === "enderman") resetEndermanPursuit(mob);
     mob.fuse = Math.max(0, mob.fuse - dt * 2);
     mob.fusing = false;
     if (mob.followTime > 0 && distance > 2.5 && distance < 14)
@@ -388,6 +415,7 @@ export function createMobState(kind, random) {
     burnTimer: 0,
     fuse: 0,
     lookTimer: 0,
+    ...(kind === "enderman" ? createEndermanRuntime() : {}),
     targetYaw: random() * Math.PI * 2,
     stride: random() * 6,
     phase: random() * Math.PI * 2,

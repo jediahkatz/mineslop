@@ -445,7 +445,12 @@ export class GameUseActions {
 
   fireBow(shot) {
     const game = this.game;
-    const { world, gameplay, player } = game;
+    const { world, gameplay, player, wildlife } = game;
+    const epoch = world.epoch, dimension = world.dimension;
+    const current = () => game.active && game.world === world &&
+      game.gameplay === gameplay && game.player === player &&
+      game.wildlife === wildlife && !wildlife.disposed &&
+      world.epoch === epoch && world.dimension === dimension;
     const {
       hand,
       itemId,
@@ -479,14 +484,25 @@ export class GameUseActions {
       return false;
     const cost = gameplay.prepareBowShot(shot);
     if (!cost) return false;
+    const origin = new THREE.Vector3().copy(eye);
+    const forward = new THREE.Vector3().copy(player.forward);
+    const playerPosition = finiteVector(player.position)
+      ? new THREE.Vector3().copy(player.position) : null;
     const range = 32 * (0.35 + 0.65 * strength);
-    const block = raycast(game.world, eye, game.player.forward, range);
-    const mob = game.wildlife.raycast?.(eye, game.player.forward, range);
+    const block = raycast(world, eye, player.forward, range);
+    const mob = wildlife.raycast?.(eye, player.forward, range);
     const hit = mob && (!block || mob.distance < block.distance) ? mob : null;
+    const targetPosition = hit && finiteVector(hit.entity.position)
+      ? new THREE.Vector3().copy(hit.entity.position) : null;
+    const targetCurrent = () => current() && !hit.entity.dead && !hit.entity.dormant &&
+      (!wildlife.byId || wildlife.byId.get(hit.entity.id) === hit.entity) &&
+      (!targetPosition || (finiteVector(hit.entity.position) && targetPosition.equals(hit.entity.position))) &&
+      (!playerPosition || (finiteVector(player.position) && playerPosition.equals(player.position))) &&
+      finiteVector(physicalEye(game)) && origin.equals(physicalEye(game)) &&
+      finiteVector(player.forward) && forward.equals(player.forward);
     const paid = {
       ...cost,
-      validate: () => game.active && game.world === world &&
-        game.gameplay === gameplay && game.player === player && cost.validate(),
+      validate: () => current() && cost.validate(),
     };
     const actions = (game.mobActions ??= new GameMobActions(game));
     const owned = hit && actions.owns(hit.entity);
@@ -499,22 +515,24 @@ export class GameUseActions {
     // In particular, an owned target's XP/drop veto cannot consume an arrow.
     if (!result?.ok) return false;
     const distance = hit?.distance ?? block?.distance ?? range;
-    this.shotEnd.copy(eye).addScaledVector(game.player.forward, distance);
-    // The owned hit already paid its arrow/wear and retained every reward.
-    // Sound/shot/HUD observers cannot make that same release retryable.
-    if (owned) return this._observeCommitted(result, [
-      () => game.effects.shoot(eye, this.shotEnd),
-      () => game.effects.sound("shoot", 5),
-      () => game.scheduleSave(),
-      () => game.refreshHud(),
+    this.shotEnd.copy(origin).addScaledVector(forward, distance);
+    // Payment notifications may replace owners or invalidate the picked target.
+    // Legacy gameplay resolves before optional presentation; owned hits already
+    // published damage and rewards atomically with their arrow/wear receipt.
+    if (!owned && current()) {
+      wildlife.endSpawnProtection?.();
+      if (hit && targetCurrent()) {
+        const dodged = hit.entity.kind === "enderman" &&
+          wildlife.dodgeProjectile?.(hit.entity) === true;
+        if (!dodged && targetCurrent()) game.hitMob(hit.entity, amount);
+      }
+    }
+    return this._observeCommitted(result, [
+      () => { if (current()) game.effects.shoot(origin, this.shotEnd); },
+      () => { if (current()) game.effects.sound("shoot", 5); },
+      () => { if (current()) game.scheduleSave(); },
+      () => { if (current()) game.refreshHud(); },
     ]);
-    game.effects.shoot(eye, this.shotEnd);
-    game.effects.sound("shoot", 5);
-    game.wildlife.endSpawnProtection?.();
-    if (hit && !owned) game.hitMob(hit.entity, amount);
-    game.scheduleSave();
-    game.refreshHud();
-    return true;
   }
 
   damage(amount, cause, source, kind = "melee") {

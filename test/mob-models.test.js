@@ -255,6 +255,10 @@ test("the Enderman skin's eye row and real animated head remain the gameplay sta
       y: 9,
       z: -29_000_000.625,
     });
+    // Gaze range uses physical feet, not only the eye ray assigned below.
+    wildlife.update(0, 0, new THREE.Vector3(
+      mob.position.x, mob.position.y, mob.position.z + 3
+    ));
     const part = mob.model.parts.find(
       (entry) => entry.node === mob.model.stareTarget
     );

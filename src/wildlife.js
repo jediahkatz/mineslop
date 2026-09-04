@@ -1,6 +1,15 @@
 import * as THREE from "three";
 import { ecologyCanOccupy } from "./aquatic-ai.js";
 import { BLOCK } from "./blocks.js";
+import {
+  ENDERMAN_LIMITS,
+  endermanDestinationAllowed,
+  isEndermanStaredAt,
+  resetEndermanCombat,
+  resetEndermanPursuit,
+  restoreEndermanRuntime,
+  teleportEnderman,
+} from "./enderman.js";
 import { entityContextFor, matchesEntityContext } from "./entity-context.js";
 import { ecologyCollider, ecologyVisualScale } from "./expansion-ecology.js";
 import { ECOLOGY_HOST_LIMITS } from "./ecology-population.js";
@@ -530,6 +539,7 @@ export class Wildlife {
         this.remove(mob);
       } else if (mob.spec.temperament !== "passive") {
         // Endermen and wild neutral animals forget the previous life.
+        if (mob.kind === "enderman") resetEndermanCombat(mob);
         mob.angry = mob.lookTimer = mob.fuse = 0;
         mob.attacking = mob.fusing = false;
         mob.attackCooldown = mob.spec.cooldown;
@@ -549,8 +559,23 @@ export class Wildlife {
     return spec ? groundAt(this.world, x, z, spec) : null;
   }
 
-  relocate(entity, center, minRadius = 2, maxRadius = 5) {
+  relocate(entity, center, minRadius = 2, maxRadius = 5, { towardPlayer = false } = {}) {
     if (this.retainsHorse(entity)) return false;
+    if (entity.kind === "enderman" && (
+      this.disposed || entity.dead || entity.dormant ||
+      entity.teleportCooldown > 1e-9 || this.context.difficulty === "peaceful" ||
+      this.byId.get(entity.id) !== entity ||
+      dimensionOf(this.world) !== this.dimension ||
+      !matchesEntityContext(this.world, this.worldContext) ||
+      !finitePosition(center) ||
+      !Number.isFinite(minRadius) || !Number.isFinite(maxRadius) ||
+      minRadius < 0 || maxRadius < minRadius ||
+      !footprintLoaded(this.world, entity.position.x, entity.position.z, entity.spec.radius)
+    )) return false;
+    if (entity.kind === "enderman") {
+      entity.teleportCooldown = ENDERMAN_LIMITS.teleportCooldown;
+      resetEndermanPursuit(entity);
+    }
     for (let attempt = 0; attempt < 10; attempt++) {
       const angle = this.random() * Math.PI * 2;
       const radius = minRadius + this.random() * (maxRadius - minRadius);
@@ -560,14 +585,28 @@ export class Wildlife {
         nearY: center.y,
         stepHeight: 2,
         maxDrop: 5,
+        avoidHazards: entity.kind === "enderman",
       });
       if (y === null) continue;
+      if (entity.kind === "enderman") {
+        if (!endermanDestinationAllowed(entity, { x, y, z },
+          this.hasPlayer ? this.player : null, this.context.playerHeight)) continue;
+        if (towardPlayer && Math.hypot(
+          x - this.player.x, y - this.player.y, z - this.player.z,
+        ) >= entity.position.distanceTo(this.player) - 0.5) continue;
+      }
       entity.position.set(x, y, z);
       entity.groundY = y;
       entity.velocityY = 0;
       entity.knockback.x = entity.knockback.z = 0;
       entity.home.copy(entity.position);
       entity.dormant = false;
+      if (entity.kind === "enderman") {
+        entity.moving = false;
+        entity.lookTimer = 0;
+        resetEndermanPursuit(entity);
+        entity.attackCooldown = Math.max(entity.attackCooldown, ENDERMAN_LIMITS.recovery);
+      }
       return true;
     }
     return false;
@@ -782,7 +821,8 @@ export class Wildlife {
             ) || mob.position.distanceTo(this.player) > DESPAWN_DISTANCE;
           if (mob.dormant)
             mob.teleportCooldown = Math.max(0, mob.teleportCooldown - dt);
-        } else if (!loaded || distance > DESPAWN_DISTANCE) {
+        } else if (!loaded || distance > (mob.kind === "enderman"
+          ? ENDERMAN_LIMITS.gazeRange : DESPAWN_DISTANCE)) {
           this.remove(mob);
         } else if (
           mob.spec.aquatic &&
@@ -863,6 +903,9 @@ export class Wildlife {
     const dealt = Math.min(entity.health, amount);
     entity.health -= dealt;
     entity.hitFlash = 0.24;
+    // Enderman-only counterattack recovery; incoming melee still lands normally.
+    if (entity.kind === "enderman" && entity.health > 0)
+      entity.attackCooldown = Math.max(entity.attackCooldown, ENDERMAN_LIMITS.recovery);
     if (finitePosition(direction)) {
       const length = Math.hypot(direction.x, direction.z);
       if (length > 0) {
@@ -1134,27 +1177,28 @@ export class Wildlife {
     }
   }
 
-  /** Crosshair ray against the rendered head, including its current rotation. */
+  /**
+   * True means an active Enderman consumed a projectile contact, even if no safe
+   * teleport was possible. Callers must skip damage on true. Melee is unchanged.
+   */
+  dodgeProjectile(entity) {
+    if (typeof entity === "string") entity = this.byId.get(entity);
+    if (this.disposed || entity?.kind !== "enderman" || entity.dead || entity.dormant ||
+      this.byId.get(entity.id) !== entity ||
+      dimensionOf(this.world) !== this.dimension ||
+      !matchesEntityContext(this.world, this.worldContext) ||
+      !footprintLoaded(this.world, entity.position.x, entity.position.z, entity.spec.radius))
+      return false;
+    if (this.context.difficulty !== "peaceful")
+      teleportEnderman(entity, this.context, entity.position, 4, 12);
+    return true;
+  }
+
+  /** Physical gaze, independent of animated model parts and render-only camera offsets. */
   isLookingAt(mob) {
     const { playerEye, playerForward } = this.context;
-    const head = mob.model.stareTarget;
-    if (
-      !head ||
-      !playerForward ||
-      Math.hypot(playerForward.x, playerForward.y, playerForward.z) < 1e-9
-    )
-      return false;
-    this.pickRay.origin.copy(playerEye);
-    this.pickRay.direction.copy(playerForward).normalize();
-    mob.root.updateMatrixWorld(true);
-    this.inversePart.copy(head.matrixWorld).invert();
-    this.localRay.copy(this.pickRay).applyMatrix4(this.inversePart);
-    if (!this.localRay.intersectBox(this.unitBox, this.pickPoint)) return false;
-    this.pickPoint.applyMatrix4(head.matrixWorld);
-    return (
-      this.pickPoint.distanceTo(this.pickRay.origin) <= 18 &&
-      hasLineOfSight(this.world, playerEye, this.pickPoint)
-    );
+    return mob?.kind === "enderman" &&
+      isEndermanStaredAt(this.world, mob, playerEye, playerForward, this.player);
   }
 
   raycast(origin, direction, maxDistance = 5) {
@@ -1449,6 +1493,7 @@ export class Wildlife {
         fuse: entry.fuse,
         pacified: entry.pacified,
       });
+      if (mob.kind === "enderman") restoreEndermanRuntime(mob);
       setSulfurBlock(mob, entry.absorbedBlock ?? null);
       mob.root.rotation.y = entry.yaw;
       if (retained.has(mob.id)) {

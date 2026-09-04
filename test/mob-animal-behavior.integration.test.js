@@ -142,6 +142,9 @@ test("legacy and explicit Normal preserve hostile pursuit, melee and Enderman pr
   const ctx = animalContext(flatWorld(), { isLookingAt: () => true });
   for (let step = 0; step < 15; step++) stepMob(enderman, 0.05, ctx);
   assert.ok(enderman.angry > 0);
+  assert.equal(enderman.position.x, 0.5, "gaze freezes an angry Enderman");
+  ctx.isLookingAt = () => false;
+  stepMob(enderman, 0.05, ctx);
   assert.ok(enderman.position.x > 0.5);
 });
 
