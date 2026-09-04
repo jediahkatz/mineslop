@@ -1,0 +1,4984 @@
+{
+  "sourceCommit": "6c3790183176f60d6fd15cb6253838d5c3d8eb61",
+  "generatorVersion": 6,
+  "defaultGeneratorVersion": 3,
+  "encoding": "SHA-256, u16 little-endian, effective state/fluid planes, canonical JSON",
+  "manifest": {
+    "id": "native-v6/all-structures-v1",
+    "generatorVersion": 6,
+    "structureLayoutVersion": 1,
+    "structureKinds": [
+      "shipwreck",
+      "ocean_ruin",
+      "ocean_monument",
+      "buried_treasure",
+      "village",
+      "nether_fortress",
+      "bastion_remnant",
+      "dungeon"
+    ]
+  },
+  "records": [
+    {
+      "seed": "cedar-valley",
+      "dimension": "overworld",
+      "spec": {
+        "minY": -64,
+        "maxY": 320,
+        "seaLevel": 63,
+        "voidY": -128
+      },
+      "spawn": {
+        "x": -5.5,
+        "y": 117.01,
+        "z": -15.5
+      },
+      "specDigest": "4c4ecf3f041f56c7cb261184b83178c688b2268ba70325eec19b6b7474b3a196",
+      "spawnDigest": "a4da42aef727361bf26c29112e2560dc26038b8a1d2aab664e7a89cc159b2ed9",
+      "chunks": [
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "origin",
+          "expected": {
+            "blocks": "621a717866d233ff8606de73195e778c1b1c4010ce6158440ec39a64a92ec04c",
+            "biomes": "67f022195ee405142968ca1b53ae2513a8bab0404d70577785316fa95218e8ba",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "4e4c9bcd4297e6180487774a006b29e307160274711cb3ede535d1ca036d76f2",
+            "all": "5f672841256ab69db466496dd104a26142a63f548cda7ff2b3ca840bffbb931d"
+          }
+        },
+        {
+          "cx": -1,
+          "cz": 2,
+          "label": "negative",
+          "expected": {
+            "blocks": "a508a45d79a6ec9d0fe9aa53387e130faa891d66efda78f8229aa5db73d106a4",
+            "biomes": "b1582001633f5e2b595b98893f7088e6ed9994eb3590ec8a16ba7ea8ffa74ed5",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "eaf0966d539c129d5bfa5a6ffc87c697564ad7fe8ba92afc3d8bd5ff9418e80d",
+            "all": "8ad36ffe26219306c7d2276de38ce51ab7ce45608e837ff841abdb9ce61b9542"
+          }
+        },
+        {
+          "cx": 100000,
+          "cz": -90000,
+          "label": "distant",
+          "expected": {
+            "blocks": "755f3e2b6c8673b49e14ace3c302ce1e9ecabb9e066c9aeaa8dec4465ebc907e",
+            "biomes": "0d0b709ccccd7e25c57469eb4b0618a7389f0ab6f8aa85cba97fcd2757ee98b9",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "a92995e67101dfa87e0214546b712e9d7575f9edfc7a547ee1b97af3d0825fac",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "605f8fb1f221bb1705541bd8653e91e1ed707d37b0b46655c5252353252f3e4b",
+            "all": "b623161c3b8c9612fb87ce776ba7aad91362d76a431a4a5f56aa745a388440df"
+          }
+        },
+        {
+          "cx": -1875000,
+          "cz": 1874999,
+          "label": "world-edge",
+          "expected": {
+            "blocks": "0a53572695aea0b081a8c438a6fccdc003f05eb82349160337a3ca615e9fc913",
+            "biomes": "54746dd680210f50530fac1b6a2dd0b269d222fb97a56243d89203a66103bd8a",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "539bf47212a4bfea65da4fb720955d8a20b49fd6f0e6a6c049c772d92718187a",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "32bbe0c854d6c8c9674da4102688de01c5c4ae08a34276a194ff29516dc5d685",
+            "all": "08814191829ff4b2bce2c303c0d6f5572f4666f161dd3b3e4a1c5c94103db4c7"
+          }
+        },
+        {
+          "cx": -1,
+          "cz": -1,
+          "label": "spawn",
+          "expected": {
+            "blocks": "8e30efd2e73f334d87871151d4a1942aed032ba6585aa8d2849c7c1391496d7a",
+            "biomes": "67f022195ee405142968ca1b53ae2513a8bab0404d70577785316fa95218e8ba",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "476b18127f3485e79318eff35cdf0fae3b16210500d59e5909ed4613f861584e",
+            "all": "e1d8b36f1d86eb73659d9e84347da70e892bb984217638c370b2fc934ecad572"
+          }
+        },
+        {
+          "cx": 42,
+          "cz": -54,
+          "label": "ordinary",
+          "expected": {
+            "blocks": "3d071c06fb204acfcddbe493565495a4c22c2e0c196e616d5cc13152900ef54d",
+            "biomes": "bd9f13a5a308e0e1baab5cdd6fe7dcf4202a2ddaeb41c9dad35e9446ac018bd7",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "2c3eec0b3d6e5de21ab671dc84538150cce82f172c9df1d027856bb80a32e644",
+            "all": "1a9848ded152bf499b0fec883098e7a1cb66bc48d550d96108a6013907847b7f"
+          }
+        },
+        {
+          "cx": 42,
+          "cz": -54,
+          "label": "lush",
+          "expected": {
+            "blocks": "3d071c06fb204acfcddbe493565495a4c22c2e0c196e616d5cc13152900ef54d",
+            "biomes": "bd9f13a5a308e0e1baab5cdd6fe7dcf4202a2ddaeb41c9dad35e9446ac018bd7",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "2c3eec0b3d6e5de21ab671dc84538150cce82f172c9df1d027856bb80a32e644",
+            "all": "1a9848ded152bf499b0fec883098e7a1cb66bc48d550d96108a6013907847b7f"
+          }
+        },
+        {
+          "cx": 54,
+          "cz": -54,
+          "label": "dripstone",
+          "expected": {
+            "blocks": "c90107de6431ab828993727ed342eba55559b90593c610223e1bf81387af2c87",
+            "biomes": "ed1b5fd8c7bd69cf8497b1f83fdd802e1863572d5ea3625cc468016f5d272f7b",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "7ed576cf0087ba0cf4b9aff02b1c8dcc5e24c56d377b3e9edb9c76f68deef54e",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "1e8e0f4c03fcbd5c9ee84ccce5f9da8e6a75a579fdb7b1e405ac879dc60ef850",
+            "all": "536ce2ef46b5d8a752430dc71ff5d0a5168a3c761481e83f4970a0ac60a5e545"
+          }
+        },
+        {
+          "cx": -66,
+          "cz": 72,
+          "label": "mountain",
+          "expected": {
+            "blocks": "9258ade68535cd544a87493b637273d4c9ca45575723d5f810643486dc3f5060",
+            "biomes": "e770f82df9f292cbdbb5b4113162e57af8db285aff6d421048e5a653caa78311",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "4a2dcf97d69530767e66d0d1e5e580b07845588a2f8311fb711eb16c7242747f",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "3d01e45f48171e81f62aac53608a2ffd28b2a0650dba125f1a7e157ae75f512e",
+            "all": "1ec3cbb5aa97f79a1c59b05fd8de97f1dba18af00c261937ad562d2143b16bf4"
+          }
+        },
+        {
+          "cx": -114,
+          "cz": 0,
+          "label": "deep_ocean",
+          "expected": {
+            "blocks": "914d55cda3112518cbb265058368ce0fb384739966adf2160ee366163d8b45d1",
+            "biomes": "a85f2ebafc6156cb56f18bbaacceb610617eb9604d9eab70ad01bacf6cadf882",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "80eaba82a36711edd6291000c641f522f8ec279db3cab3c3032afee4309038e8",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "7bb47cf082ce322cfa12fd82767a5ac5ea7b7686962813a0aa4a73c93f4e4450",
+            "all": "50ba13140ba0a08c755b174284d2fe279a277bb502a433e25560fb52a3b1bcb5"
+          }
+        },
+        {
+          "cx": 192,
+          "cz": 150,
+          "label": "badlands",
+          "expected": {
+            "blocks": "19c5dfa36be46b74af60a61ff4a2a442d48cac174032f9c08da5ecfc9e681604",
+            "biomes": "6171fb853f6a591f5bf3b82e0ca8fd7ac911195a0df24cdc2223285ccfcc0419",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "e313710b41e1e569c99619bf565eaefa1e23454ac641f0188f044d10e9cbe842",
+            "all": "88db9cb78ed41af4b11ed61e72e87d8936d6ed47de2f4a932d13a67a8f15609f"
+          }
+        },
+        {
+          "cx": -256,
+          "cz": -212,
+          "label": "swamp",
+          "expected": {
+            "blocks": "5a3f04a0025e41587bffe75788360bb0783fa83bffc2e0688b31215fe8ed3fa4",
+            "biomes": "ac4520470436ccb3031ac9660c4a2e737d0cda4b1f2a0685921e5e1593daa018",
+            "states": "cc22f63750c445b555a5167450e513113f071759eb2badb602a58872209fe6a6",
+            "fluids": "b33cef2643b7312660288984a3839c15b7c93250c4927f88746cfce809ea56e5",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "c325b61ac41ecab32d74b7c3a145f1e7744bc47a77d28b079c82d3f64fc493cb",
+            "all": "3c1c4abe3cd01b04b74475970c712bf2d51ec48bf167703cf09651586fc02bf4"
+          }
+        },
+        {
+          "cx": 31,
+          "cz": 0,
+          "label": "taiga-plains-density",
+          "expected": {
+            "blocks": "efdbf7843e24d57c7c4ff31162485739432f63d90a6e3f63d4a32119b5c3e859",
+            "biomes": "2b902a3f5596334bdc11d20f54a27c1fdfa969c44640a7a14350e546f4d8dad5",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "3c6850758fb5fea11ddc1045db299da46954a8c0d0a23bfd8a709a9f3ed14e9b",
+            "all": "ff5042df13a3de7bd0cb80af08f5fa960a2b5d445f7d41aff31b8a933be4d37f"
+          }
+        },
+        {
+          "cx": -1,
+          "cz": -1,
+          "label": "v6-spawn",
+          "expected": {
+            "blocks": "8e30efd2e73f334d87871151d4a1942aed032ba6585aa8d2849c7c1391496d7a",
+            "biomes": "67f022195ee405142968ca1b53ae2513a8bab0404d70577785316fa95218e8ba",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "476b18127f3485e79318eff35cdf0fae3b16210500d59e5909ed4613f861584e",
+            "all": "e1d8b36f1d86eb73659d9e84347da70e892bb984217638c370b2fc934ecad572"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "cedar-valley",
+      "dimension": "nether",
+      "spec": {
+        "minY": 0,
+        "maxY": 256,
+        "seaLevel": null,
+        "voidY": -64
+      },
+      "spawn": {
+        "x": 26.5,
+        "y": 35.01,
+        "z": -47.5
+      },
+      "specDigest": "68ffd7a07069b4cd82226e3ce3fade037537e377cb4c3de65982bd4e817361bb",
+      "spawnDigest": "c21996781b942004ea7e47ec289b5b3044cbfe22274f1404d445b2d5d04f7cce",
+      "chunks": [
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "origin",
+          "expected": {
+            "blocks": "191d3d851dae65aa7633ae52e164ea3b635e4c913bdc6c0294765daa9fb97ab2",
+            "biomes": "0083dd317dba2c7beca9e0de7c7f4f6b36bfc5e574350f9b02e10316e3e8b124",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "f0a2c8b30c9b73db1fdbd248dfc0b14d7e25d2e8fb94d0742725c22eb3ec8ae8",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "9b81ed2abf53c851b765844e11a6c0a4aea55ac8b5f3ed15c8f84cedf7e23edc",
+            "all": "226ca8d0d0cf155d2ddf193cc0a1622e5675974102b77662143f4de85aeb075e"
+          }
+        },
+        {
+          "cx": -1,
+          "cz": 2,
+          "label": "negative",
+          "expected": {
+            "blocks": "24664ca2caf53dccf48010265f6f14d038d17086cc69ef11fa70f3c780155d11",
+            "biomes": "503640869d19d1ae33f3481355b0fec37d39e9da888128a2d5974b14a5236b22",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "fd89f493f3b334800aef9f0dc341e508932fdcac5920676fc5df81043a9f0b23",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "b45d4827b8f99f3f06de606f107c3de1b54ea6475b42306c2fbbafad8bd35f0f",
+            "all": "b7ec7fbdec84ae7b8ef287acae5dd890eac22058ab3aba8a2386e250b5e1ee18"
+          }
+        },
+        {
+          "cx": 100000,
+          "cz": -90000,
+          "label": "distant",
+          "expected": {
+            "blocks": "e6d5dff44ab21bbd4e8b73c7afd97554725f9acbba0e52ce16d98affc7769e56",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "30da7df46535a832b0f7219fc8d0b1f2b783a725124248c7c010a64cbe1bcbc2",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "05894512b20fff6198ba0a6403a87ad02963a0aaf3e41c928a1ef9461fef7fdf",
+            "all": "8462c1716a851f60ea1527aa8956e84d78d6bea0e8111647c78164258ff9fbab"
+          }
+        },
+        {
+          "cx": -1875000,
+          "cz": 1874999,
+          "label": "world-edge",
+          "expected": {
+            "blocks": "88af2b1dccc72b285cf73e06da6be030fdc75b05018203236fe7d8e75cdb5568",
+            "biomes": "bd93b4a63868f8c6028d3fa30bdb4f2c15b96e2ec6ac85acfa7bac4b40c4c683",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "75f94b2b1e781cd2cb311c329843c5dbf5e01ae21cd06517a54040714c6bdd1d",
+            "all": "fe7a6984c99e86f441a37fe3277e6aa00b252bf246cb6d339a5df5609ffee1ab"
+          }
+        },
+        {
+          "cx": 1,
+          "cz": -3,
+          "label": "spawn",
+          "expected": {
+            "blocks": "b42b5557028b5d568bc8b6749047d2c310d2bbb5c592ba676aac6dd952f4d4b9",
+            "biomes": "0083dd317dba2c7beca9e0de7c7f4f6b36bfc5e574350f9b02e10316e3e8b124",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "98f38fe96ab2b3498c1d8ba082cc1d380abc6e035d5a6c9ce82b0433529b48e2",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "15d3c2d29a2130f8188d5359581c2b42e4857c7982fa0963a535c9603d798226",
+            "all": "1e534201b16a4ce94d6483cc485b388f5d382f66f8f40d1efd5c907d5a4ed45c"
+          }
+        },
+        {
+          "cx": 1,
+          "cz": -3,
+          "label": "v6-spawn",
+          "expected": {
+            "blocks": "b42b5557028b5d568bc8b6749047d2c310d2bbb5c592ba676aac6dd952f4d4b9",
+            "biomes": "0083dd317dba2c7beca9e0de7c7f4f6b36bfc5e574350f9b02e10316e3e8b124",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "98f38fe96ab2b3498c1d8ba082cc1d380abc6e035d5a6c9ce82b0433529b48e2",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "15d3c2d29a2130f8188d5359581c2b42e4857c7982fa0963a535c9603d798226",
+            "all": "1e534201b16a4ce94d6483cc485b388f5d382f66f8f40d1efd5c907d5a4ed45c"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "cedar-valley",
+      "dimension": "end",
+      "spec": {
+        "minY": 0,
+        "maxY": 256,
+        "seaLevel": null,
+        "voidY": -64
+      },
+      "spawn": {
+        "x": 0.5,
+        "y": 75.01,
+        "z": 0.5
+      },
+      "specDigest": "68ffd7a07069b4cd82226e3ce3fade037537e377cb4c3de65982bd4e817361bb",
+      "spawnDigest": "4f922988f56a5cb51683bceeb72339e1356aa12cf2fea29a3cdf217676371dbf",
+      "chunks": [
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "origin",
+          "expected": {
+            "blocks": "4668aeaa29b596d72daa2b9a2814712f4400fe4fda84294f62fc9b37052271aa",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "9b81ed2abf53c851b765844e11a6c0a4aea55ac8b5f3ed15c8f84cedf7e23edc",
+            "all": "9c0fa74e36ee946024ecf834d28c2f836c3e7ca4cf870d826aae9ee10e1ab816"
+          }
+        },
+        {
+          "cx": -1,
+          "cz": 2,
+          "label": "negative",
+          "expected": {
+            "blocks": "91978c5b130cfd0021025a2eb692232d8a82fd638614e32bb900ee9000154789",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "b45d4827b8f99f3f06de606f107c3de1b54ea6475b42306c2fbbafad8bd35f0f",
+            "all": "5ba7c6e5e871cf1b684d82f4d7f06c27ed0ef40e114744d8eb1a0e16a1a88240"
+          }
+        },
+        {
+          "cx": 100000,
+          "cz": -90000,
+          "label": "distant",
+          "expected": {
+            "blocks": "9e82e7d646ad6d09a085c6e1c42f08be654b77a894e64f88237d2d4c576b74ee",
+            "biomes": "d55e54727629d6fae2a32c6d775f62648239a35964d3dd7c2d79f8ce951b1f37",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "05894512b20fff6198ba0a6403a87ad02963a0aaf3e41c928a1ef9461fef7fdf",
+            "all": "878a9456e4a5ae97a8cc94c7e88d68597b988eb275f28f3faa836bfac7f47bb8"
+          }
+        },
+        {
+          "cx": -1875000,
+          "cz": 1874999,
+          "label": "world-edge",
+          "expected": {
+            "blocks": "3ad5a83f82b67c5238d9d5460e6fd7e461b0cfffbfab2722cb0bf3ba9df57085",
+            "biomes": "aae6df7e168d72f34e53b6323d32cbfe6ac806e23a48ec355aa3e79bd564c0fd",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "75f94b2b1e781cd2cb311c329843c5dbf5e01ae21cd06517a54040714c6bdd1d",
+            "all": "d77a7fd32a46ed1e0ac1a93bc3893f05fc6228bf4128872311ae5c145b09818d"
+          }
+        },
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "spawn",
+          "expected": {
+            "blocks": "4668aeaa29b596d72daa2b9a2814712f4400fe4fda84294f62fc9b37052271aa",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "9b81ed2abf53c851b765844e11a6c0a4aea55ac8b5f3ed15c8f84cedf7e23edc",
+            "all": "9c0fa74e36ee946024ecf834d28c2f836c3e7ca4cf870d826aae9ee10e1ab816"
+          }
+        },
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "v6-spawn",
+          "expected": {
+            "blocks": "4668aeaa29b596d72daa2b9a2814712f4400fe4fda84294f62fc9b37052271aa",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "9b81ed2abf53c851b765844e11a6c0a4aea55ac8b5f3ed15c8f84cedf7e23edc",
+            "all": "9c0fa74e36ee946024ecf834d28c2f836c3e7ca4cf870d826aae9ee10e1ab816"
+          }
+        },
+        {
+          "cx": 3,
+          "cz": 0,
+          "label": "central-trough",
+          "expected": {
+            "blocks": "890b35ced07e4f1c39de9b36c42d94986f9295b7c2758d3120fffdf2d486f14d",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "2e984fc6ff2b269e9bc77e1ec11314bc065f5bbe7350293c6a9612c2fdc9b0a7",
+            "all": "11e315bf9abb92a18c0e93731b517e9ee7f785b1e2b91fce56b683f5f1e225c6"
+          }
+        },
+        {
+          "cx": 11,
+          "cz": 0,
+          "label": "central-rim",
+          "expected": {
+            "blocks": "eab39204bc64b99023cafabe9fab10b8d5adabe5e7e15945e93322a3cbbf7072",
+            "biomes": "acc41ce474198fbabab5050767894686f016223768a42c746e88bfe276fe2d36",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "f00ff551db46df5f7b6f5bf47a48a45c7244fc7c687e23c0a24d5a2a2b0aea93",
+            "all": "a0dce9dc6593386bfa3ce034924ca9c839782c2406f3d765d1078df195893c27"
+          }
+        },
+        {
+          "cx": -13,
+          "cz": -1,
+          "label": "negative-rim",
+          "expected": {
+            "blocks": "efacf9e2e58fec14133fa578336b534a905a0d04053bc49df51113f2f0ae1b5c",
+            "biomes": "8b5232f4ec6ef01affceb79bcaa0630d74054a10dcbce28fa3e7183710a0515d",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "c3006ad21a5cbde2c93418b68c81119161f2868ee3414556257e440da2a41dff",
+            "all": "974dae651870f136aff61eb05dbf1adbbeddf9411ba13b6bcd91d586bf6f9ae2"
+          }
+        },
+        {
+          "cx": -37,
+          "cz": -49,
+          "label": "outer-highland",
+          "expected": {
+            "blocks": "21f28ac96d522749b5416f02a488433934d7b2b98ec1b55e29eac35d68cbcc36",
+            "biomes": "8412788baf648ac7ef0ac3b0a2ca5073d6682449e7449353a9f4a1d25f7f8234",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "ea6b3f0e6942289a312dffcce0e72d388e8c6bea5bf2751179630333e63bd981",
+            "all": "c2f081e96da8b679375601e66b75f9ad2f442cf445e09e9eadd39798bb7ea352"
+          }
+        },
+        {
+          "cx": -8,
+          "cz": -51,
+          "label": "thin-outer-island",
+          "expected": {
+            "blocks": "391ab59412dae85930165c00fe4c3d51eb090af3815e37839db277a1fc4cd7af",
+            "biomes": "b3a215fe91825cf152fb2cf2e4ba3e5704ba74fb67c6e001ab499bcf31191a69",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "a643f1571a68674e1864b0345b9f0e3d20ed99d3a4049f85f3aa3a9d5949019e",
+            "all": "860b0d21d1518a7f97cf942251f30b4a01ee54de5d2b22b89063cd7f7e88f42c"
+          }
+        },
+        {
+          "cx": 28,
+          "cz": 0,
+          "label": "void-moat",
+          "expected": {
+            "blocks": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "biomes": "a9b63d7f54f770d5eba19a4438c15cb35dcdd6aad2f171ec00c4fbe4a7372dda",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "4dd9326b72b762188933e007bb13a09931c6649d0608b3c23bddccd8aefb593e",
+            "all": "1cbc47a7295fa2a2d4c42a79c9f8164b7fb6f706a8a21b1160fbfa318ce34644"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "mineslop-audit-2",
+      "dimension": "overworld",
+      "spec": {
+        "minY": -64,
+        "maxY": 320,
+        "seaLevel": 63,
+        "voidY": -128
+      },
+      "spawn": {
+        "x": 463.5,
+        "y": 71.01,
+        "z": 457.5
+      },
+      "specDigest": "4c4ecf3f041f56c7cb261184b83178c688b2268ba70325eec19b6b7474b3a196",
+      "spawnDigest": "c535d58f285784590118ff6f5155724c1807955c1721ee809c43b104286b5efd",
+      "chunks": [
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "origin",
+          "expected": {
+            "blocks": "2d2532db7e6efd9370e7008630eba9dd4c461be9f52239c78c193c3224fcbe5f",
+            "biomes": "b388490dd3fd458dc0f4beab759842a1212077ca4788c6e13980e33611151fe8",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "75207cfa217efcfbbc213ff255222f23c71dc1792eef11404fdb50199e245a48",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "4e4c9bcd4297e6180487774a006b29e307160274711cb3ede535d1ca036d76f2",
+            "all": "509873ed825fb004c85d256a9876aac7dbf49dc4acd03066a58d61d0906d8291"
+          }
+        },
+        {
+          "cx": -1,
+          "cz": 2,
+          "label": "negative",
+          "expected": {
+            "blocks": "e2fbad3ea2ecbe84d1558ff23b7b9aec731c19658e5e4660f958c25b9a74cb3b",
+            "biomes": "b388490dd3fd458dc0f4beab759842a1212077ca4788c6e13980e33611151fe8",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "a98fa15239e4e5f46c3bd3879c900b1f1512a5cd2bb06f012e5d65579d3798d8",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "eaf0966d539c129d5bfa5a6ffc87c697564ad7fe8ba92afc3d8bd5ff9418e80d",
+            "all": "3ae56b1a00bf9a696e5ed8b6c0c19c206c9766ba01bae7a86e33bd32c3740d2e"
+          }
+        },
+        {
+          "cx": 100000,
+          "cz": -90000,
+          "label": "distant",
+          "expected": {
+            "blocks": "b3d499a65b952143a15e59a33b91c56d4a55d4690b735eb07be50b604ee93c88",
+            "biomes": "eef4a9f09da50cf9473275cc009d7ea526f19a94317682b5e9d3df690f1f81ea",
+            "states": "c0209a8b3406599343e67064f73baa9da23328b00ebd1301178f9c9c770992ee",
+            "fluids": "78380d9dcb826d482dbeaabc00227496a9243fab607ba3c1ef7b39cb8fe0536a",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "61e02ea3eac23411030a366c441fee5f95f81a4dbaf79e06921ab9bce2c84c1c",
+            "all": "31f28a3ac19b862efc776953e40a6607e6cae9a067507ad967bd51993c328499"
+          }
+        },
+        {
+          "cx": -1875000,
+          "cz": 1874999,
+          "label": "world-edge",
+          "expected": {
+            "blocks": "09b57d7498dad5853fc8ec363b972915294d14f5c1c96902d384f1106c00918f",
+            "biomes": "a85f2ebafc6156cb56f18bbaacceb610617eb9604d9eab70ad01bacf6cadf882",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "c83f477d6f49bcce1b8f17bb18bf9d3b71d29d11785db2872e4709c7fca66602",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "32bbe0c854d6c8c9674da4102688de01c5c4ae08a34276a194ff29516dc5d685",
+            "all": "df2558894c2128750d1c0798a48abe269f2d555342115cf4c680710fd13d8081"
+          }
+        },
+        {
+          "cx": 28,
+          "cz": 28,
+          "label": "spawn",
+          "expected": {
+            "blocks": "82a1343234e49a01eb0f48983431872bedab511e833ac1f5d38e7d82043e5700",
+            "biomes": "2048d0f2a197c10c3f5bc93df0fb906daf537fa311070ada10ec0bfe888d42bf",
+            "states": "f683f80fa27eecfa916c22a2b8766aae2e53119fd356bd1e54425cdf377983ea",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "7fabfaaa5afea73df380586d3341afd6833189babc6306bbf70a0d57c7c66a04",
+            "all": "084f1231174138fd439c9683a3d1ebdd2e32dcbebfc1ab60232e90e62cb807e2"
+          }
+        },
+        {
+          "cx": 64,
+          "cz": 20,
+          "label": "birch-desert-dune",
+          "expected": {
+            "blocks": "f5f3c805ac8e6dfbe780b54cea57a9f3b60fdefb0a1dcc108a9a23c95966b61f",
+            "biomes": "8f50f869fbe26e53926b5e9520e6391001b71585ccd6b89164987a6fa4f7441f",
+            "states": "1fe0dc72a1d2bf31794ec9f8c4adf0f556f5af68187cf187ceefaede7966ee0d",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "410046c264f02bd8ad09664ec3e47841e37a5f2b17fd5d36231c5f6d14dcf783",
+            "all": "f1b0a380287fe1890890db4d448ddae6752653e914bdf293eef189080f149f19"
+          }
+        },
+        {
+          "cx": 0,
+          "cz": 118,
+          "label": "desert-plateau",
+          "expected": {
+            "blocks": "b454449c10c966040701e0aef114aa0b85e645079b98de5997cc7596616c1fba",
+            "biomes": "97542e7fcdd893db20d44b9cedd13e1d64d36ba71c7cb5ce4546274ba5083c54",
+            "states": "032228242a3264400ca50231cff6ab8b57d763cf6dc4a0773f3a755bf76ab502",
+            "fluids": "917794bcf50ab78c736cf92c3145de6c14e533d625e2389b7ddce3f65af31c2d",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "7c06251017fad07814213f00ad35ee6a44f07e9044301c37a3fcc06ea6ded67a",
+            "all": "d448b5ca9916c28193691603a32b440eb65eda81eea2279815a149ac55999606"
+          }
+        },
+        {
+          "cx": -64,
+          "cz": -115,
+          "label": "beach-ocean",
+          "expected": {
+            "blocks": "94c95b81ea0be162896919a8984a548c6db261fd836842c56dc50a5e530ed47d",
+            "biomes": "be0509728fa93f5e0658fe28235fc8a51d7e63da2595e2d1036c4609230a5e70",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "706ecfd090f1cfa821de1ed63ef4b244c36720e8e619ec83d0e510f9baca093f",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "a60f554a9092f1ffa09569f7b00a5be0802f84d35746c2510f2f43599aad7bf8",
+            "all": "ba9a5f87ac8069f14108da0c253a779488440743277d720ab9750c4b76cf2c19"
+          }
+        },
+        {
+          "cx": 64,
+          "cz": -120,
+          "label": "river-negative-control",
+          "expected": {
+            "blocks": "ef6bf65abc34d7e7dc99e5ccf115a92a83c4f98ef7aca7da4ab917e61af2d4cc",
+            "biomes": "719faa70752f194818473b295a69f1d4c40208f69dde92ad1b4769bf137cfdf2",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "428391c8e101bd59caa1da17dbc302d7829e0da16f36afffd26e061cb2a56483",
+            "all": "e213ac740945f35219b92d977e7de268a8168c9713ad3cd4e59f89d47c6457de"
+          }
+        },
+        {
+          "cx": 28,
+          "cz": 28,
+          "label": "v6-spawn",
+          "expected": {
+            "blocks": "82a1343234e49a01eb0f48983431872bedab511e833ac1f5d38e7d82043e5700",
+            "biomes": "2048d0f2a197c10c3f5bc93df0fb906daf537fa311070ada10ec0bfe888d42bf",
+            "states": "f683f80fa27eecfa916c22a2b8766aae2e53119fd356bd1e54425cdf377983ea",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "7fabfaaa5afea73df380586d3341afd6833189babc6306bbf70a0d57c7c66a04",
+            "all": "084f1231174138fd439c9683a3d1ebdd2e32dcbebfc1ab60232e90e62cb807e2"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "mineslop-audit-2",
+      "dimension": "nether",
+      "spec": {
+        "minY": 0,
+        "maxY": 256,
+        "seaLevel": null,
+        "voidY": -64
+      },
+      "spawn": {
+        "x": -64.5,
+        "y": 41.01,
+        "z": -46.5
+      },
+      "specDigest": "68ffd7a07069b4cd82226e3ce3fade037537e377cb4c3de65982bd4e817361bb",
+      "spawnDigest": "a089c86093c093fee7bcf934f577d97d41787a01f9254086513517e7b0715264",
+      "chunks": [
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "origin",
+          "expected": {
+            "blocks": "9a82f5f7baebf2b260f59ad6f987db1d5148c2a3b8e583a74cbf40c3e89ddb01",
+            "biomes": "8a008a5fca6cac16762abfcc2641c6cdcf82478406871e00f7e86d78884c4192",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "1c8ed961e042994025a4541239ea4ee2b40ffc9aedb313e799a53901204cded9",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "9b81ed2abf53c851b765844e11a6c0a4aea55ac8b5f3ed15c8f84cedf7e23edc",
+            "all": "9bf6d2b8be6b53b92e351bcab2591a830a8b342870783f7c7e37d7c20a2fdc87"
+          }
+        },
+        {
+          "cx": -1,
+          "cz": 2,
+          "label": "negative",
+          "expected": {
+            "blocks": "30f43b958e37205f44f006318843147ef02d9e01b529a17b1a38d0600458506e",
+            "biomes": "0083dd317dba2c7beca9e0de7c7f4f6b36bfc5e574350f9b02e10316e3e8b124",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "4568194a48146bfea482ef83f4fe8660e271f0f3ca1a29fe04a54ed5e0d029d9",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "b45d4827b8f99f3f06de606f107c3de1b54ea6475b42306c2fbbafad8bd35f0f",
+            "all": "b4f8a11a76047ede7ccab989334e7d3891a14682d1490395f082055b3d0a0172"
+          }
+        },
+        {
+          "cx": 100000,
+          "cz": -90000,
+          "label": "distant",
+          "expected": {
+            "blocks": "3e0a26997d58d2236b368ffc83d75258a505a908d2dcb2e9b84e6b77d31ac336",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "05894512b20fff6198ba0a6403a87ad02963a0aaf3e41c928a1ef9461fef7fdf",
+            "all": "5cec40802f5b2f2cdae75a4ba00032fecd2d40aa793ace2cbcc39f60e5451554"
+          }
+        },
+        {
+          "cx": -1875000,
+          "cz": 1874999,
+          "label": "world-edge",
+          "expected": {
+            "blocks": "f647acf638725fd8f012670b23bde8bc781337bd520eca0fb1f7076d888dc5c8",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "3e775e65b1d27447dfdc69b51af09f60c6ae7d6c983f291eebfdcef93cbd3e3f",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "75f94b2b1e781cd2cb311c329843c5dbf5e01ae21cd06517a54040714c6bdd1d",
+            "all": "21e9c6a634fcf703d767991e7929eb758a526996fb3b7cd7d8d60503f747f9e4"
+          }
+        },
+        {
+          "cx": -5,
+          "cz": -3,
+          "label": "spawn",
+          "expected": {
+            "blocks": "f773a9df7f1a7db2d8da245fa0810dc33dc5827ac456f25b80659595fcc4d2a0",
+            "biomes": "0083dd317dba2c7beca9e0de7c7f4f6b36bfc5e574350f9b02e10316e3e8b124",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "c96b20fa01627838eded32454baa365c917bca2004ef65ceec59a19667a0f923",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "35f26e2dd3620e6d3d2d958be3a6dcb13dd137004df74e5f83958a53f1bcc05b",
+            "all": "cd5cbca2e0713f4bdb5396b9cd4dbac33dac07247493d6d465dd1486ea59b4f7"
+          }
+        },
+        {
+          "cx": -5,
+          "cz": -3,
+          "label": "v6-spawn",
+          "expected": {
+            "blocks": "f773a9df7f1a7db2d8da245fa0810dc33dc5827ac456f25b80659595fcc4d2a0",
+            "biomes": "0083dd317dba2c7beca9e0de7c7f4f6b36bfc5e574350f9b02e10316e3e8b124",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "c96b20fa01627838eded32454baa365c917bca2004ef65ceec59a19667a0f923",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "35f26e2dd3620e6d3d2d958be3a6dcb13dd137004df74e5f83958a53f1bcc05b",
+            "all": "cd5cbca2e0713f4bdb5396b9cd4dbac33dac07247493d6d465dd1486ea59b4f7"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "mineslop-audit-2",
+      "dimension": "end",
+      "spec": {
+        "minY": 0,
+        "maxY": 256,
+        "seaLevel": null,
+        "voidY": -64
+      },
+      "spawn": {
+        "x": 0.5,
+        "y": 77.01,
+        "z": 0.5
+      },
+      "specDigest": "68ffd7a07069b4cd82226e3ce3fade037537e377cb4c3de65982bd4e817361bb",
+      "spawnDigest": "bb4e600c51f528eb4d7e8aab3fb08e95c0e9921ab7696370cfc2266a192db644",
+      "chunks": [
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "origin",
+          "expected": {
+            "blocks": "0d41595643042a143f2170ed0af6f577a4b8576ba5c0b8c524aadd6093cc9023",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "9b81ed2abf53c851b765844e11a6c0a4aea55ac8b5f3ed15c8f84cedf7e23edc",
+            "all": "3485ffbc8f620b04cc4a0fe1c3fe0b40b17c06e4026ba804e59a07b86375646c"
+          }
+        },
+        {
+          "cx": -1,
+          "cz": 2,
+          "label": "negative",
+          "expected": {
+            "blocks": "a7f8ea65a2125718d69b14ed8d9bab671920051e0954fa3222dfc544e094c2f2",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "b45d4827b8f99f3f06de606f107c3de1b54ea6475b42306c2fbbafad8bd35f0f",
+            "all": "9e4e04346856cab437bc203b6da62f80f0f4ab86e7b01940bd00d42438f24a18"
+          }
+        },
+        {
+          "cx": 100000,
+          "cz": -90000,
+          "label": "distant",
+          "expected": {
+            "blocks": "b87a6d08e5fe977d7073922622df4724ab9bc6430c0ebb1b17402e9fc5c8e83f",
+            "biomes": "c82b06328c82d0952fd3d5e06dd8bcf98e9fe24ab36d33d50e7820104a82df29",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "05894512b20fff6198ba0a6403a87ad02963a0aaf3e41c928a1ef9461fef7fdf",
+            "all": "8ad02a8a3671390f5bf944c5c13fcde79f2d001f0b3284d24104cdec84034df3"
+          }
+        },
+        {
+          "cx": -1875000,
+          "cz": 1874999,
+          "label": "world-edge",
+          "expected": {
+            "blocks": "ec3694b91a04339a5114e22670075d1329ff8587c03d2c7f4600fd82d37b3f98",
+            "biomes": "c82b06328c82d0952fd3d5e06dd8bcf98e9fe24ab36d33d50e7820104a82df29",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "75f94b2b1e781cd2cb311c329843c5dbf5e01ae21cd06517a54040714c6bdd1d",
+            "all": "5cc95cc9e4cc01042ff4f627a68fd0d7eb14c692ba8d307654e3866c47d9b098"
+          }
+        },
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "spawn",
+          "expected": {
+            "blocks": "0d41595643042a143f2170ed0af6f577a4b8576ba5c0b8c524aadd6093cc9023",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "9b81ed2abf53c851b765844e11a6c0a4aea55ac8b5f3ed15c8f84cedf7e23edc",
+            "all": "3485ffbc8f620b04cc4a0fe1c3fe0b40b17c06e4026ba804e59a07b86375646c"
+          }
+        },
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "v6-spawn",
+          "expected": {
+            "blocks": "0d41595643042a143f2170ed0af6f577a4b8576ba5c0b8c524aadd6093cc9023",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "9b81ed2abf53c851b765844e11a6c0a4aea55ac8b5f3ed15c8f84cedf7e23edc",
+            "all": "3485ffbc8f620b04cc4a0fe1c3fe0b40b17c06e4026ba804e59a07b86375646c"
+          }
+        },
+        {
+          "cx": 3,
+          "cz": 0,
+          "label": "central-trough",
+          "expected": {
+            "blocks": "e124863ab5eced60dc92f86fc6086a9240dafc1995dadd8c7b0b5779c008df49",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "2e984fc6ff2b269e9bc77e1ec11314bc065f5bbe7350293c6a9612c2fdc9b0a7",
+            "all": "860733ab104cf578e75fe71602108ea6fd5438bc330c33ce8722c830e8e904b4"
+          }
+        },
+        {
+          "cx": 11,
+          "cz": 0,
+          "label": "central-rim",
+          "expected": {
+            "blocks": "47ad25711fb993bc2bad48279feff754d61c3da4df13542f5d702b136ddc23bf",
+            "biomes": "acc41ce474198fbabab5050767894686f016223768a42c746e88bfe276fe2d36",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "f00ff551db46df5f7b6f5bf47a48a45c7244fc7c687e23c0a24d5a2a2b0aea93",
+            "all": "521956000dd9b5ce72a1f97196fa72eea0af3b474dd906ca4bd19fb6f3984946"
+          }
+        },
+        {
+          "cx": -13,
+          "cz": -1,
+          "label": "negative-rim",
+          "expected": {
+            "blocks": "2cfa539e9c21eddac217f86e1c9f8e43e42f6de94331aa26413e4f4df2c41e8c",
+            "biomes": "5bbeb73dab694b83b85fa82e6c4da77c14c7a001fc14e458f206a7c9010c8f4a",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "c3006ad21a5cbde2c93418b68c81119161f2868ee3414556257e440da2a41dff",
+            "all": "b3bb433c481ae54cf6249b88d397fb1a1983c75829c953e168d3b522fc2a1e9a"
+          }
+        },
+        {
+          "cx": -37,
+          "cz": -49,
+          "label": "outer-highland",
+          "expected": {
+            "blocks": "28a22df0e901726ca89475ae404a34fc1b812d9cea3b31822d5e12da9c76f909",
+            "biomes": "c82b06328c82d0952fd3d5e06dd8bcf98e9fe24ab36d33d50e7820104a82df29",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "ea6b3f0e6942289a312dffcce0e72d388e8c6bea5bf2751179630333e63bd981",
+            "all": "b69b88bdbfd75a5a3f2a439c55d65e78ff967db5f9a1e5f0268c8ed76e46c1a5"
+          }
+        },
+        {
+          "cx": -8,
+          "cz": -51,
+          "label": "thin-outer-island",
+          "expected": {
+            "blocks": "a344f2c7df728602d73e0bb4283efca92188b9918a77cbe359d2695561ba8262",
+            "biomes": "35854e72e7083b583ea6597960452e80ca5ac358c4cb90f93eb5374f6e5904cf",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "a643f1571a68674e1864b0345b9f0e3d20ed99d3a4049f85f3aa3a9d5949019e",
+            "all": "78bdfd3cb4e253eb82c398a32d87916c3f20689ea06da35a72e6bab08c29c151"
+          }
+        },
+        {
+          "cx": 28,
+          "cz": 0,
+          "label": "void-moat",
+          "expected": {
+            "blocks": "c1fa01d506850ee3a7155c23cdc9b0cbdbd5cef9b90b7c59d66665839a3c7cce",
+            "biomes": "83b8780ecba9f4d401e7b4f369fe6d39fa0c107dfef904effb6c80db3d078117",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "4dd9326b72b762188933e007bb13a09931c6649d0608b3c23bddccd8aefb593e",
+            "all": "9420536825779ee31800488649ec6314d199ce85e52111a7c65515a45df40ebf"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "",
+      "dimension": "overworld",
+      "spec": {
+        "minY": -64,
+        "maxY": 320,
+        "seaLevel": 63,
+        "voidY": -128
+      },
+      "spawn": {
+        "x": 490.5,
+        "y": 82.01,
+        "z": -294.5
+      },
+      "specDigest": "4c4ecf3f041f56c7cb261184b83178c688b2268ba70325eec19b6b7474b3a196",
+      "spawnDigest": "56c2b6b79f70d9c36a103a36fbd9bc00dbfcce0c2d15cbe6c34e0655bd70feec",
+      "chunks": [
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "origin",
+          "expected": {
+            "blocks": "264a9a7397e41e3fb1153e857a22d2498bacde74a00016824e961f6ea953c6c0",
+            "biomes": "7dd9d35b3c0d37230e4f7737852273c289e4efc5b7d4207bc87f25b8789ae4c5",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "4da1145ed03326536251c52e9fb21356ac0f218afa2a88f77917863fe86f2861",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "4e4c9bcd4297e6180487774a006b29e307160274711cb3ede535d1ca036d76f2",
+            "all": "f3b1ea87833caf4e00af3ce18dcd7263ee8f170d411f5f4fd08e29f766811293"
+          }
+        },
+        {
+          "cx": -1,
+          "cz": 2,
+          "label": "negative",
+          "expected": {
+            "blocks": "435886ac7992b573186a6ecd7b3f8d60117ef8478b2eb3542e998475c469aff2",
+            "biomes": "7dd9d35b3c0d37230e4f7737852273c289e4efc5b7d4207bc87f25b8789ae4c5",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "c0a57f88ea20bfc59c21d79ed5c58228a2a3eee5dc501d16e4553cb097c7e4a9",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "eaf0966d539c129d5bfa5a6ffc87c697564ad7fe8ba92afc3d8bd5ff9418e80d",
+            "all": "044ec51d2dd2de3cfe7cb31f6b2dd205101ccf6f7da6a8a7734a41d3d1205122"
+          }
+        },
+        {
+          "cx": 100000,
+          "cz": -90000,
+          "label": "distant",
+          "expected": {
+            "blocks": "077a27b6d49a3c70d89ad35603941b115cb7c8f02cd016c171673557b13538ee",
+            "biomes": "c2927fc2fa9e7d021b12818b814cef6cba9d47c12aba078254f28748826f5964",
+            "states": "54feba0a5d6ccf2488faa4c8452154f00a130fd5e0a65e20a5d17477be37f2f3",
+            "fluids": "f0ed413e7a750eef32e9476560ec4c03b06199a1c7362bd7fbfe3332ec1f7b88",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "021a9ed192402862ea1afead3bbcfb362d8164b8b272ba21f7e83ec9b0cae47a",
+            "all": "af99bce9c9dd50d31b19cabc5c65516b9c6fac105e4ed511045ef6d73cee65fa"
+          }
+        },
+        {
+          "cx": -1875000,
+          "cz": 1874999,
+          "label": "world-edge",
+          "expected": {
+            "blocks": "7c0b6380c2243750a44ffdd2e892f78f8a4588605798aa13c4f898a879d96438",
+            "biomes": "a060480ddef66e6d22450daafda0c09ded3647217633a7db52d7b78a6abd9272",
+            "states": "9cc7c44c76e5bec4530dd8e34574cbc445ee452ebc89a121ea73d0629210d2a6",
+            "fluids": "c3496344ed7ac82233f5739c7ae9034cf118d491402fbda4e843d2583f08c3bd",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "a2924fb3b5c5a04e70f59c349a8acccf3130a747f6d7ed53564d949409377fa6",
+            "all": "bf0528d7164e3db039b21698a81c4082d0a18d79c0fbe3b79d0f3e953c5e568e"
+          }
+        },
+        {
+          "cx": 30,
+          "cz": -19,
+          "label": "spawn",
+          "expected": {
+            "blocks": "2d87b3dc7576e3e5388faa4ec948c7329ce2fe6a30623067758b3a49dbe53be3",
+            "biomes": "df012280ddc253fd52258ed5993a82aee888a0ceec910a0fd26d6817f45274c2",
+            "states": "3b5bd205992672e12f7e8f7ddc817b4c22ddb4ea49ff6cef7f48af8426b89493",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "6838cbfd2b33bd64a5ce13ab48fbdbd535c817a8e8e21553425766c6fd9587e8",
+            "all": "b0c96cc0b31db72b7a3d66e47fb6b8075c110b2169d43d2bf172ad5bcefe4a23"
+          }
+        },
+        {
+          "cx": 30,
+          "cz": -19,
+          "label": "v6-spawn",
+          "expected": {
+            "blocks": "2d87b3dc7576e3e5388faa4ec948c7329ce2fe6a30623067758b3a49dbe53be3",
+            "biomes": "df012280ddc253fd52258ed5993a82aee888a0ceec910a0fd26d6817f45274c2",
+            "states": "3b5bd205992672e12f7e8f7ddc817b4c22ddb4ea49ff6cef7f48af8426b89493",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "6838cbfd2b33bd64a5ce13ab48fbdbd535c817a8e8e21553425766c6fd9587e8",
+            "all": "b0c96cc0b31db72b7a3d66e47fb6b8075c110b2169d43d2bf172ad5bcefe4a23"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "",
+      "dimension": "nether",
+      "spec": {
+        "minY": 0,
+        "maxY": 256,
+        "seaLevel": null,
+        "voidY": -64
+      },
+      "spawn": {
+        "x": 10.5,
+        "y": 40.01,
+        "z": 17.5
+      },
+      "specDigest": "68ffd7a07069b4cd82226e3ce3fade037537e377cb4c3de65982bd4e817361bb",
+      "spawnDigest": "221dee40d577ff326871da9c1d3b253491ef70e2d4db488f22c637b1c2176d09",
+      "chunks": [
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "origin",
+          "expected": {
+            "blocks": "79c3e3594649f813388542f77a881895c8982d77b78284eb6bbc19ae5f137038",
+            "biomes": "8a008a5fca6cac16762abfcc2641c6cdcf82478406871e00f7e86d78884c4192",
+            "states": "98368dc41d11a22b3dabcd36c89eaf70e8b38b12dde6f68199dfd99a57071647",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "139aa8ad2e9ec04ae043e3289baf8164576bea59fd8c260d9c437828382b4153",
+            "all": "7157688572ef26f0549c559414e900c126c2693088846100197ccc8405de5e1b"
+          }
+        },
+        {
+          "cx": -1,
+          "cz": 2,
+          "label": "negative",
+          "expected": {
+            "blocks": "395f611fcae49f0ea5ceeccb771014ca69856795c52cc1a0593da17f61f8da7a",
+            "biomes": "8a008a5fca6cac16762abfcc2641c6cdcf82478406871e00f7e86d78884c4192",
+            "states": "9e2e221501d3a6fd85ec48bb5538f82f47385eea7832e1d740c6e46b6e136935",
+            "fluids": "852d4b9cc452ec8ef3b742efe782832efeec5350ac86fcda878d624a4c69cadb",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "a6a813c5dc5d9b2a3dfbc53b14bd267d7f2984de3e706083575740926c5431d5",
+            "all": "a7e3238fc9ce02590d7a363dd4826af9cc2facb9b687f5758d383ac2998b1f3c"
+          }
+        },
+        {
+          "cx": 100000,
+          "cz": -90000,
+          "label": "distant",
+          "expected": {
+            "blocks": "c0d0caec8da5e1e289e69c148c8cfc7bb251a5fe4da0c3afdea5fa3a64ec05da",
+            "biomes": "0083dd317dba2c7beca9e0de7c7f4f6b36bfc5e574350f9b02e10316e3e8b124",
+            "states": "a6bb32e01274cf215f648bf61c160ee05f30b49a8a69eac2b4004be55c8194e9",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "1109e9f23546cadb808c7aeb6e5f46f800a0aed32f1c5c18bfec474c29bdc3df",
+            "all": "f46f610373a1b05d7316c28b5d41018b9097098349df3229a1fd6e87d88a1884"
+          }
+        },
+        {
+          "cx": -1875000,
+          "cz": 1874999,
+          "label": "world-edge",
+          "expected": {
+            "blocks": "5ec41a3ee2dfba5421c6d15d30dc703d3bee0a9a6320c238e207e25eda88baa9",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "45534505e53b179424ca9bdd10e2111bd72c12f241c8bd682409e307d1256de8",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "75f94b2b1e781cd2cb311c329843c5dbf5e01ae21cd06517a54040714c6bdd1d",
+            "all": "acba2cc111101be2a57030fe6afdc367adbd8e08c474be5cd929d3ffcf4b95f9"
+          }
+        },
+        {
+          "cx": 0,
+          "cz": 1,
+          "label": "spawn",
+          "expected": {
+            "blocks": "ec0277380508010a093850e90559e87647829c68a3ea6a6c2c0a5d859ba1b492",
+            "biomes": "8a008a5fca6cac16762abfcc2641c6cdcf82478406871e00f7e86d78884c4192",
+            "states": "95e3d58cbc0c57a071499cfa0008641a4c2118f1f95d2e471f3f580d36fb3508",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "556c4411dd108bc11f420663fdceba20993ca779781a5ca23d88970ff1bc7b08",
+            "all": "08560d0cd4a7e52e613a20633f07c42582ebbf32fad9ee08022edd5ceb3f306b"
+          }
+        },
+        {
+          "cx": 0,
+          "cz": 1,
+          "label": "v6-spawn",
+          "expected": {
+            "blocks": "ec0277380508010a093850e90559e87647829c68a3ea6a6c2c0a5d859ba1b492",
+            "biomes": "8a008a5fca6cac16762abfcc2641c6cdcf82478406871e00f7e86d78884c4192",
+            "states": "95e3d58cbc0c57a071499cfa0008641a4c2118f1f95d2e471f3f580d36fb3508",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "556c4411dd108bc11f420663fdceba20993ca779781a5ca23d88970ff1bc7b08",
+            "all": "08560d0cd4a7e52e613a20633f07c42582ebbf32fad9ee08022edd5ceb3f306b"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "",
+      "dimension": "end",
+      "spec": {
+        "minY": 0,
+        "maxY": 256,
+        "seaLevel": null,
+        "voidY": -64
+      },
+      "spawn": {
+        "x": 0.5,
+        "y": 78.01,
+        "z": 0.5
+      },
+      "specDigest": "68ffd7a07069b4cd82226e3ce3fade037537e377cb4c3de65982bd4e817361bb",
+      "spawnDigest": "5ae72624a740d326cc842a0a453f029d798fc161704f4841d4f314e4ca50e1fa",
+      "chunks": [
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "origin",
+          "expected": {
+            "blocks": "02ca0991661f0e815d1b6e6dbc3a8ff6025af8cf7e623dcf62fe6016dc839467",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "9b81ed2abf53c851b765844e11a6c0a4aea55ac8b5f3ed15c8f84cedf7e23edc",
+            "all": "e7f1aabfb32bcd2aa77f830aa14caf5d70623e2913a0d1319a9b73ad3f95fc23"
+          }
+        },
+        {
+          "cx": -1,
+          "cz": 2,
+          "label": "negative",
+          "expected": {
+            "blocks": "c1d2aa55f8a9d1b3b326874e4e4d5b2cfa914267c5ccbde311400a57f077d5d5",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "b45d4827b8f99f3f06de606f107c3de1b54ea6475b42306c2fbbafad8bd35f0f",
+            "all": "986f6ec1463965b1749ad3bb0b0183064877daa31f1a96a4375596decbf9901d"
+          }
+        },
+        {
+          "cx": 100000,
+          "cz": -90000,
+          "label": "distant",
+          "expected": {
+            "blocks": "9acd1faf0d9c3c68e4403c28027d7f6b967754a7877779a6cf03e9a6cbc5dd05",
+            "biomes": "8412788baf648ac7ef0ac3b0a2ca5073d6682449e7449353a9f4a1d25f7f8234",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "05894512b20fff6198ba0a6403a87ad02963a0aaf3e41c928a1ef9461fef7fdf",
+            "all": "e7457515f08ad2e270165fa9b138a8200f65a6ca04edd96fadd9ab733b2943a0"
+          }
+        },
+        {
+          "cx": -1875000,
+          "cz": 1874999,
+          "label": "world-edge",
+          "expected": {
+            "blocks": "4bf9154d6506ec12bb918551442815c5157b24121175ef24f40c8672d829e92b",
+            "biomes": "e1f6871205b092243b29a2b6680b09394ac5ef08ee39a3c069fcde978f4471ef",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "75f94b2b1e781cd2cb311c329843c5dbf5e01ae21cd06517a54040714c6bdd1d",
+            "all": "c2a6545d4d6bb6948e845a9aab850db201646a70d01a806135ae7532005997e8"
+          }
+        },
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "spawn",
+          "expected": {
+            "blocks": "02ca0991661f0e815d1b6e6dbc3a8ff6025af8cf7e623dcf62fe6016dc839467",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "9b81ed2abf53c851b765844e11a6c0a4aea55ac8b5f3ed15c8f84cedf7e23edc",
+            "all": "e7f1aabfb32bcd2aa77f830aa14caf5d70623e2913a0d1319a9b73ad3f95fc23"
+          }
+        },
+        {
+          "cx": 0,
+          "cz": 0,
+          "label": "v6-spawn",
+          "expected": {
+            "blocks": "02ca0991661f0e815d1b6e6dbc3a8ff6025af8cf7e623dcf62fe6016dc839467",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "9b81ed2abf53c851b765844e11a6c0a4aea55ac8b5f3ed15c8f84cedf7e23edc",
+            "all": "e7f1aabfb32bcd2aa77f830aa14caf5d70623e2913a0d1319a9b73ad3f95fc23"
+          }
+        },
+        {
+          "cx": 3,
+          "cz": 0,
+          "label": "central-trough",
+          "expected": {
+            "blocks": "855362090dc7eeaf8b6b1f580e45234e677300c24d60e65c950efe7d578a4e72",
+            "biomes": "7d2f96a1df0d5d799a21b83063dca880b68738a5c5bef4d01760939fecddbbc8",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "2e984fc6ff2b269e9bc77e1ec11314bc065f5bbe7350293c6a9612c2fdc9b0a7",
+            "all": "07c4fd5663829fb8560765db3f4ffaddc1db6cf4228a58844ba26efbf3764489"
+          }
+        },
+        {
+          "cx": 11,
+          "cz": 0,
+          "label": "central-rim",
+          "expected": {
+            "blocks": "dc9a9eea95a0db81dcdba6cffe36aac7f10feb16118e39050ba7b9f908e2753d",
+            "biomes": "d010ebf8fa85b92e41cce50a6bfc77493e08f1616936651403d412836b3a7049",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "f00ff551db46df5f7b6f5bf47a48a45c7244fc7c687e23c0a24d5a2a2b0aea93",
+            "all": "78726197bb302c0da6613d070421196b4b39f1c2acc0a40dffa0e6e9919ae224"
+          }
+        },
+        {
+          "cx": -13,
+          "cz": -1,
+          "label": "negative-rim",
+          "expected": {
+            "blocks": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "biomes": "a9b63d7f54f770d5eba19a4438c15cb35dcdd6aad2f171ec00c4fbe4a7372dda",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "c3006ad21a5cbde2c93418b68c81119161f2868ee3414556257e440da2a41dff",
+            "all": "bbb5fb1cb6228f2c338f7842dcebe155f54335e17139bd4a18ed024e9fe7b61d"
+          }
+        },
+        {
+          "cx": -37,
+          "cz": -49,
+          "label": "outer-highland",
+          "expected": {
+            "blocks": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "biomes": "a9b63d7f54f770d5eba19a4438c15cb35dcdd6aad2f171ec00c4fbe4a7372dda",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "ea6b3f0e6942289a312dffcce0e72d388e8c6bea5bf2751179630333e63bd981",
+            "all": "afaf62d39157bb98acd90f15624bcb156f76597b58ba4c2f06c93f17255b457c"
+          }
+        },
+        {
+          "cx": -8,
+          "cz": -51,
+          "label": "thin-outer-island",
+          "expected": {
+            "blocks": "cc75f56ccf56153bf527dca48778ddded80fabf1b97bb455f869bce3eeb32860",
+            "biomes": "e207901fb4d10229a0c2ced5dc1ead62c8b86d5cd854bb56209b4722af99a353",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "a643f1571a68674e1864b0345b9f0e3d20ed99d3a4049f85f3aa3a9d5949019e",
+            "all": "5d59a267bcee82349c6a9d6e4cc818c8f6eeb8573c534dbf76772185c006a85d"
+          }
+        },
+        {
+          "cx": 28,
+          "cz": 0,
+          "label": "void-moat",
+          "expected": {
+            "blocks": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "biomes": "a9b63d7f54f770d5eba19a4438c15cb35dcdd6aad2f171ec00c4fbe4a7372dda",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "envelope": "4dd9326b72b762188933e007bb13a09931c6649d0608b3c23bddccd8aefb593e",
+            "all": "1cbc47a7295fa2a2d4c42a79c9f8164b7fb6f706a8a21b1160fbfa318ce34644"
+          }
+        }
+      ]
+    }
+  ],
+  "native": [
+    {
+      "seed": "cedar-valley",
+      "dimension": "overworld",
+      "kind": "shipwreck",
+      "descriptor": {
+        "id": "structure:v1:%22cedar-valley%22:overworld:shipwreck:-19:-22",
+        "generatorVersion": 6,
+        "layoutVersion": 1,
+        "seed": "cedar-valley",
+        "kind": "shipwreck",
+        "dimension": "overworld",
+        "gx": -19,
+        "gz": -22,
+        "origin": {
+          "x": -3550,
+          "y": 44,
+          "z": -4151
+        },
+        "rotation": 3,
+        "variant": "sunken_broken_bow",
+        "waterLevel": 63,
+        "localBounds": [
+          -5,
+          -4,
+          -12,
+          6,
+          11,
+          13
+        ],
+        "plan": {
+          "damage": "broken_bow",
+          "supports": [
+            {
+              "x": 0,
+              "z": 0,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 0,
+              "z": 8,
+              "bottom": -4,
+              "top": 0
+            }
+          ],
+          "beached": false,
+          "ramp": []
+        },
+        "bounds": {
+          "minX": -3562,
+          "minY": 40,
+          "minZ": -4156,
+          "maxX": -3537,
+          "maxY": 55,
+          "maxZ": -4145
+        },
+        "entries": [
+          {
+            "x": -3550,
+            "y": 46,
+            "z": -4146,
+            "facing": 0
+          },
+          {
+            "x": -3550,
+            "y": 49,
+            "z": -4151,
+            "facing": 3
+          }
+        ],
+        "markers": [
+          {
+            "type": "container",
+            "key": "treasure",
+            "role": "treasure",
+            "block": "CHEST",
+            "table": "shipwreck/treasure",
+            "id": "structure:v1:%22cedar-valley%22:overworld:shipwreck:-19:-22/container/treasure",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:shipwreck:-19:-22",
+            "dimension": "overworld",
+            "position": {
+              "x": -3542,
+              "y": 49,
+              "z": -4152
+            }
+          },
+          {
+            "type": "container",
+            "key": "chart",
+            "role": "map",
+            "block": "CHEST",
+            "table": "shipwreck/map",
+            "mapTarget": {
+              "kind": "buried_treasure",
+              "dimension": "overworld",
+              "seed": "cedar-valley",
+              "layoutVersion": 1,
+              "sourceMarkerId": "structure:v1:%22cedar-valley%22:overworld:shipwreck:-19:-22/container/chart",
+              "from": {
+                "x": -3542,
+                "y": 49,
+                "z": -4150
+              },
+              "search": {
+                "radius": 12,
+                "maxCells": 625,
+                "maxSamples": 16384
+              }
+            },
+            "id": "structure:v1:%22cedar-valley%22:overworld:shipwreck:-19:-22/container/chart",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:shipwreck:-19:-22",
+            "dimension": "overworld",
+            "position": {
+              "x": -3542,
+              "y": 49,
+              "z": -4150
+            }
+          }
+        ]
+      },
+      "descriptorDigest": "ae1196e882ddce324c2fd1635123d0c0595341d4a086dab988518a364818ea8e",
+      "chunks": [
+        {
+          "cx": -223,
+          "cz": -260,
+          "label": "shipwreck",
+          "expected": {
+            "blocks": "947f22e60901e536a430b7b1f51f89331249bae2daf4d0a6a46f8d856c883b85",
+            "biomes": "26dbdb9e685ea5b8dfd5dabba790b373bf1256faaef13a66b3f4ce3438e9f4ed",
+            "states": "89c05609a2571772e22b54119d1b8078f861137dc9d2b8c1714932de3b4f1637",
+            "fluids": "2f2c795e81a466357dee2bc6092208827c714c2836befb2c0712eda45ce95ad6",
+            "structures": "f23d98f78f7011d35cfeae1f092142a0bc0fbd24b2e683df3f2b67ebd29fbb99",
+            "envelope": "bc06a57837441c0ad228c3536c1677b34e337f430e36e80e4886ddceb55ea4c7",
+            "all": "d92a3379357d9b437850b9d130d8b8fe8463f9c3b941a2b29e294a33958bd716"
+          }
+        },
+        {
+          "cx": -222,
+          "cz": -260,
+          "label": "shipwreck",
+          "expected": {
+            "blocks": "b683c623afdf45a7c745f6b9d43b7a32d181e0fab5b9aadb8e9262087d6e2c02",
+            "biomes": "26dbdb9e685ea5b8dfd5dabba790b373bf1256faaef13a66b3f4ce3438e9f4ed",
+            "states": "2444c207d4442610e1015b8fb77d9f6402c3a7e8ada5a8392f4ed5674872cb31",
+            "fluids": "958efbc333da5bb714f435f24b557be07aa5552299b1df0f908eaef2ae522a89",
+            "structures": "f23d98f78f7011d35cfeae1f092142a0bc0fbd24b2e683df3f2b67ebd29fbb99",
+            "envelope": "9c65547a9b63a8e1148322de1a0fa7354265275e6293886d5e01f2135e7baae4",
+            "all": "5e9ec79ee83942f493e4d82479c3eb241f67efed3823d1aab9456549e2a2a323"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "cedar-valley",
+      "dimension": "overworld",
+      "kind": "ocean_ruin",
+      "descriptor": {
+        "id": "structure:v1:%22cedar-valley%22:overworld:ocean_ruin:-24:-19",
+        "generatorVersion": 6,
+        "layoutVersion": 1,
+        "seed": "cedar-valley",
+        "kind": "ocean_ruin",
+        "dimension": "overworld",
+        "gx": -24,
+        "gz": -19,
+        "origin": {
+          "x": -4530,
+          "y": 50,
+          "z": -3571
+        },
+        "rotation": 2,
+        "variant": "warm_fallen_arch",
+        "waterLevel": 63,
+        "localBounds": [
+          -10,
+          -5,
+          -7,
+          12,
+          8,
+          9
+        ],
+        "plan": {
+          "warm": true,
+          "annex": false,
+          "supports": [
+            {
+              "x": -4,
+              "z": -4,
+              "bottom": -4,
+              "top": 0
+            },
+            {
+              "x": 4,
+              "z": -4,
+              "bottom": -5,
+              "top": 0
+            },
+            {
+              "x": -4,
+              "z": 4,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 4,
+              "z": 4,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 0,
+              "z": 7,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 6,
+              "z": -3,
+              "bottom": -5,
+              "top": 0
+            },
+            {
+              "x": 10,
+              "z": -3,
+              "bottom": -5,
+              "top": 0
+            },
+            {
+              "x": 6,
+              "z": 3,
+              "bottom": -4,
+              "top": 0
+            },
+            {
+              "x": 10,
+              "z": 3,
+              "bottom": -4,
+              "top": 0
+            },
+            {
+              "x": -9,
+              "z": -4,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": -9,
+              "z": 4,
+              "bottom": -3,
+              "top": 0
+            }
+          ]
+        },
+        "bounds": {
+          "minX": -4541,
+          "minY": 45,
+          "minZ": -3579,
+          "maxX": -4519,
+          "maxY": 58,
+          "maxZ": -3563
+        },
+        "entries": [
+          {
+            "x": -4530,
+            "y": 51,
+            "z": -3578,
+            "facing": 2
+          }
+        ],
+        "markers": [
+          {
+            "type": "container",
+            "key": "shrine",
+            "role": "shrine",
+            "block": "CHEST",
+            "table": "ocean_ruin/warm_shrine",
+            "mapTarget": {
+              "kind": "buried_treasure",
+              "dimension": "overworld",
+              "seed": "cedar-valley",
+              "layoutVersion": 1,
+              "sourceMarkerId": "structure:v1:%22cedar-valley%22:overworld:ocean_ruin:-24:-19/container/shrine",
+              "from": {
+                "x": -4532,
+                "y": 51,
+                "z": -3569
+              },
+              "search": {
+                "radius": 12,
+                "maxCells": 625,
+                "maxSamples": 16384
+              }
+            },
+            "id": "structure:v1:%22cedar-valley%22:overworld:ocean_ruin:-24:-19/container/shrine",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:ocean_ruin:-24:-19",
+            "dimension": "overworld",
+            "position": {
+              "x": -4532,
+              "y": 51,
+              "z": -3569
+            }
+          }
+        ]
+      },
+      "descriptorDigest": "c21e4878126347850975c203da85c1e5061b645689cc3217ca7ef09bc9525e98",
+      "chunks": [
+        {
+          "cx": -284,
+          "cz": -224,
+          "label": "ocean_ruin",
+          "expected": {
+            "blocks": "b9ec3abeaa03c1161190bcfd342dc3e528a649916e187e57287ac7c59a7ed59c",
+            "biomes": "54746dd680210f50530fac1b6a2dd0b269d222fb97a56243d89203a66103bd8a",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "a3b113af80b27b805d8ca2c13700a9158babe8907c780aafdc9ebb6c15d5505e",
+            "structures": "ad04c5ca8e46e147fdf54e9344775a9e2d589b4b6c91a6ce5483b9b1aa6b75d3",
+            "envelope": "6e0cad3b434a729062fed8e724171a18c95fb559e0761898b74d3f8f0fac076c",
+            "all": "51ea89902aed6af69da87ba7d406ba760b9bd1958f1f8dbc803044b43d5eb69f"
+          }
+        },
+        {
+          "cx": -283,
+          "cz": -224,
+          "label": "ocean_ruin",
+          "expected": {
+            "blocks": "a5e27b6dd53e047ebf6269fd748dd6079fbf2c028332cd5e1b753e9856525cdc",
+            "biomes": "54746dd680210f50530fac1b6a2dd0b269d222fb97a56243d89203a66103bd8a",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "297fe4ee3ff06cbe72c11da15a2599bf495b8448d33bb941ff63b748c48152ba",
+            "structures": "ad04c5ca8e46e147fdf54e9344775a9e2d589b4b6c91a6ce5483b9b1aa6b75d3",
+            "envelope": "52da548bcac745d636d1919c83527a16a3c634b6bc0fcc824aacbb1544b1bb32",
+            "all": "b14028b4bcc165c1c4631d9ff4afc6313c622ba9f4a9a5ddc217cb8e1aa4d9f6"
+          }
+        },
+        {
+          "cx": -284,
+          "cz": -223,
+          "label": "ocean_ruin",
+          "expected": {
+            "blocks": "a472659389c1da6f0e54f653e8c2bf8c93ee0297ca7a4ff339270396101a37ef",
+            "biomes": "54746dd680210f50530fac1b6a2dd0b269d222fb97a56243d89203a66103bd8a",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "a6faacf52ad716ce7342de5006c058783ac8ec769bce55ea1a6efd52a932b7c3",
+            "structures": "ad04c5ca8e46e147fdf54e9344775a9e2d589b4b6c91a6ce5483b9b1aa6b75d3",
+            "envelope": "10c0eceb4358ebe8625d5d7d0ab9946a51edc752b2f5d5a9243d1d4f486a6679",
+            "all": "72907bae82d82e6aa53687691eee5d3045fb7e448a853819597e5789ac4ad110"
+          }
+        },
+        {
+          "cx": -283,
+          "cz": -223,
+          "label": "ocean_ruin",
+          "expected": {
+            "blocks": "bff8a54bff99ff3293b5aec28bb35f04fc7ca8b68425ea6df3e7621162341f9b",
+            "biomes": "54746dd680210f50530fac1b6a2dd0b269d222fb97a56243d89203a66103bd8a",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "1fbfc6f8247e5a1a501b457103eb8b7eef7025046b56c66a0e0074d68fb8ae87",
+            "structures": "ad04c5ca8e46e147fdf54e9344775a9e2d589b4b6c91a6ce5483b9b1aa6b75d3",
+            "envelope": "2d55056eb8b0e8fd2fbdcf553af8bbc1df6fa25b442c2e49775b65722850b94b",
+            "all": "df31a1befc8f849a8a33ebfffa07198c509e671c5efd4b96da0c1b593e5612df"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "cedar-valley",
+      "dimension": "overworld",
+      "kind": "ocean_monument",
+      "descriptor": {
+        "id": "structure:v1:%22cedar-valley%22:overworld:ocean_monument:-19:-24",
+        "generatorVersion": 6,
+        "layoutVersion": 1,
+        "seed": "cedar-valley",
+        "kind": "ocean_monument",
+        "dimension": "overworld",
+        "gx": -19,
+        "gz": -24,
+        "origin": {
+          "x": -3527,
+          "y": 14,
+          "z": -4541
+        },
+        "rotation": 1,
+        "variant": "tidal_court",
+        "waterLevel": 63,
+        "localBounds": [
+          -15,
+          -3,
+          -13,
+          16,
+          15,
+          16
+        ],
+        "plan": {
+          "supports": [
+            {
+              "x": -14,
+              "z": -8,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": -14,
+              "z": 8,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 14,
+              "z": -8,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 14,
+              "z": 8,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": -5,
+              "z": -12,
+              "bottom": -2,
+              "top": 0
+            },
+            {
+              "x": 5,
+              "z": -12,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": -5,
+              "z": 12,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 5,
+              "z": 12,
+              "bottom": -2,
+              "top": 0
+            },
+            {
+              "x": 0,
+              "z": 15,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 0,
+              "z": 0,
+              "bottom": -2,
+              "top": 0
+            }
+          ]
+        },
+        "bounds": {
+          "minX": -3542,
+          "minY": 11,
+          "minZ": -4556,
+          "maxX": -3513,
+          "maxY": 29,
+          "maxZ": -4525
+        },
+        "entries": [
+          {
+            "x": -3542,
+            "y": 15,
+            "z": -4541,
+            "facing": 1
+          }
+        ],
+        "markers": [
+          {
+            "type": "encounter",
+            "key": "elder_west",
+            "role": "west_wing",
+            "entity": "elder_guardian",
+            "unique": true,
+            "id": "structure:v1:%22cedar-valley%22:overworld:ocean_monument:-19:-24/encounter/elder_west",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:ocean_monument:-19:-24",
+            "dimension": "overworld",
+            "position": {
+              "x": -3527,
+              "y": 15,
+              "z": -4551
+            },
+            "bounds": {
+              "minX": -3534,
+              "minY": 15,
+              "minZ": -4554,
+              "maxX": -3519,
+              "maxY": 20,
+              "maxZ": -4547
+            }
+          },
+          {
+            "type": "encounter",
+            "key": "elder_east",
+            "role": "east_wing",
+            "entity": "elder_guardian",
+            "unique": true,
+            "id": "structure:v1:%22cedar-valley%22:overworld:ocean_monument:-19:-24/encounter/elder_east",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:ocean_monument:-19:-24",
+            "dimension": "overworld",
+            "position": {
+              "x": -3527,
+              "y": 15,
+              "z": -4531
+            },
+            "bounds": {
+              "minX": -3534,
+              "minY": 15,
+              "minZ": -4534,
+              "maxX": -3519,
+              "maxY": 20,
+              "maxZ": -4527
+            }
+          },
+          {
+            "type": "encounter",
+            "key": "elder_crown",
+            "role": "crown",
+            "entity": "elder_guardian",
+            "unique": true,
+            "id": "structure:v1:%22cedar-valley%22:overworld:ocean_monument:-19:-24/encounter/elder_crown",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:ocean_monument:-19:-24",
+            "dimension": "overworld",
+            "position": {
+              "x": -3518,
+              "y": 23,
+              "z": -4541
+            },
+            "bounds": {
+              "minX": -3523,
+              "minY": 23,
+              "minZ": -4545,
+              "maxX": -3516,
+              "maxY": 26,
+              "maxZ": -4536
+            }
+          }
+        ]
+      },
+      "descriptorDigest": "8dca1a1f0d15f07f30a95014525d50ec8e47c8b07901a3f31632a4a775a21c20",
+      "chunks": [
+        {
+          "cx": -222,
+          "cz": -285,
+          "label": "ocean_monument",
+          "expected": {
+            "blocks": "28fd212b682ade50c8dd5d39b774fa92998b9c542c77df4538e2c05c05152438",
+            "biomes": "b388490dd3fd458dc0f4beab759842a1212077ca4788c6e13980e33611151fe8",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "453787c63c3582e089abdf210a61bcdb95469aaaf87b94bd2bb7a31925f6578a",
+            "structures": "7cb8b9abb11041e7037578e5f7fbffd44b18ac06a3a5c438aadb8aa1b95e32cf",
+            "envelope": "beac8d80290e52b0b6b184b6530932ca59cb96db11e84a589852005569109a26",
+            "all": "6f6599bc0a451e19cbec14d6cfd274a362b2ddcc2449edab22f2916732adebbb"
+          }
+        },
+        {
+          "cx": -221,
+          "cz": -285,
+          "label": "ocean_monument",
+          "expected": {
+            "blocks": "27a65dd5619ce3cb1743d3fea792b8b6bc4c0035ae78a45dcc3083fc2d9a8674",
+            "biomes": "b388490dd3fd458dc0f4beab759842a1212077ca4788c6e13980e33611151fe8",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "3b02a04b01606a25395632d8ff57936e5582235450f6699d6cb2cadd0dd2c2eb",
+            "structures": "7cb8b9abb11041e7037578e5f7fbffd44b18ac06a3a5c438aadb8aa1b95e32cf",
+            "envelope": "37cb920229cf57914a327780c29a53826dd3786a9d3ce67f8e1f128b63439852",
+            "all": "979c6c6f59f92bfc107a56495b727c0f23cf96513578377a07c4e670cfd205b0"
+          }
+        },
+        {
+          "cx": -220,
+          "cz": -285,
+          "label": "ocean_monument",
+          "expected": {
+            "blocks": "36f28f8aa81457ec29000c8911e4689fc6b60c7b9581dcbd959f29044d5e8aee",
+            "biomes": "b388490dd3fd458dc0f4beab759842a1212077ca4788c6e13980e33611151fe8",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "51f2b4dabd8e7f8b2a5e6b3de4fc4f9d9a37fba5b8797bb2c0cac7aaf69018cb",
+            "structures": "7cb8b9abb11041e7037578e5f7fbffd44b18ac06a3a5c438aadb8aa1b95e32cf",
+            "envelope": "551ec918d1a13052c2cf2f9a664821d4883e77f87a6703dfb6ff80d4cf19d95b",
+            "all": "87d3f622873c8358b774b6c64a967ee70430e2b7381a85771242c31b1917ddc9"
+          }
+        },
+        {
+          "cx": -222,
+          "cz": -284,
+          "label": "ocean_monument",
+          "expected": {
+            "blocks": "aa5a5d19c040bcf66d73b005bcaecdbb1a4fa5bfa9bd2379871b5763b8cf9da9",
+            "biomes": "b388490dd3fd458dc0f4beab759842a1212077ca4788c6e13980e33611151fe8",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "953efbbc9bbb629a38250e352b72e09c6f23de6cd15bc1f7efbfbe927ba1966e",
+            "structures": "7cb8b9abb11041e7037578e5f7fbffd44b18ac06a3a5c438aadb8aa1b95e32cf",
+            "envelope": "ad8a6d21b1b1c7e4fb3c79762fc915a0df448affb9b03adf5883302b6b1d5c9d",
+            "all": "15a6f92e4424ca04fd6571f334a3437f3e3044c71907fdaf3122dad886ed27bf"
+          }
+        },
+        {
+          "cx": -221,
+          "cz": -284,
+          "label": "ocean_monument",
+          "expected": {
+            "blocks": "7f63fc1cf649f5af35959220cb696ac98c7fe83b417c4838f9ae811459dcbf69",
+            "biomes": "b388490dd3fd458dc0f4beab759842a1212077ca4788c6e13980e33611151fe8",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "4f2bdfa14cc940f1d131f37da5575c5f8090b388c9ea0f9a6d0acaf45ff64110",
+            "structures": "7cb8b9abb11041e7037578e5f7fbffd44b18ac06a3a5c438aadb8aa1b95e32cf",
+            "envelope": "8f18f559074e4810917c236143861b8a1addac90d69a32046678156fd35740ad",
+            "all": "52793861ad9945ea6e599b6f83135a24a1bcc3d903e2fd9809c1dc0d17b213ee"
+          }
+        },
+        {
+          "cx": -220,
+          "cz": -284,
+          "label": "ocean_monument",
+          "expected": {
+            "blocks": "e7813666a4e911b418ea5bf186c0018b6fce3b8efa21b49370e33fca75762770",
+            "biomes": "b388490dd3fd458dc0f4beab759842a1212077ca4788c6e13980e33611151fe8",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "67c7a6282c7f01ca3900eff817bf8fa3a857e63db08c61695240d177615c118b",
+            "structures": "7cb8b9abb11041e7037578e5f7fbffd44b18ac06a3a5c438aadb8aa1b95e32cf",
+            "envelope": "b29b1b88da6a39be7fb9a2963efcbce5cdced09bc176bca7feb9a1bbd94806ac",
+            "all": "52216e23d90bf56dc1418d4b1e0d6d3d5af3c2f01ad614b8dcaa7560b3d08ce5"
+          }
+        },
+        {
+          "cx": -222,
+          "cz": -283,
+          "label": "ocean_monument",
+          "expected": {
+            "blocks": "4dde5d0c75e36d46af2dc3dbda86be51a15e0986b8c8076cca0bfb6c2c4e109c",
+            "biomes": "b388490dd3fd458dc0f4beab759842a1212077ca4788c6e13980e33611151fe8",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "131b64670924bb6246ad901296cd8cae20805d8c3198530926cdb9197e1398e7",
+            "structures": "7cb8b9abb11041e7037578e5f7fbffd44b18ac06a3a5c438aadb8aa1b95e32cf",
+            "envelope": "4500593de214dabd6d1c3c026d815f2a9115e3188b0c475e5a244114a5529197",
+            "all": "82033843c5503ec768c46a98c4da890e1ea040f4c7cdeb4f7460ae25164b2e4f"
+          }
+        },
+        {
+          "cx": -221,
+          "cz": -283,
+          "label": "ocean_monument",
+          "expected": {
+            "blocks": "274e627b1357baf08d428925e157dfb29cc60c3a5abaad7d6537fd369d305517",
+            "biomes": "b388490dd3fd458dc0f4beab759842a1212077ca4788c6e13980e33611151fe8",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "4c42b65b4704ccfe5074f895e63ede9ae398dbbaa33811d538203dc0b0ad0466",
+            "structures": "7cb8b9abb11041e7037578e5f7fbffd44b18ac06a3a5c438aadb8aa1b95e32cf",
+            "envelope": "d7d54d3c1a1b9072c82126059a381638118a595111f8cf3826e0c4488065bb30",
+            "all": "1410d38df937ba77be407ce72b72353dbbbbe03ad7e0c20115a3d1553b852b30"
+          }
+        },
+        {
+          "cx": -220,
+          "cz": -283,
+          "label": "ocean_monument",
+          "expected": {
+            "blocks": "f38e4ec28b8f304d275381d2f7bd0637822613a04a6d51a3d53e17ce898f881e",
+            "biomes": "b388490dd3fd458dc0f4beab759842a1212077ca4788c6e13980e33611151fe8",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "a7622fc537f7f5c9cd7879688d49e6e490b888809e87040bc212342e4df9b24a",
+            "structures": "7cb8b9abb11041e7037578e5f7fbffd44b18ac06a3a5c438aadb8aa1b95e32cf",
+            "envelope": "951c5f57c6a933203075ad98e0816399e4900c93c97b5e5f9ef82640f5f6a4ad",
+            "all": "7e26d3ade7fd802d589ccf4f9ecb3780b5c17a81e60a9d726e22eaa04a7bcd9a"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "cedar-valley",
+      "dimension": "overworld",
+      "kind": "buried_treasure",
+      "descriptor": {
+        "id": "structure:v1:%22cedar-valley%22:overworld:buried_treasure:-22:-20",
+        "generatorVersion": 6,
+        "layoutVersion": 1,
+        "seed": "cedar-valley",
+        "kind": "buried_treasure",
+        "dimension": "overworld",
+        "gx": -22,
+        "gz": -20,
+        "origin": {
+          "x": -4082,
+          "y": 63,
+          "z": -3731
+        },
+        "rotation": 3,
+        "variant": "sandy_shore",
+        "waterLevel": null,
+        "localBounds": [
+          -1,
+          -1,
+          -1,
+          2,
+          5,
+          2
+        ],
+        "plan": {},
+        "bounds": {
+          "minX": -4083,
+          "minY": 62,
+          "minZ": -3732,
+          "maxX": -4080,
+          "maxY": 68,
+          "maxZ": -3729
+        },
+        "entries": [
+          {
+            "x": -4082,
+            "y": 67,
+            "z": -3731,
+            "facing": 3
+          }
+        ],
+        "markers": [
+          {
+            "type": "container",
+            "key": "heart",
+            "role": "buried_treasure",
+            "block": "CHEST",
+            "table": "buried_treasure/heart_of_sea",
+            "tableGuarantees": [
+              "heart_of_sea"
+            ],
+            "id": "structure:v1:%22cedar-valley%22:overworld:buried_treasure:-22:-20/container/heart",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:buried_treasure:-22:-20",
+            "dimension": "overworld",
+            "position": {
+              "x": -4082,
+              "y": 63,
+              "z": -3731
+            }
+          }
+        ]
+      },
+      "descriptorDigest": "6f809976a6541dafc5840cf7dc158589cb171455f5ab31650cb96b6c99ea99f8",
+      "chunks": [
+        {
+          "cx": -256,
+          "cz": -234,
+          "label": "buried_treasure",
+          "expected": {
+            "blocks": "6720470520d440d471750a4b7e88faad5037a3ee3211d4802ff2453476674e3d",
+            "biomes": "e0c1f4455783b6b2f152b526c2a73dab0f5c3812b6300ee12913371616f65034",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "bea1d4e82a84ec9b9607de3809171199bc416cfcb41ac5e8b191f2f61d6e8a1c",
+            "structures": "aeb5a4fc7f14ac1773c0d7311418d400e38af50b04f2d25abf6f4ba23dceabfb",
+            "envelope": "54a0fc667131293924a7784ffdff33e11f525846389dedb48ebacce2aa3e9ad9",
+            "all": "3487010c921f066769546b135e746d727b2d25f1d08964ee8927f3937090a670"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "cedar-valley",
+      "dimension": "overworld",
+      "kind": "village",
+      "descriptor": {
+        "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+        "generatorVersion": 6,
+        "layoutVersion": 1,
+        "seed": "cedar-valley",
+        "kind": "village",
+        "dimension": "overworld",
+        "gx": -19,
+        "gz": -18,
+        "origin": {
+          "x": -3546,
+          "y": 94,
+          "z": -3397
+        },
+        "rotation": 3,
+        "variant": "oak_lane",
+        "waterLevel": null,
+        "localBounds": [
+          -18,
+          -3,
+          -13,
+          19,
+          10,
+          15
+        ],
+        "plan": {
+          "style": "oak",
+          "buildings": [
+            {
+              "key": "farmstead",
+              "x": -10,
+              "z": -8,
+              "front": 2,
+              "y": -1,
+              "supports": [
+                {
+                  "x": -13,
+                  "z": -11,
+                  "bottom": -3,
+                  "top": -1
+                },
+                {
+                  "x": -10,
+                  "z": -11,
+                  "bottom": -2,
+                  "top": -1
+                },
+                {
+                  "x": -7,
+                  "z": -11,
+                  "bottom": -2,
+                  "top": -1
+                },
+                {
+                  "x": -13,
+                  "z": -8,
+                  "bottom": -2,
+                  "top": -1
+                },
+                {
+                  "x": -10,
+                  "z": -8,
+                  "bottom": -2,
+                  "top": -1
+                },
+                {
+                  "x": -7,
+                  "z": -8,
+                  "bottom": -2,
+                  "top": -1
+                },
+                {
+                  "x": -13,
+                  "z": -5,
+                  "bottom": -2,
+                  "top": -1
+                },
+                {
+                  "x": -10,
+                  "z": -5,
+                  "bottom": -2,
+                  "top": -1
+                },
+                {
+                  "x": -7,
+                  "z": -5,
+                  "bottom": -2,
+                  "top": -1
+                }
+              ]
+            },
+            {
+              "key": "library",
+              "x": 10,
+              "z": -8,
+              "front": 2,
+              "y": 1,
+              "supports": [
+                {
+                  "x": 7,
+                  "z": -11,
+                  "bottom": -1,
+                  "top": 1
+                },
+                {
+                  "x": 10,
+                  "z": -11,
+                  "bottom": -1,
+                  "top": 1
+                },
+                {
+                  "x": 13,
+                  "z": -11,
+                  "bottom": -1,
+                  "top": 1
+                },
+                {
+                  "x": 7,
+                  "z": -8,
+                  "bottom": 0,
+                  "top": 1
+                },
+                {
+                  "x": 10,
+                  "z": -8,
+                  "bottom": 0,
+                  "top": 1
+                },
+                {
+                  "x": 13,
+                  "z": -8,
+                  "bottom": -1,
+                  "top": 1
+                },
+                {
+                  "x": 7,
+                  "z": -5,
+                  "bottom": 0,
+                  "top": 1
+                },
+                {
+                  "x": 10,
+                  "z": -5,
+                  "bottom": 0,
+                  "top": 1
+                },
+                {
+                  "x": 13,
+                  "z": -5,
+                  "bottom": 0,
+                  "top": 1
+                }
+              ]
+            },
+            {
+              "key": "smithy",
+              "x": 10,
+              "z": 8,
+              "front": 0,
+              "y": 1,
+              "supports": [
+                {
+                  "x": 7,
+                  "z": 5,
+                  "bottom": -1,
+                  "top": 1
+                },
+                {
+                  "x": 10,
+                  "z": 5,
+                  "bottom": 0,
+                  "top": 1
+                },
+                {
+                  "x": 13,
+                  "z": 5,
+                  "bottom": 0,
+                  "top": 1
+                },
+                {
+                  "x": 7,
+                  "z": 8,
+                  "bottom": -1,
+                  "top": 1
+                },
+                {
+                  "x": 10,
+                  "z": 8,
+                  "bottom": 0,
+                  "top": 1
+                },
+                {
+                  "x": 13,
+                  "z": 8,
+                  "bottom": 0,
+                  "top": 1
+                },
+                {
+                  "x": 7,
+                  "z": 11,
+                  "bottom": -1,
+                  "top": 1
+                },
+                {
+                  "x": 10,
+                  "z": 11,
+                  "bottom": -1,
+                  "top": 1
+                },
+                {
+                  "x": 13,
+                  "z": 11,
+                  "bottom": 0,
+                  "top": 1
+                }
+              ]
+            }
+          ],
+          "paths": [
+            {
+              "x": -17,
+              "z": -1,
+              "y": -2,
+              "bottom": -3
+            },
+            {
+              "x": -17,
+              "z": 0,
+              "y": -2,
+              "bottom": -3
+            },
+            {
+              "x": -17,
+              "z": 1,
+              "y": -2,
+              "bottom": -3
+            },
+            {
+              "x": -16,
+              "z": -1,
+              "y": -2,
+              "bottom": -3
+            },
+            {
+              "x": -16,
+              "z": 0,
+              "y": -2,
+              "bottom": -3
+            },
+            {
+              "x": -16,
+              "z": 1,
+              "y": -2,
+              "bottom": -3
+            },
+            {
+              "x": -15,
+              "z": -1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -15,
+              "z": 0,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -15,
+              "z": 1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -14,
+              "z": -1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -14,
+              "z": 0,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -14,
+              "z": 1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -13,
+              "z": -1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -13,
+              "z": 0,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -13,
+              "z": 1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -12,
+              "z": -1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -12,
+              "z": 0,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -12,
+              "z": 1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -11,
+              "z": -1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -11,
+              "z": 0,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -11,
+              "z": 1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -10,
+              "z": -1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -10,
+              "z": 0,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -10,
+              "z": 1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -9,
+              "z": -1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -9,
+              "z": 0,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -9,
+              "z": 1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -8,
+              "z": -1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -8,
+              "z": 0,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -8,
+              "z": 1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -7,
+              "z": -1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -7,
+              "z": 0,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -7,
+              "z": 1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -6,
+              "z": -1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -6,
+              "z": 0,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -6,
+              "z": 1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -5,
+              "z": -1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -5,
+              "z": 0,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -5,
+              "z": 1,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -4,
+              "z": -1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": -4,
+              "z": 0,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": -4,
+              "z": 1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": -3,
+              "z": -1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": -3,
+              "z": 0,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": -3,
+              "z": 1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": -2,
+              "z": -1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": -2,
+              "z": 0,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": -2,
+              "z": 1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": -1,
+              "z": -1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": -1,
+              "z": 0,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": -1,
+              "z": 1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 0,
+              "z": -1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 0,
+              "z": 0,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 0,
+              "z": 1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 1,
+              "z": -1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 1,
+              "z": 0,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 1,
+              "z": 1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 2,
+              "z": -1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 2,
+              "z": 0,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 2,
+              "z": 1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 3,
+              "z": -1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 3,
+              "z": 0,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 3,
+              "z": 1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 4,
+              "z": -1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 4,
+              "z": 0,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 4,
+              "z": 1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 5,
+              "z": -1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 5,
+              "z": 0,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 5,
+              "z": 1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 6,
+              "z": -1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 6,
+              "z": 0,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 6,
+              "z": 1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 7,
+              "z": -1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 7,
+              "z": 0,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 7,
+              "z": 1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 8,
+              "z": -1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 8,
+              "z": 0,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 8,
+              "z": 1,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 9,
+              "z": -1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 9,
+              "z": 0,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 9,
+              "z": 1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 10,
+              "z": -1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 10,
+              "z": 0,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 10,
+              "z": 1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 11,
+              "z": -1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 11,
+              "z": 0,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 11,
+              "z": 1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 12,
+              "z": -1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 12,
+              "z": 0,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 12,
+              "z": 1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 13,
+              "z": -1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 13,
+              "z": 0,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 13,
+              "z": 1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 14,
+              "z": -1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 14,
+              "z": 0,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 14,
+              "z": 1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 15,
+              "z": -1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 15,
+              "z": 0,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 15,
+              "z": 1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 16,
+              "z": -1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 16,
+              "z": 0,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 16,
+              "z": 1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 17,
+              "z": -1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 17,
+              "z": 0,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 17,
+              "z": 1,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": -11,
+              "z": -2,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -10,
+              "z": -2,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -9,
+              "z": -2,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -11,
+              "z": -3,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -10,
+              "z": -3,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -9,
+              "z": -3,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -11,
+              "z": -4,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -10,
+              "z": -4,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -9,
+              "z": -4,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -11,
+              "z": 2,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -10,
+              "z": 2,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -9,
+              "z": 2,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -11,
+              "z": 3,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -10,
+              "z": 3,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -9,
+              "z": 3,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -11,
+              "z": 4,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -10,
+              "z": 4,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -9,
+              "z": 4,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": 9,
+              "z": -2,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 10,
+              "z": -2,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 11,
+              "z": -2,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 9,
+              "z": -3,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 10,
+              "z": -3,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 11,
+              "z": -3,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 9,
+              "z": -4,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 10,
+              "z": -4,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 11,
+              "z": -4,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 9,
+              "z": 2,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 10,
+              "z": 2,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 11,
+              "z": 2,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 9,
+              "z": 3,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 10,
+              "z": 3,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 11,
+              "z": 3,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 9,
+              "z": 4,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 10,
+              "z": 4,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": 11,
+              "z": 4,
+              "y": 1,
+              "bottom": 0
+            },
+            {
+              "x": -2,
+              "z": -2,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": -2,
+              "z": 2,
+              "y": -1,
+              "bottom": -2
+            },
+            {
+              "x": -1,
+              "z": -2,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": -1,
+              "z": 2,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 0,
+              "z": -2,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 0,
+              "z": 2,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 1,
+              "z": -2,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 1,
+              "z": 2,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 2,
+              "z": -2,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 2,
+              "z": 2,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": -1,
+              "z": -3,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 0,
+              "z": -3,
+              "y": 0,
+              "bottom": -1
+            },
+            {
+              "x": 1,
+              "z": -3,
+              "y": 0,
+              "bottom": -1
+            }
+          ],
+          "supports": [
+            {
+              "x": -13,
+              "z": -11,
+              "bottom": -3,
+              "top": -1
+            },
+            {
+              "x": -10,
+              "z": -11,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -7,
+              "z": -11,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -13,
+              "z": -8,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -10,
+              "z": -8,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -7,
+              "z": -8,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -13,
+              "z": -5,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -10,
+              "z": -5,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -7,
+              "z": -5,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": 7,
+              "z": -11,
+              "bottom": -1,
+              "top": 1
+            },
+            {
+              "x": 10,
+              "z": -11,
+              "bottom": -1,
+              "top": 1
+            },
+            {
+              "x": 13,
+              "z": -11,
+              "bottom": -1,
+              "top": 1
+            },
+            {
+              "x": 7,
+              "z": -8,
+              "bottom": 0,
+              "top": 1
+            },
+            {
+              "x": 10,
+              "z": -8,
+              "bottom": 0,
+              "top": 1
+            },
+            {
+              "x": 13,
+              "z": -8,
+              "bottom": -1,
+              "top": 1
+            },
+            {
+              "x": 7,
+              "z": -5,
+              "bottom": 0,
+              "top": 1
+            },
+            {
+              "x": 10,
+              "z": -5,
+              "bottom": 0,
+              "top": 1
+            },
+            {
+              "x": 13,
+              "z": -5,
+              "bottom": 0,
+              "top": 1
+            },
+            {
+              "x": 7,
+              "z": 5,
+              "bottom": -1,
+              "top": 1
+            },
+            {
+              "x": 10,
+              "z": 5,
+              "bottom": 0,
+              "top": 1
+            },
+            {
+              "x": 13,
+              "z": 5,
+              "bottom": 0,
+              "top": 1
+            },
+            {
+              "x": 7,
+              "z": 8,
+              "bottom": -1,
+              "top": 1
+            },
+            {
+              "x": 10,
+              "z": 8,
+              "bottom": 0,
+              "top": 1
+            },
+            {
+              "x": 13,
+              "z": 8,
+              "bottom": 0,
+              "top": 1
+            },
+            {
+              "x": 7,
+              "z": 11,
+              "bottom": -1,
+              "top": 1
+            },
+            {
+              "x": 10,
+              "z": 11,
+              "bottom": -1,
+              "top": 1
+            },
+            {
+              "x": 13,
+              "z": 11,
+              "bottom": 0,
+              "top": 1
+            },
+            {
+              "x": -13,
+              "z": 5,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -10,
+              "z": 5,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -7,
+              "z": 5,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -13,
+              "z": 9,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -10,
+              "z": 9,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -7,
+              "z": 9,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -13,
+              "z": 13,
+              "bottom": -3,
+              "top": -1
+            },
+            {
+              "x": -10,
+              "z": 13,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -7,
+              "z": 13,
+              "bottom": -2,
+              "top": -1
+            },
+            {
+              "x": -1,
+              "z": -6,
+              "bottom": -1,
+              "top": 0
+            },
+            {
+              "x": 0,
+              "z": -6,
+              "bottom": -1,
+              "top": 0
+            },
+            {
+              "x": 1,
+              "z": -6,
+              "bottom": -1,
+              "top": 0
+            },
+            {
+              "x": -1,
+              "z": -5,
+              "bottom": -1,
+              "top": 0
+            },
+            {
+              "x": 0,
+              "z": -5,
+              "bottom": -1,
+              "top": 0
+            },
+            {
+              "x": 1,
+              "z": -5,
+              "bottom": -1,
+              "top": 0
+            },
+            {
+              "x": -1,
+              "z": -4,
+              "bottom": -1,
+              "top": 0
+            },
+            {
+              "x": 0,
+              "z": -4,
+              "bottom": -1,
+              "top": 0
+            },
+            {
+              "x": 1,
+              "z": -4,
+              "bottom": -1,
+              "top": 0
+            }
+          ],
+          "farmY": -1,
+          "wellY": 0
+        },
+        "bounds": {
+          "minX": -3559,
+          "minY": 91,
+          "minZ": -3415,
+          "maxX": -3531,
+          "maxY": 104,
+          "maxZ": -3378
+        },
+        "entries": [
+          {
+            "x": -3546,
+            "y": 93,
+            "z": -3380,
+            "facing": 0
+          },
+          {
+            "x": -3546,
+            "y": 96,
+            "z": -3414,
+            "facing": 2
+          }
+        ],
+        "markers": [
+          {
+            "type": "home",
+            "key": "farmstead",
+            "role": "farmstead",
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/home/farmstead",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3554,
+              "y": 94,
+              "z": -3387
+            },
+            "bounds": {
+              "minX": -3556,
+              "minY": 94,
+              "minZ": -3389,
+              "maxX": -3551,
+              "maxY": 97,
+              "maxZ": -3384
+            },
+            "entry": {
+              "x": -3551,
+              "y": 94,
+              "z": -3387,
+              "facing": 1
+            }
+          },
+          {
+            "type": "container",
+            "key": "farmstead",
+            "role": "farmstead_stock",
+            "block": "CHEST",
+            "table": "village/farmstead",
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/container/farmstead",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3552,
+              "y": 94,
+              "z": -3389
+            }
+          },
+          {
+            "type": "home",
+            "key": "library",
+            "role": "library",
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/home/library",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3554,
+              "y": 96,
+              "z": -3407
+            },
+            "bounds": {
+              "minX": -3556,
+              "minY": 96,
+              "minZ": -3409,
+              "maxX": -3551,
+              "maxY": 99,
+              "maxZ": -3404
+            },
+            "entry": {
+              "x": -3551,
+              "y": 96,
+              "z": -3407,
+              "facing": 1
+            }
+          },
+          {
+            "type": "container",
+            "key": "library",
+            "role": "library_stock",
+            "block": "CHEST",
+            "table": "village/library",
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/container/library",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3552,
+              "y": 96,
+              "z": -3409
+            }
+          },
+          {
+            "type": "home",
+            "key": "smithy",
+            "role": "smithy",
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/home/smithy",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3538,
+              "y": 96,
+              "z": -3407
+            },
+            "bounds": {
+              "minX": -3540,
+              "minY": 96,
+              "minZ": -3409,
+              "maxX": -3535,
+              "maxY": 99,
+              "maxZ": -3404
+            },
+            "entry": {
+              "x": -3541,
+              "y": 96,
+              "z": -3407,
+              "facing": 3
+            }
+          },
+          {
+            "type": "container",
+            "key": "smithy",
+            "role": "smithy_stock",
+            "block": "CHEST",
+            "table": "village/smithy",
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/container/smithy",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3540,
+              "y": 96,
+              "z": -3405
+            }
+          },
+          {
+            "type": "bed",
+            "key": "grower",
+            "role": "home_bed",
+            "block": "WHITE_BED",
+            "homeId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/home/farmstead",
+            "memberId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/member/grower",
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/bed/grower",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3554,
+              "y": 94,
+              "z": -3385
+            },
+            "facing": 3
+          },
+          {
+            "type": "member",
+            "key": "grower",
+            "role": "villager",
+            "entity": "villager",
+            "profession": "farmer",
+            "homeId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/home/farmstead",
+            "bedId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/bed/grower",
+            "jobSiteId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/job_site/composter",
+            "stockTable": "village/trades/farmer",
+            "unique": true,
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/member/grower",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3553,
+              "y": 94,
+              "z": -3386
+            }
+          },
+          {
+            "type": "bed",
+            "key": "reader",
+            "role": "home_bed",
+            "block": "WHITE_BED",
+            "homeId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/home/library",
+            "memberId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/member/reader",
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/bed/reader",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3554,
+              "y": 96,
+              "z": -3405
+            },
+            "facing": 3
+          },
+          {
+            "type": "member",
+            "key": "reader",
+            "role": "villager",
+            "entity": "villager",
+            "profession": "librarian",
+            "homeId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/home/library",
+            "bedId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/bed/reader",
+            "jobSiteId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/job_site/lectern",
+            "stockTable": "village/trades/librarian",
+            "unique": true,
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/member/reader",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3553,
+              "y": 96,
+              "z": -3406
+            }
+          },
+          {
+            "type": "bed",
+            "key": "surveyor",
+            "role": "home_bed",
+            "block": "WHITE_BED",
+            "homeId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/home/library",
+            "memberId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/member/surveyor",
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/bed/surveyor",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3554,
+              "y": 96,
+              "z": -3409
+            },
+            "facing": 3
+          },
+          {
+            "type": "member",
+            "key": "surveyor",
+            "role": "villager",
+            "entity": "villager",
+            "profession": "cartographer",
+            "homeId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/home/library",
+            "bedId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/bed/surveyor",
+            "jobSiteId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/job_site/map_desk",
+            "stockTable": "village/trades/cartographer",
+            "unique": true,
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/member/surveyor",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3553,
+              "y": 96,
+              "z": -3408
+            }
+          },
+          {
+            "type": "bed",
+            "key": "smith",
+            "role": "home_bed",
+            "block": "WHITE_BED",
+            "homeId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/home/smithy",
+            "memberId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/member/smith",
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/bed/smith",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3538,
+              "y": 96,
+              "z": -3405
+            },
+            "facing": 1
+          },
+          {
+            "type": "member",
+            "key": "smith",
+            "role": "villager",
+            "entity": "villager",
+            "profession": "toolsmith",
+            "homeId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/home/smithy",
+            "bedId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/bed/smith",
+            "jobSiteId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/job_site/smithing_bench",
+            "stockTable": "village/trades/toolsmith",
+            "unique": true,
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/member/smith",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3539,
+              "y": 96,
+              "z": -3406
+            }
+          },
+          {
+            "type": "job_site",
+            "key": "composter",
+            "role": "farmer",
+            "block": "COMPOSTER",
+            "profession": "farmer",
+            "memberId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/member/grower",
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/job_site/composter",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3540,
+              "y": 94,
+              "z": -3385
+            }
+          },
+          {
+            "type": "job_site",
+            "key": "lectern",
+            "role": "librarian",
+            "block": "LECTERN",
+            "profession": "librarian",
+            "memberId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/member/reader",
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/job_site/lectern",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3556,
+              "y": 96,
+              "z": -3406
+            }
+          },
+          {
+            "type": "job_site",
+            "key": "map_desk",
+            "role": "cartographer",
+            "block": "CARTOGRAPHY_TABLE",
+            "profession": "cartographer",
+            "memberId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/member/surveyor",
+            "mapTarget": {
+              "kind": "ocean_monument",
+              "dimension": "overworld",
+              "seed": "cedar-valley",
+              "layoutVersion": 1,
+              "sourceMarkerId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/job_site/map_desk",
+              "from": {
+                "x": -3556,
+                "y": 96,
+                "z": -3408
+              },
+              "search": {
+                "radius": 12,
+                "maxCells": 625,
+                "maxSamples": 16384
+              }
+            },
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/job_site/map_desk",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3556,
+              "y": 96,
+              "z": -3408
+            }
+          },
+          {
+            "type": "job_site",
+            "key": "smithing_bench",
+            "role": "toolsmith",
+            "block": "SMITHING_TABLE",
+            "profession": "toolsmith",
+            "memberId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/member/smith",
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/job_site/smithing_bench",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3536,
+              "y": 96,
+              "z": -3408
+            }
+          },
+          {
+            "type": "crop_plot",
+            "key": "wheat",
+            "role": "irrigated_farm",
+            "crop": "WHEAT_CROP",
+            "soil": "FARMLAND",
+            "id": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18/crop_plot/wheat",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:village:-19:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3537,
+              "y": 94,
+              "z": -3386
+            },
+            "bounds": {
+              "minX": -3539,
+              "minY": 93,
+              "minZ": -3389,
+              "maxX": -3533,
+              "maxY": 95,
+              "maxZ": -3384
+            }
+          }
+        ]
+      },
+      "descriptorDigest": "0040bc2d108bacc7d227bf9b4c836ba45fd44274360c9a6ec2a4f946b0fdb405",
+      "chunks": [
+        {
+          "cx": -223,
+          "cz": -214,
+          "label": "village",
+          "expected": {
+            "blocks": "324facc0d22fa0166ff5f77134ab8345d168a30e604d76731221d49372cf5f34",
+            "biomes": "954b3e3a6c3f1732b391905edbb9452dce4689df91c2a232181323c7f42a352c",
+            "states": "6dce13d51cea8fa8e23821616ceb647125ae241590d1e093700868e82de097a7",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "dffbc7d148b955fa049e6e7153b5e95c4ac43ea2a6b82ce82380d7721f349f78",
+            "envelope": "555250df177067a930bcbde4b5134eccfaff9926a2d2b2a1db91174182bc07e9",
+            "all": "dc909586940691fe6d3d17f2af02567cb2b4af09749c9a34113af611ace28487"
+          }
+        },
+        {
+          "cx": -222,
+          "cz": -214,
+          "label": "village",
+          "expected": {
+            "blocks": "ed137737776bc8726ed306d05fd6dc1c1f95c0b70fbefa1dc036a72e144301a0",
+            "biomes": "954b3e3a6c3f1732b391905edbb9452dce4689df91c2a232181323c7f42a352c",
+            "states": "e5c9f06efd33552ed8b7bcb4178025495defd23a94d7e5cb758fba77fcb04669",
+            "fluids": "faf5860fd41675a47cf110266f7ddf2910bb1e42b543b02dddb3e63ad2c0cecc",
+            "structures": "dffbc7d148b955fa049e6e7153b5e95c4ac43ea2a6b82ce82380d7721f349f78",
+            "envelope": "0b4316be61c6667cb4000f32288fd84c2c78ab328e01ebe22ef7e073ea6bec89",
+            "all": "a4f84744265b30949e0e1544c8a480ed3346e32c3da71cf7434dfda4744e3d00"
+          }
+        },
+        {
+          "cx": -221,
+          "cz": -214,
+          "label": "village",
+          "expected": {
+            "blocks": "ec53e04c67beff50bbbeeda3e5758f132d5075e12223634bbe416f4493322c2b",
+            "biomes": "954b3e3a6c3f1732b391905edbb9452dce4689df91c2a232181323c7f42a352c",
+            "states": "6e71af2ca8f41c941a09c6ac446222326065e18ef3b6fbb38b6b123fe41fd076",
+            "fluids": "03a63c44b9fa67dfee34f58756f426bc05aee3324e4df0402753a876a59d3d13",
+            "structures": "dffbc7d148b955fa049e6e7153b5e95c4ac43ea2a6b82ce82380d7721f349f78",
+            "envelope": "a5cd16c87d184780e9ea1bdb27828e66ffa6feeac110cfb20e3b33c7c849019c",
+            "all": "c6fce00989a84cdc4b69a50feaa2fc0121a04de97f0f015ede18a84b800e81b6"
+          }
+        },
+        {
+          "cx": -223,
+          "cz": -213,
+          "label": "village",
+          "expected": {
+            "blocks": "598fdeba51faed4250a729d4df72771a47391b51ceb0014dc6b25d77fd38636e",
+            "biomes": "954b3e3a6c3f1732b391905edbb9452dce4689df91c2a232181323c7f42a352c",
+            "states": "aae5a7431c1d2174b4bed29f0a45b28b8394278e89cab93b5ae3a7c7fbebf31a",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "dffbc7d148b955fa049e6e7153b5e95c4ac43ea2a6b82ce82380d7721f349f78",
+            "envelope": "6ad1333d14d8dbad752ff8eb0c7251e3f4617fb70a63245951e042256d3b110c",
+            "all": "db6687a8d3e3a751b862e0e8c5fec0900773af6397064a928165a9e2456f2982"
+          }
+        },
+        {
+          "cx": -222,
+          "cz": -213,
+          "label": "village",
+          "expected": {
+            "blocks": "8f081a7604b39fce5b5792bd4350c40d1205976c35405f68e08e93c5d80afea0",
+            "biomes": "954b3e3a6c3f1732b391905edbb9452dce4689df91c2a232181323c7f42a352c",
+            "states": "6c0bda59f7a51db84773ed12accf293452001488c24222297f0d7a34723f6b76",
+            "fluids": "5be057f7bb4522c31963e91502b2cc7a0c1e81e3e1c32741fd2545e843d92240",
+            "structures": "dffbc7d148b955fa049e6e7153b5e95c4ac43ea2a6b82ce82380d7721f349f78",
+            "envelope": "0498ac84092303b9399563ab1b16b1f1f4260323756cfc7fcf188eb6810b1190",
+            "all": "41e4e72439974bf9dc7a5e45d54352c354df63fe6f25bc30f5e976079da83a19"
+          }
+        },
+        {
+          "cx": -221,
+          "cz": -213,
+          "label": "village",
+          "expected": {
+            "blocks": "b1e7c8dd02c15b0918917e2b6dd8de0a782e2596c83ee50a8d516804ea15be8e",
+            "biomes": "954b3e3a6c3f1732b391905edbb9452dce4689df91c2a232181323c7f42a352c",
+            "states": "d0a76d87fa70afdfedb76a8c6ee281266f4cc50143bfdad7505bab2874a735d9",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "dffbc7d148b955fa049e6e7153b5e95c4ac43ea2a6b82ce82380d7721f349f78",
+            "envelope": "d97a6684a46d762ade2282c155ed7b5706225df02c7c436952959fdc73cc37b6",
+            "all": "2fbbdbb811650aeb152cac331b04d29c09ee46f4f278777e0ea490d3013b403c"
+          }
+        },
+        {
+          "cx": -223,
+          "cz": -212,
+          "label": "village",
+          "expected": {
+            "blocks": "b274f0088fafe29c4ccd0f2c0778b2bcca5ebd1eaf8ae2f6a2de4c14bf8c94f1",
+            "biomes": "954b3e3a6c3f1732b391905edbb9452dce4689df91c2a232181323c7f42a352c",
+            "states": "c9846d5839e596e37300e2e6a45d09046e001e4c804dee3f81fed4eb5589a2a4",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "dffbc7d148b955fa049e6e7153b5e95c4ac43ea2a6b82ce82380d7721f349f78",
+            "envelope": "9d0bb1b1e068576857f604e0b50af550ccdae0a0b9425d93b204c323a0128e94",
+            "all": "21740cdf45daef5fc2ac39ce8002c322555ce7f0150243a26acad442200575c2"
+          }
+        },
+        {
+          "cx": -222,
+          "cz": -212,
+          "label": "village",
+          "expected": {
+            "blocks": "6b6165d47f09a86e6fb65a99269baab145cdbdda3cb73b451ff16133264d065f",
+            "biomes": "954b3e3a6c3f1732b391905edbb9452dce4689df91c2a232181323c7f42a352c",
+            "states": "744ab4ac128974a9c90c399023a6e6daaee42e690ef6fe199409d144ba0e9d58",
+            "fluids": "3a807ea0cfdca7a130d0e4a604ffe6f4a400e2d088f7dc4fe1e0f962b500e29c",
+            "structures": "dffbc7d148b955fa049e6e7153b5e95c4ac43ea2a6b82ce82380d7721f349f78",
+            "envelope": "f361d6ace915aa9a1c7a906b873b76663efde257ff860a8b8e7610dfbc77d4db",
+            "all": "6529fcac78f9c6621a729a1365f98a713582ed03ffd2efc466791d0ab093eed4"
+          }
+        },
+        {
+          "cx": -221,
+          "cz": -212,
+          "label": "village",
+          "expected": {
+            "blocks": "fac423157c9c40c0b91df096ab4d76a40bc879fd2188248d155ef8cb214c2888",
+            "biomes": "954b3e3a6c3f1732b391905edbb9452dce4689df91c2a232181323c7f42a352c",
+            "states": "3381de4ca9f3a477f25989dfc8b744e7916046b7aa369f61a9a2f7dc0963ec9e",
+            "fluids": "f59d556e82000144cfe179e2afcc1e3173e128b21ec15574f7264093b69a7be7",
+            "structures": "dffbc7d148b955fa049e6e7153b5e95c4ac43ea2a6b82ce82380d7721f349f78",
+            "envelope": "06b17a5b1c45baafdc170d5502930dcd56b86a1981f056796159aa0d78ddf1c6",
+            "all": "962fe712b046ba7d3db766210c4d29dc2ee86397494558cc3d2152b3e635e42a"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "cedar-valley",
+      "dimension": "nether",
+      "kind": "nether_fortress",
+      "descriptor": {
+        "id": "structure:v1:%22cedar-valley%22:nether:nether_fortress:-22:-24",
+        "generatorVersion": 6,
+        "layoutVersion": 1,
+        "seed": "cedar-valley",
+        "kind": "nether_fortress",
+        "dimension": "nether",
+        "gx": -22,
+        "gz": -24,
+        "origin": {
+          "x": -4127,
+          "y": 38,
+          "z": -4501
+        },
+        "rotation": 1,
+        "variant": "broken_battlement",
+        "waterLevel": null,
+        "localBounds": [
+          -16,
+          -6,
+          -15,
+          20,
+          12,
+          16
+        ],
+        "plan": {
+          "supports": [
+            {
+              "x": -3,
+              "z": -14,
+              "bottom": -4,
+              "top": 0
+            },
+            {
+              "x": 3,
+              "z": -14,
+              "bottom": -5,
+              "top": 0
+            },
+            {
+              "x": -3,
+              "z": 14,
+              "bottom": -2,
+              "top": 0
+            },
+            {
+              "x": 3,
+              "z": 14,
+              "bottom": -2,
+              "top": 0
+            },
+            {
+              "x": -5,
+              "z": -5,
+              "bottom": -4,
+              "top": 0
+            },
+            {
+              "x": 5,
+              "z": -5,
+              "bottom": -5,
+              "top": 0
+            },
+            {
+              "x": -5,
+              "z": 5,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 5,
+              "z": 5,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": -15,
+              "z": -4,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": -15,
+              "z": 4,
+              "bottom": -4,
+              "top": 0
+            },
+            {
+              "x": -7,
+              "z": -4,
+              "bottom": -4,
+              "top": 0
+            },
+            {
+              "x": -7,
+              "z": 4,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 11,
+              "z": -5,
+              "bottom": -5,
+              "top": 3
+            },
+            {
+              "x": 18,
+              "z": -5,
+              "bottom": -6,
+              "top": 3
+            },
+            {
+              "x": 11,
+              "z": 5,
+              "bottom": -4,
+              "top": 3
+            },
+            {
+              "x": 18,
+              "z": 5,
+              "bottom": -5,
+              "top": 3
+            }
+          ]
+        },
+        "bounds": {
+          "minX": -4142,
+          "minY": 32,
+          "minZ": -4517,
+          "maxX": -4111,
+          "maxY": 50,
+          "maxZ": -4481
+        },
+        "entries": [
+          {
+            "x": -4141,
+            "y": 39,
+            "z": -4501,
+            "facing": 1
+          },
+          {
+            "x": -4113,
+            "y": 39,
+            "z": -4501,
+            "facing": 3
+          }
+        ],
+        "markers": [
+          {
+            "type": "container",
+            "key": "garden_store",
+            "role": "wart_store",
+            "block": "CHEST",
+            "table": "nether_fortress/garden",
+            "id": "structure:v1:%22cedar-valley%22:nether:nether_fortress:-22:-24/container/garden_store",
+            "structureId": "structure:v1:%22cedar-valley%22:nether:nether_fortress:-22:-24",
+            "dimension": "nether",
+            "position": {
+              "x": -4125,
+              "y": 39,
+              "z": -4514
+            }
+          },
+          {
+            "type": "container",
+            "key": "crossing_store",
+            "role": "crossing_store",
+            "block": "CHEST",
+            "table": "nether_fortress/crossing",
+            "id": "structure:v1:%22cedar-valley%22:nether:nether_fortress:-22:-24/container/crossing_store",
+            "structureId": "structure:v1:%22cedar-valley%22:nether:nether_fortress:-22:-24",
+            "dimension": "nether",
+            "position": {
+              "x": -4130,
+              "y": 39,
+              "z": -4499
+            }
+          },
+          {
+            "type": "crop_plot",
+            "key": "wart_garden",
+            "role": "wart_garden",
+            "crop": "NETHER_WART_CROP",
+            "soil": "SOUL_SAND",
+            "id": "structure:v1:%22cedar-valley%22:nether:nether_fortress:-22:-24/crop_plot/wart_garden",
+            "structureId": "structure:v1:%22cedar-valley%22:nether:nether_fortress:-22:-24",
+            "dimension": "nether",
+            "position": {
+              "x": -4124,
+              "y": 39,
+              "z": -4512
+            },
+            "bounds": {
+              "minX": -4130,
+              "minY": 38,
+              "minZ": -4515,
+              "maxX": -4123,
+              "maxY": 40,
+              "maxZ": -4508
+            }
+          },
+          {
+            "type": "encounter",
+            "key": "blaze_nest",
+            "role": "blaze_spawner",
+            "entity": "blaze",
+            "mechanism": "spawner",
+            "block": "SPAWNER",
+            "unique": true,
+            "id": "structure:v1:%22cedar-valley%22:nether:nether_fortress:-22:-24/encounter/blaze_nest",
+            "structureId": "structure:v1:%22cedar-valley%22:nether:nether_fortress:-22:-24",
+            "dimension": "nether",
+            "position": {
+              "x": -4127,
+              "y": 42,
+              "z": -4486
+            },
+            "bounds": {
+              "minX": -4131,
+              "minY": 42,
+              "minZ": -4489,
+              "maxX": -4122,
+              "maxY": 47,
+              "maxZ": -4483
+            }
+          },
+          {
+            "type": "encounter",
+            "key": "crossing_guard",
+            "role": "hall_guard",
+            "entity": "wither_skeleton",
+            "unique": true,
+            "id": "structure:v1:%22cedar-valley%22:nether:nether_fortress:-22:-24/encounter/crossing_guard",
+            "structureId": "structure:v1:%22cedar-valley%22:nether:nether_fortress:-22:-24",
+            "dimension": "nether",
+            "position": {
+              "x": -4117,
+              "y": 39,
+              "z": -4501
+            },
+            "bounds": {
+              "minX": -4121,
+              "minY": 39,
+              "minZ": -4503,
+              "maxX": -4113,
+              "maxY": 43,
+              "maxZ": -4498
+            }
+          }
+        ]
+      },
+      "descriptorDigest": "3046d6a8b2842dcff50d0a43faefc6778349527e84bff7ac36071d53dc4255c5",
+      "chunks": [
+        {
+          "cx": -259,
+          "cz": -283,
+          "label": "nether_fortress",
+          "expected": {
+            "blocks": "5161be31a46b8edc3dda2c814847cac74a584c3b5e8bf2f8de95a2a2663c9f63",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "1f33497a0e59300f79db0f971a14d1aa68ba444d8d5d1397c73cb5afb5770eae",
+            "envelope": "b024ca68c0a65b040c5bc7c1d490c916890ff585e4fda4ce0c52a8d5f1c4b686",
+            "all": "0b4d48f5ce19a5eae8ce6c5d98a65fbca445a64f98bd62dd7267a319ef25e4ab"
+          }
+        },
+        {
+          "cx": -258,
+          "cz": -283,
+          "label": "nether_fortress",
+          "expected": {
+            "blocks": "a1f8cf6e9a8bbef130331b26096abe3e67e7ab33d5940d35360222e140b87093",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "1f33497a0e59300f79db0f971a14d1aa68ba444d8d5d1397c73cb5afb5770eae",
+            "envelope": "ac08c8a43fb687390b8889057f2c9fbf3b27950c701edac2a2532f40333b42e2",
+            "all": "cade77941da5256433f1b9f4d9e8ccfed58ea17ab6dd7f7fd940adf26b7abaa0"
+          }
+        },
+        {
+          "cx": -257,
+          "cz": -283,
+          "label": "nether_fortress",
+          "expected": {
+            "blocks": "b1fd6e34bba7d0742bc485156a300c0240851c0146fd39f50c69dc06e4cf1c10",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "1f33497a0e59300f79db0f971a14d1aa68ba444d8d5d1397c73cb5afb5770eae",
+            "envelope": "a2a3df6aadb88c0a4d6e6d1ff4b186a3c68f11a677a860a976f174310771bea6",
+            "all": "ceee216cc9de82b4755bb0a2803e4bbe544e6a217b3ed9da1f6f9caee822b625"
+          }
+        },
+        {
+          "cx": -259,
+          "cz": -282,
+          "label": "nether_fortress",
+          "expected": {
+            "blocks": "1e406a084095da7195cbfc14a6265a065ebc7826518f11c2fe79e968eb6c756e",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "1f33497a0e59300f79db0f971a14d1aa68ba444d8d5d1397c73cb5afb5770eae",
+            "envelope": "b5f8118f11182cca859eadefa512b2efb65bf3d7d4219e4a8e48620a324c3b95",
+            "all": "23551d2cd75c531f85282d54b85b9d35ec474260116798e726cc2c0ad22f964d"
+          }
+        },
+        {
+          "cx": -258,
+          "cz": -282,
+          "label": "nether_fortress",
+          "expected": {
+            "blocks": "8571783dbfe950a0924380c4049eb916df086192827cc912ec18052e9b44af09",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "1f33497a0e59300f79db0f971a14d1aa68ba444d8d5d1397c73cb5afb5770eae",
+            "envelope": "e57c9c8cd5e2deefe12870da780f38791284ac6ce187fa089de6725fea3a91dc",
+            "all": "3ae723a4d3db39353553466bffcda1b818c107a915c39c5dc9129403a1ee1b3d"
+          }
+        },
+        {
+          "cx": -257,
+          "cz": -282,
+          "label": "nether_fortress",
+          "expected": {
+            "blocks": "6db7bc4089d83663ebe6e650483dbdf7f11203ef870a80a7ccf07eb22dd38607",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "1f33497a0e59300f79db0f971a14d1aa68ba444d8d5d1397c73cb5afb5770eae",
+            "envelope": "851fa35de2f81fa178d15e19d5804a66d12e9305972d89d434a8604a1ce2b3ce",
+            "all": "9810f54893b066fc92d2c2333a689d1bc5d77e9139bd750bd70a710dc6f06205"
+          }
+        },
+        {
+          "cx": -259,
+          "cz": -281,
+          "label": "nether_fortress",
+          "expected": {
+            "blocks": "429452ea8cdc265aa616bb3b9b16224855d25e01bbe1412cfc99d1f8e6d28f38",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "1f33497a0e59300f79db0f971a14d1aa68ba444d8d5d1397c73cb5afb5770eae",
+            "envelope": "fb52b1d78116cdc55d441a3460d5e9ff24d3d097f8b3ecd9647709312b69bbdc",
+            "all": "1ce8d7381c55df07097014686f744fa96201efe0c5d722dfa06bddd44a85c751"
+          }
+        },
+        {
+          "cx": -258,
+          "cz": -281,
+          "label": "nether_fortress",
+          "expected": {
+            "blocks": "e7d08e0f39f0d3bc683364497f4f95380d3ca2f109db2b21760a5dd6ba078468",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "47eafa35893be1cc3f6733729b76ebaca999b22742a03a21aa2934ac95d9d858",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "1f33497a0e59300f79db0f971a14d1aa68ba444d8d5d1397c73cb5afb5770eae",
+            "envelope": "8f00d7028508b1fd84dd16ab82b6af532fef8164fb1f3f7f6024a3458d6ac9b4",
+            "all": "227b4c7cde5334057f5a73c682b8442a949c55fee3b7e4a8cc814acaaf0c95e4"
+          }
+        },
+        {
+          "cx": -257,
+          "cz": -281,
+          "label": "nether_fortress",
+          "expected": {
+            "blocks": "25cf778ff11f8409d42b963bb86ba9903e2a8555bd29a95de5b71a55c05a0564",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "0ba6bddd2a6b82c4c787c95d74381eb7d2b0716d302415751edae5dd8ac08826",
+            "structures": "1f33497a0e59300f79db0f971a14d1aa68ba444d8d5d1397c73cb5afb5770eae",
+            "envelope": "ce2b9db9e6d54465dd62e302ce7ee8c4ed6698bbe4bd0f0b75ea15ff8456a0ce",
+            "all": "95ee37dc141c8df7a7a4092a7d99ad8b3a9d8bae8341079e0d9fa16862b7b72a"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "cedar-valley",
+      "dimension": "nether",
+      "kind": "bastion_remnant",
+      "descriptor": {
+        "id": "structure:v1:%22cedar-valley%22:nether:bastion_remnant:-22:-23",
+        "generatorVersion": 6,
+        "layoutVersion": 1,
+        "seed": "cedar-valley",
+        "kind": "bastion_remnant",
+        "dimension": "nether",
+        "gx": -22,
+        "gz": -23,
+        "origin": {
+          "x": -4088,
+          "y": 39,
+          "z": -4309
+        },
+        "rotation": 1,
+        "variant": "bridge_keep",
+        "waterLevel": null,
+        "localBounds": [
+          -14,
+          -5,
+          -13,
+          15,
+          15,
+          16
+        ],
+        "plan": {
+          "supports": [
+            {
+              "x": -12,
+              "z": -10,
+              "bottom": -5,
+              "top": 0
+            },
+            {
+              "x": -12,
+              "z": 8,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": -7,
+              "z": -10,
+              "bottom": -5,
+              "top": 0
+            },
+            {
+              "x": -7,
+              "z": 8,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 12,
+              "z": -10,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 12,
+              "z": 8,
+              "bottom": -2,
+              "top": 0
+            },
+            {
+              "x": 7,
+              "z": -10,
+              "bottom": -4,
+              "top": 0
+            },
+            {
+              "x": 7,
+              "z": 8,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": -6,
+              "z": -11,
+              "bottom": -5,
+              "top": 4
+            },
+            {
+              "x": 6,
+              "z": -11,
+              "bottom": -4,
+              "top": 4
+            },
+            {
+              "x": -6,
+              "z": -5,
+              "bottom": -4,
+              "top": 4
+            },
+            {
+              "x": 6,
+              "z": -5,
+              "bottom": -3,
+              "top": 4
+            },
+            {
+              "x": -3,
+              "z": 11,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 3,
+              "z": 11,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 0,
+              "z": 15,
+              "bottom": -3,
+              "top": 0
+            },
+            {
+              "x": 0,
+              "z": 3,
+              "bottom": -3,
+              "top": 0
+            }
+          ]
+        },
+        "bounds": {
+          "minX": -4103,
+          "minY": 34,
+          "minZ": -4323,
+          "maxX": -4074,
+          "maxY": 54,
+          "maxZ": -4294
+        },
+        "entries": [
+          {
+            "x": -4103,
+            "y": 40,
+            "z": -4309,
+            "facing": 1
+          }
+        ],
+        "markers": [
+          {
+            "type": "container",
+            "key": "treasury",
+            "role": "treasure",
+            "block": "CHEST",
+            "table": "bastion/treasure",
+            "tableGuarantees": [
+              "netherite_upgrade_template"
+            ],
+            "id": "structure:v1:%22cedar-valley%22:nether:bastion_remnant:-22:-23/container/treasury",
+            "structureId": "structure:v1:%22cedar-valley%22:nether:bastion_remnant:-22:-23",
+            "dimension": "nether",
+            "position": {
+              "x": -4079,
+              "y": 44,
+              "z": -4309
+            }
+          },
+          {
+            "type": "container",
+            "key": "armory",
+            "role": "armory",
+            "block": "CHEST",
+            "table": "bastion/armory",
+            "id": "structure:v1:%22cedar-valley%22:nether:bastion_remnant:-22:-23/container/armory",
+            "structureId": "structure:v1:%22cedar-valley%22:nether:bastion_remnant:-22:-23",
+            "dimension": "nether",
+            "position": {
+              "x": -4093,
+              "y": 40,
+              "z": -4299
+            }
+          },
+          {
+            "type": "container",
+            "key": "gallery",
+            "role": "bridge_cache",
+            "block": "CHEST",
+            "table": "bastion/bridge",
+            "id": "structure:v1:%22cedar-valley%22:nether:bastion_remnant:-22:-23/container/gallery",
+            "structureId": "structure:v1:%22cedar-valley%22:nether:bastion_remnant:-22:-23",
+            "dimension": "nether",
+            "position": {
+              "x": -4090,
+              "y": 45,
+              "z": -4319
+            }
+          },
+          {
+            "type": "encounter",
+            "key": "treasury_guard",
+            "role": "treasury_guard",
+            "entity": "piglin_brute",
+            "unique": true,
+            "id": "structure:v1:%22cedar-valley%22:nether:bastion_remnant:-22:-23/encounter/treasury_guard",
+            "structureId": "structure:v1:%22cedar-valley%22:nether:bastion_remnant:-22:-23",
+            "dimension": "nether",
+            "position": {
+              "x": -4080,
+              "y": 44,
+              "z": -4307
+            },
+            "bounds": {
+              "minX": -4082,
+              "minY": 44,
+              "minZ": -4314,
+              "maxX": -4077,
+              "maxY": 49,
+              "maxZ": -4303
+            }
+          },
+          {
+            "type": "encounter",
+            "key": "gate_guard",
+            "role": "gate_guard",
+            "entity": "piglin",
+            "unique": true,
+            "id": "structure:v1:%22cedar-valley%22:nether:bastion_remnant:-22:-23/encounter/gate_guard",
+            "structureId": "structure:v1:%22cedar-valley%22:nether:bastion_remnant:-22:-23",
+            "dimension": "nether",
+            "position": {
+              "x": -4096,
+              "y": 40,
+              "z": -4307
+            },
+            "bounds": {
+              "minX": -4099,
+              "minY": 40,
+              "minZ": -4312,
+              "maxX": -4094,
+              "maxY": 44,
+              "maxZ": -4305
+            }
+          }
+        ]
+      },
+      "descriptorDigest": "591bed696e17914cb3423325cbfdec37a2829470376128ad73c2858d94a7ede4",
+      "chunks": [
+        {
+          "cx": -257,
+          "cz": -271,
+          "label": "bastion_remnant",
+          "expected": {
+            "blocks": "0ad278b05ffed6b58dd28d8efbbc0eadc9240580226b9221086f6e8f59a405dc",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "3e4cb063d531c57face5992e16457616800cc4da7e7479e0a3178fc743c6ae71",
+            "envelope": "289f9e0b69c3a594fe7d6f5d8a7ddacd64fcd9d9ceb28435fcc5e358f1ff39e4",
+            "all": "5640652cd320772097cef6afda449e5467c43a7e15799636458e6354b9a3bca5"
+          }
+        },
+        {
+          "cx": -256,
+          "cz": -271,
+          "label": "bastion_remnant",
+          "expected": {
+            "blocks": "61f45808083fe13ac06791fa5d802173b46cd083a7e432005e624ce9a499c82e",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "3e4cb063d531c57face5992e16457616800cc4da7e7479e0a3178fc743c6ae71",
+            "envelope": "cdfc70c0b4702ee99c361d97895cf8d133e2001ec8a64c94427ff299315228e3",
+            "all": "d48767869b59cf87571cf8a412dad455d289835e519f36ccb34427c8e4d289d6"
+          }
+        },
+        {
+          "cx": -255,
+          "cz": -271,
+          "label": "bastion_remnant",
+          "expected": {
+            "blocks": "500bbaae73c350ea1a26dffabb1bd33f600d2dcc61083ea75f0142a8bca5a3e3",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "65e75fa4b2d0ce5784898fdf576d4df0c0949ece316f23227a98cca67563f596",
+            "structures": "3e4cb063d531c57face5992e16457616800cc4da7e7479e0a3178fc743c6ae71",
+            "envelope": "ce490d54bd4eff6784d4120f0f565b947307e7b5049f7a9072cde0ee76438353",
+            "all": "222c74393d24abb7591966ad075b26523b92e7efebe46271d65101af3fe3522e"
+          }
+        },
+        {
+          "cx": -257,
+          "cz": -270,
+          "label": "bastion_remnant",
+          "expected": {
+            "blocks": "3dd14d6bbad29bd80b2e12842d8513d648c508c6fde8e2a497375cf129dcbdc8",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "3e4cb063d531c57face5992e16457616800cc4da7e7479e0a3178fc743c6ae71",
+            "envelope": "fa230fd1024ac19c3bf458ffe3aa7d9c33f18303c087f43d96133987495d5ae9",
+            "all": "344033bc41748727f21604411aa307ce77b2cacf76f522393ab69a36d1ac9a81"
+          }
+        },
+        {
+          "cx": -256,
+          "cz": -270,
+          "label": "bastion_remnant",
+          "expected": {
+            "blocks": "b54de567c215a531fe17ea5284558ae25c48eabb9babeda995fa795b33bee6e5",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fe4534b97982f3c7710c84d2c477a7ac6fbdf9859d7c631254292fb5597e5b01",
+            "fluids": "f66317abd3e0e74d8ef7216fc0681e71eb8d9b976e0d1f18a206c36f89990a64",
+            "structures": "3e4cb063d531c57face5992e16457616800cc4da7e7479e0a3178fc743c6ae71",
+            "envelope": "29331aeaf9c120884621edb1146ac19406df578614d57cc71edf1214ce9c243b",
+            "all": "cbc5e6dc9690cbe51ba9b4bfd2f0188c0a7861e966f9272e9057f5bbe242291c"
+          }
+        },
+        {
+          "cx": -255,
+          "cz": -270,
+          "label": "bastion_remnant",
+          "expected": {
+            "blocks": "b7d52dda9ca37167f949d9f7ea83c4b7f7630f9a25a07d3581393bc3be9fe607",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "603b0868f671f6bb1b88762a6e75576734670918a1fdae43a18fab7f2d56caa2",
+            "structures": "3e4cb063d531c57face5992e16457616800cc4da7e7479e0a3178fc743c6ae71",
+            "envelope": "3657305d7bf38a10538c6e765b0500638af77ddb5c9d00dbc37bc5d9e0172de5",
+            "all": "5c72c8e3e648982c5f9fafd8f43f15299d2282d03d4fc8dd8e421f1f6b73b640"
+          }
+        },
+        {
+          "cx": -257,
+          "cz": -269,
+          "label": "bastion_remnant",
+          "expected": {
+            "blocks": "fdd1c22ffff8816b13a63f42f031d942c186569aa3fca5f657a6c7ae14bc3938",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "3e4cb063d531c57face5992e16457616800cc4da7e7479e0a3178fc743c6ae71",
+            "envelope": "6283308847bb24674f1e2800e22a26d85d0fa0e01364ad7fe05a135ab32547ec",
+            "all": "cae9fe54828cef131de06310590e405f82255d493abb8f16937fc2b97aba29f2"
+          }
+        },
+        {
+          "cx": -256,
+          "cz": -269,
+          "label": "bastion_remnant",
+          "expected": {
+            "blocks": "2ea35d0a87632cc77e95eee584305db7ae86db77657d623385bb7a0793183833",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "3e4cb063d531c57face5992e16457616800cc4da7e7479e0a3178fc743c6ae71",
+            "envelope": "93b234320cdcbe9a87c41d4835e55c9fd4f347d9fb75555037103d11f7b492c9",
+            "all": "8341e3a338fbe9f99d1a5cc2770bb3cc63bbf8c46e546a48c4f86eb58499c5cc"
+          }
+        },
+        {
+          "cx": -255,
+          "cz": -269,
+          "label": "bastion_remnant",
+          "expected": {
+            "blocks": "ca0d59d8109bbc015415c141d4525e707fe3da62365ba03d8cca140fe86d2341",
+            "biomes": "7760b2c5ddf20cc1fe3c1faf3e4f10efafc85560a47ac678469acb4e08816334",
+            "states": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+            "fluids": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+            "structures": "3e4cb063d531c57face5992e16457616800cc4da7e7479e0a3178fc743c6ae71",
+            "envelope": "a7794da8271fb23572bdc2c64e14a8559ef04ea4e3b3300c73c41df5fc2bbb55",
+            "all": "d139b92a2c4963f094cfd88184915966180ee0d086e1c96e28484993e2714d73"
+          }
+        }
+      ]
+    },
+    {
+      "seed": "cedar-valley",
+      "dimension": "overworld",
+      "kind": "dungeon",
+      "descriptor": {
+        "id": "structure:v1:%22cedar-valley%22:overworld:dungeon:-20:-18",
+        "generatorVersion": 6,
+        "layoutVersion": 1,
+        "seed": "cedar-valley",
+        "kind": "dungeon",
+        "dimension": "overworld",
+        "gx": -20,
+        "gz": -18,
+        "origin": {
+          "x": -3756,
+          "y": 75,
+          "z": -3319
+        },
+        "rotation": 3,
+        "variant": "mossy_zombie_cellar",
+        "waterLevel": null,
+        "localBounds": [
+          -5,
+          -1,
+          -5,
+          6,
+          14,
+          10
+        ],
+        "plan": {
+          "shaftTop": 11,
+          "approach": []
+        },
+        "bounds": {
+          "minX": -3761,
+          "minY": 74,
+          "minZ": -3324,
+          "maxX": -3746,
+          "maxY": 89,
+          "maxZ": -3313
+        },
+        "entries": [
+          {
+            "x": -3749,
+            "y": 87,
+            "z": -3321,
+            "facing": 2
+          }
+        ],
+        "markers": [
+          {
+            "type": "container",
+            "key": "west_cache",
+            "role": "cellar_cache",
+            "block": "CHEST",
+            "table": "dungeon/cache",
+            "id": "structure:v1:%22cedar-valley%22:overworld:dungeon:-20:-18/container/west_cache",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:dungeon:-20:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3754,
+              "y": 76,
+              "z": -3316
+            }
+          },
+          {
+            "type": "container",
+            "key": "east_cache",
+            "role": "cellar_cache",
+            "block": "CHEST",
+            "table": "dungeon/cache",
+            "id": "structure:v1:%22cedar-valley%22:overworld:dungeon:-20:-18/container/east_cache",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:dungeon:-20:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3758,
+              "y": 76,
+              "z": -3322
+            }
+          },
+          {
+            "type": "encounter",
+            "key": "cellar_spawner",
+            "role": "dungeon_spawner",
+            "block": "SPAWNER",
+            "mechanism": "spawner",
+            "unique": true,
+            "entity": "zombie",
+            "id": "structure:v1:%22cedar-valley%22:overworld:dungeon:-20:-18/encounter/cellar_spawner",
+            "structureId": "structure:v1:%22cedar-valley%22:overworld:dungeon:-20:-18",
+            "dimension": "overworld",
+            "position": {
+              "x": -3756,
+              "y": 76,
+              "z": -3319
+            },
+            "bounds": {
+              "minX": -3759,
+              "minY": 76,
+              "minZ": -3322,
+              "maxX": -3752,
+              "maxY": 80,
+              "maxZ": -3315
+            }
+          }
+        ]
+      },
+      "descriptorDigest": "b03b025ea1b0d72d96a059c09bd7bc4e1bbbdc081371df4cca232266092ba173",
+      "chunks": [
+        {
+          "cx": -236,
+          "cz": -208,
+          "label": "dungeon",
+          "expected": {
+            "blocks": "b4bbcd568310aeab49776865c437831b102ca894cff56a2f3b04bd1a5032a212",
+            "biomes": "954b3e3a6c3f1732b391905edbb9452dce4689df91c2a232181323c7f42a352c",
+            "states": "b231135fc991593ddf3a643b9cc36e0367e47aa6d47550041d419c3311be020c",
+            "fluids": "3a3ed164e42500a1c5b2d0093f0a813d27dc50d038f330cc100a7e70ece2e6e4",
+            "structures": "0d20cb1541f66a5f0537904974edd8a97543a4fd577d992e99292e0e65acd223",
+            "envelope": "d780cfd2b34a2025bfd87717226b031817c87aa9016652a9cbd1cea688959c6d",
+            "all": "dfcb46e4cee8cbcd40ecad7e365f551a096735bfee136f5fc6f73536415425d4"
+          }
+        },
+        {
+          "cx": -235,
+          "cz": -208,
+          "label": "dungeon",
+          "expected": {
+            "blocks": "4d625d5e6552d6de0b9d027ac67543049bb6ee8f9b9e091a7deff7ffd2c9edd3",
+            "biomes": "954b3e3a6c3f1732b391905edbb9452dce4689df91c2a232181323c7f42a352c",
+            "states": "e1afb0f723b631748658acce442deb8b70ea6e1657a999287fa3db734d24cea8",
+            "fluids": "7cbf52d6fa0116e4fc4a654a8f35ed1bda5df49ecd23ab120d59b031e2cfccc7",
+            "structures": "0d20cb1541f66a5f0537904974edd8a97543a4fd577d992e99292e0e65acd223",
+            "envelope": "dac9b38081c16e35e49f866464b2a94d63fa31a48f58f2d1d193ac16eac0d7f1",
+            "all": "6f4bad5d8b4550cda02f0f80b99c86eeba607463f34c2a31ec7e693c66070d4d"
+          }
+        }
+      ]
+    }
+  ]
+}
