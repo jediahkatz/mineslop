@@ -18,9 +18,12 @@ loading, and has relevant regression tests and real browser verification.
   the day/night cycle, lighting, underground views or inspection settings.
 - [ ] **Better lighting.** Improve daylight, dusk/night and local-light
   readability while preserving cave darkness, material identity and performance.
-- [ ] **Gradual tunnel lighting.** Remove the sudden whole-view blackout when
-  entering a tunnel. Check light falloff near the entrance, views back toward
-  daylight, torch-lit interiors and transitions in both directions.
+- [x] **Gradual tunnel lighting.** The complete native cave walk now keeps
+  entrance surfaces lit through deep look-backs and retains faint detail in
+  darkness. Verified locally with 15 GUI views, Fullbright off, no terrain
+  edits, and GPU return/torch/context-recovery checks. See
+  [cave lighting verification](cave-lighting.md) for scope and remaining
+  inherited test/performance limits. Deployment is separate from local proof.
 - [ ] **Every block gets a Minecraft-reference art review.** Compare each block
   directly with the actual vanilla Java block, then bring our original textures
   and models closer in pattern, palette, proportions, faces and lighting.
