@@ -166,7 +166,7 @@ export class DaylightMaterial {
           )
           .replace("#include <fog_fragment>", fog);
     };
-    material.customProgramCacheKey = () => `${cacheKey()}:daylight-2:${Number(exterior)}:surface-atlas-1:block-light-1:${this.binding}`;
+    material.customProgramCacheKey = () => `${cacheKey()}:daylight-2:${Number(exterior)}:surface-atlas-1:block-light-2:${this.binding}`;
     material.needsUpdate = true;
   }
 

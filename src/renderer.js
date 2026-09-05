@@ -657,6 +657,10 @@ export class GameRenderer {
     // Three's mesh frustum culling still handles off-screen geometry.
   }
 
+  onWorldMutation(world, event) {
+    if (world === this.world) this.blockLight?.observeMutation(world, event);
+  }
+
   updateDaylight() {
     if (!this.atmosphere.setSkyAccess) return;
     if (!this.skyColumns) {
