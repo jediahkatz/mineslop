@@ -288,7 +288,10 @@ function install(renderer, job, result) {
     column.remove(mesh);
     mesh.geometry.dispose();
   }
-  if (plan.bytes + plan.transparentBytes < job.oldColumnBytes ||
+  // Opaque-to-transparent edits can free CPU source capacity while increasing
+  // GPU bytes and draws. Refusals must retry when either admission pool shrinks.
+  if (job.sourceDelta < 0 ||
+      plan.bytes + plan.transparentBytes < job.oldColumnBytes ||
       plan.draws < job.oldColumnDraws)
     renderer.meshResourceRevision++;
   column.userData.meshed = column.userData.requiredSections.every((section) =>
