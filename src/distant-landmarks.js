@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { BLOCK, BLOCKS } from "./blocks.js";
 import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
+import { sectionGeometryCovered } from "./section-pages.js";
 
 export const DISTANT_LANDMARK_LIMITS = Object.freeze({
   pillars: 10, columnsPerUpdate: 4, vertices: 200000, indices: 300000,
@@ -47,15 +48,7 @@ export function landmarkDetailSections(chunks) {
   for (const [key, column] of chunks) {
     if (!column.visible || !column.parent) continue;
     for (const [sy, section] of column.userData.sections ?? []) {
-      const group = section.group;
-      if (!group?.visible || group.parent !== column ||
-          group.children.length !== section.draws) continue;
-      if (group.children.every((child) => {
-        const count = child.geometry?.index?.count ??
-          child.geometry?.getAttribute("position")?.count ?? 0;
-        return child.isMesh && child.visible && child.material.visible !== false &&
-          child.geometry.drawRange.count > 0 && child.geometry.drawRange.start < count;
-      }))
+      if (sectionGeometryCovered(column, section))
         result.add(`${key},${sy}`);
     }
   }

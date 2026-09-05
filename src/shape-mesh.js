@@ -30,13 +30,17 @@ function coversPlane(bounds, face, plane, coplanar = false) {
   );
 }
 
+function cellId(snapshot, x, y, z) {
+  return snapshot.idAt ? snapshot.idAt(x, y, z) : snapshot.cellAt(x, y, z)?.id ?? null;
+}
+
 function occludesPoint(snapshot, point) {
   const x = Math.floor(point[0]),
     y = Math.floor(point[1]),
     z = Math.floor(point[2]);
-  const cell = snapshot.cellAt(x, y, z);
-  if (!cell) return 0;
-  if (opaqueCube[cell.id]) return 1;
+  const id = cellId(snapshot, x, y, z);
+  if (id === null || id === BLOCK.AIR) return 0;
+  if (opaqueCube[id]) return 1;
   const shape = snapshot.shapeAt(x, y, z);
   return Number(
     shape.occlusion.some((bounds) =>
@@ -121,14 +125,14 @@ export function appendShape(
         const nx = x + face.n[0],
           ny = y + face.n[1],
           nz = z + face.n[2];
-        const neighbor = snapshot.cellAt(nx, ny, nz);
-        if (neighbor) {
-          if (opaqueCube[neighbor.id]) continue;
+        const neighborId = cellId(snapshot, nx, ny, nz);
+        if (neighborId !== null) {
+          if (opaqueCube[neighborId]) continue;
           const otherShape = snapshot.shapeAt(nx, ny, nz);
           const matching =
-            (neighbor.id === id &&
+            (neighborId === id &&
               (definition.transparent || batch === "glass" || fluid)) ||
-            (leafBlock[id] && leafBlock[neighbor.id]);
+            (leafBlock[id] && leafBlock[neighborId]);
           if (otherShape.fullOcclusion || (matching && otherShape.fullCube))
             continue;
           let occlusion = matching ? otherShape.render : otherShape.occlusion;

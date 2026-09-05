@@ -4,7 +4,7 @@
 // Uses the existing realtime host, without production substitutions or edits.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { chromium } from "playwright";
 import { chromeExecutable } from "./realtime/config.mjs";
@@ -17,15 +17,23 @@ const output = process.env.LOD_SURFACE_OUTPUT ?? `/opt/cursor/artifacts/lod-surf
 const version = Number(process.env.LOD_SURFACE_VERSION ?? 3);
 const biomeId = process.env.LOD_SURFACE_BIOME ?? "plains";
 const requireAtlas = process.env.LOD_SURFACE_REQUIRE_ATLAS !== "0";
+const radius = process.env.LOD_SURFACE_RADIUS === undefined ? null : Number(process.env.LOD_SURFACE_RADIUS);
+const quality = process.env.LOD_SURFACE_QUALITY ?? "medium";
+assert.ok(["low", "medium", "high"].includes(quality));
+assert.ok(radius === null || (Number.isInteger(radius) && radius >= 2 && radius <= 6));
 mkdirSync(output, { recursive: true });
 const profile = mkdtempSync("/dev/shm/lod-surface-browser-");
-const context = await chromium.launchPersistentContext(profile, {
+let context;
+t.after(async () => {
+  try { await context?.close(); }
+  finally { rmSync(profile, { recursive: true, force: true }); }
+});
+context = await chromium.launchPersistentContext(profile, {
   executablePath: await chromeExecutable(process.env.CHROME_BIN),
   headless: true, viewport: { width: 800, height: 500 },
   handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false,
   args: ["--enable-unsafe-swiftshader", "--remote-debugging-port=0"],
 });
-t.after(() => context.close());
 const page = context.pages()[0];
 page.setDefaultTimeout(120000);
 const errors = [], sourceHashes = {}, pendingSources = [];
@@ -34,18 +42,22 @@ page.on("console", (m) => {
   if (m.type() === "error") errors.push(m.text());
 });
 page.on("response", (r) => {
-  if (/\/src\/(?:distant-surface-material|distant-terrain|distant-terraces|renderer|textures|daylight-material)\.js(?:\?|$)/.test(r.url()))
-    pendingSources.push(r.body().then((body) => {
+  if (/\/src\/(?:distant-surface-material|distant-terrain|distant-terraces|renderer|section-renderer|section-pages|mesh-geometry|mesh-snapshot|shape-mesh|resolved-mesh|textures|daylight-material)\.js(?:\?|$)/.test(r.url())) {
+    const pending = r.body().then((body) => {
       sourceHashes[new URL(r.url()).pathname] = createHash("sha256").update(body).digest("hex");
-    }));
+    });
+    // Observe immediately; Promise.all below still fails on a missing body.
+    pending.catch(() => {});
+    pendingSources.push(pending);
+  }
 });
-const report = { version, biomeId, profile, url: base.href, scenarios: [], sourceHashes, errors };
+const report = { version, biomeId, radius, quality, profile, url: base.href, scenarios: [], sourceHashes, errors };
 try {
   await page.goto(new URL("test/realtime/index.html?quality=medium&seed=cedar-valley&pixelRatio=1", base).href);
   await page.waitForFunction(() => window.__voxelBot?.ready || window.__voxelBot?.error);
   assert.equal(await page.evaluate(() => window.__voxelBot.error), null);
   for (const dimension of ["overworld", "end"]) {
-    const result = await page.evaluate(async ({ dimension, version, biomeId, requireAtlas }) => {
+    const result = await page.evaluate(async ({ dimension, version, biomeId, requireAtlas, radius, quality }) => {
       const game = window.__voxelBot.game;
       cancelAnimationFrame(game.animation);
       await game.initialize("cedar-valley", null, { mode: "creative", dimension, generatorVersion: version });
@@ -53,6 +65,8 @@ try {
       const { BLOCKS } = await import("../../src/blocks.js");
       const { BIOME_PROFILES } = await import("../../src/biomes.js");
       const { graphics: g, world, player } = game;
+      g.setQuality(quality);
+      if (radius !== null) g.setRenderDistanceOverride(radius);
       const lod = g.distant;
       // Separate newly initialized world only. No changes to loaded voxel data,
       // coverage ownership, lighting mode or fog configuration.
@@ -68,7 +82,7 @@ try {
       player._syncCamera(0);
       // Admit real native detail at the diagnostic pose; no teleport landing
       // platform, synthetic terrain, forced cutout or unbounded mesh rebuild.
-      await world.ensureArea(position, Math.min(2, g.renderRadius));
+      await world.ensureArea(position, radius === null ? Math.min(2, g.renderRadius) : radius + 1);
       for (let tick = 0; tick < 2400 && (world.dirtyChunks.size || g.sectionJobs?.size); tick++) {
         g.rebuildDirty(2);
         if (tick % 32 === 0) await new Promise(requestAnimationFrame);
@@ -81,7 +95,7 @@ try {
       g.setTime(0.5);
       let ticks = 0;
       for (; ticks < 2400; ticks++) {
-        lod.update(position, { radius: g.renderRadius, quality: "medium", outdoors: true,
+        lod.update(position, { radius: g.renderRadius, quality, outdoors: true,
           dimension, coverage: g.detailCoverage(), budgetMs: 4 });
         if (lod.ready && !lod._job && !lod._vegetationJob) break;
         if (ticks % 64 === 0) await new Promise(requestAnimationFrame);
@@ -148,7 +162,16 @@ try {
           sharedAtlasBound: !!g.renderer.properties.get(lod._terrainMaterial).uniforms?.uLodAtlas &&
             g.renderer.properties.get(lod._terrainMaterial).uniforms.uLodAtlas.value === g.atlas.texture },
         walls, shaderVariants,
-        state: { ready: lod.ready, visible: lod.group.visible, fog: { near: g.scene.fog.near, far: g.scene.fog.far },
+        state: { ready: lod.ready, visible: lod.group.visible, radius: g.renderRadius,
+          skySize: g.skyColumns.size, surfaceLayers: g.skyColumns.surfaceLight.tiles ** 2,
+          blockLayers: g.blockLight.tiles ** 2,
+          surfacePending: g.skyColumns.surfaceLight.pending,
+          blockUnavailable: g.blockLight.valid.reduce((sum, value) => sum + Number(value === 0), 0),
+          dirtyColumns: world.dirtyChunks.size,
+          dirtySections: world.dirtySectionRevisions?.size ?? 0,
+          sectionJobs: g.sectionJobs?.size ?? 0,
+          meshStats: { ...g.meshStats },
+          fog: { near: g.scene.fog.near, far: g.scene.fog.far },
           fullbright: g.fullbrightInspection, coverage: g.detailCoverage().size,
           vertices: active.terrain.geometry.attributes.position.count,
           drawnIndices: active.terrain.geometry.drawRange.count, loadedChunks: world.chunks.size,
@@ -158,7 +181,7 @@ try {
           mean: sum / count, variance: squared / count - (sum / count) ** 2 },
         png: g.renderer.domElement.toDataURL("image/png"),
       };
-    }, { dimension, version, biomeId, requireAtlas });
+    }, { dimension, version, biomeId, requireAtlas, radius, quality });
     writeFileSync(`${output}/${dimension}.png`, Buffer.from(result.png.split(",")[1], "base64"));
     delete result.png;
     report.scenarios.push(result);
@@ -170,6 +193,16 @@ try {
     assert.ok(result.state.coverage > 0, "capture must include native detail ownership");
     assert.ok(result.state.drawnIndices > 0, "capture must include distant terrain");
     assert.ok(result.gpu.variance > 0, "capture must not be an empty framebuffer");
+    if (radius !== null) {
+      assert.equal(result.state.radius, radius);
+      assert.equal(result.state.skySize, (radius * 2 + 1) * 16);
+      assert.equal(result.state.surfaceLayers, (radius * 2 + 1) ** 2);
+      assert.equal(result.state.blockLayers, (radius * 2 + 1) ** 2);
+      assert.equal(result.state.coverage, (radius * 2 + 1) ** 2, "all configured detail columns must render");
+      // This bounded material capture is not a steady-state lighting/FPS gate.
+      // Keep unavailable page counts visible; the performance harness waits
+      // for genuine completion instead of treating them as verified darkness.
+    }
     if (requireAtlas) {
       assert.equal(result.materials.shaderUsesAtlas, true, "linked shader must actively sample the LOD atlas");
       assert.equal(result.materials.sharedAtlasBound, true, "LOD must bind the renderer's existing atlas");

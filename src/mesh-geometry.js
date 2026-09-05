@@ -95,6 +95,7 @@ export function createMeshData(maxVertices = Infinity) {
         {
           positions: [],
           normals: [],
+          axisNormals: true,
           uvs: [],
           colors: [],
           indices: [],
@@ -122,6 +123,7 @@ export function appendQuad(
     throw new MeshBudgetError();
   context.vertices += 4;
   const data = context.batches[batch];
+  data.axisNormals &&= normal.every((value) => value === -1 || value === 0 || value === 1);
   const base = data.positions.length / 3;
   for (let i = 0; i < 4; i++) {
     data.positions.push(...points[i]);
@@ -193,6 +195,7 @@ function makeGeometry(data) {
     );
   geometry.setIndex(data.indices);
   geometry.userData.emitters = data.emitters;
+  geometry.userData.axisNormals = data.axisNormals;
   geometry.computeBoundingSphere();
   return geometry;
 }

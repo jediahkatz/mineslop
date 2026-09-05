@@ -7,7 +7,7 @@ import {
   createMeshData,
   finishMeshData,
 } from "./mesh-geometry.js";
-import { getBiomeTint, MESH_EMITTER_LIMIT } from "./mesh-palette.js";
+import { getBiomeTint, MESH_EMITTER_LIMIT, opaqueCube } from "./mesh-palette.js";
 import {
   sectionYs,
   snapshotMeshRange,
@@ -63,10 +63,18 @@ export function createRangeMesher(
         const y = snapshot.bottom + (cursor % height);
         const x = Math.floor(cursor / height) % CHUNK_SIZE;
         const z = Math.floor(cursor / (height * CHUNK_SIZE));
-        const cell = snapshot.cellAt(x, y, z);
-        if (!cell?.id || !BLOCKS[cell.id]) continue;
-        const id = cell.id;
+        const id = snapshot.idAt ? snapshot.idAt(x, y, z) : snapshot.cellAt(x, y, z)?.id;
+        if (!id || !BLOCKS[id]) continue;
         const block = BLOCKS[id];
+        // appendShape would discard all six faces of this full cube. Avoid
+        // shape/biome setup for buried solids, but never suppress emitters.
+        if (snapshot.idAt && opaqueCube[id] && !block.emissive &&
+            opaqueCube[snapshot.idAt(x - 1, y, z)] &&
+            opaqueCube[snapshot.idAt(x + 1, y, z)] &&
+            opaqueCube[snapshot.idAt(x, y - 1, z)] &&
+            opaqueCube[snapshot.idAt(x, y + 1, z)] &&
+            opaqueCube[snapshot.idAt(x, y, z - 1)] &&
+            opaqueCube[snapshot.idAt(x, y, z + 1)]) continue;
         const column = z * CHUNK_SIZE + x;
         if (!biomeCache.has(column))
           biomeCache.set(
@@ -85,7 +93,7 @@ export function createRangeMesher(
             id === BLOCK.GLOW_BERRIES ||
             (x % 8 === 0 &&
               z % 8 === 0 &&
-              snapshot.cellAt(x, y + 1, z)?.id !== id))
+              (snapshot.idAt ? snapshot.idAt(x, y + 1, z) : snapshot.cellAt(x, y + 1, z)?.id) !== id))
         )
           addEmitter(context, {
             x: snapshot.cx * CHUNK_SIZE + x + 0.5,
