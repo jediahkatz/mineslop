@@ -173,6 +173,42 @@ test("an explicit budget change retries rejected dirty work without losing its t
   assert.equal(renderer.detailCoverage().has("0,0"), true);
 });
 
+test("freeing CPU-only source bytes retries untouched refusals even when GPU usage grows", (t) => {
+  const { world, renderer } = fixture(t, [
+    [0, 0, 0, BLOCK.STONE],
+    [0, 32, 0, BLOCK.STONE],
+    [0, 64, 0, BLOCK.STONE],
+  ]);
+  renderer.meshLimits = { maxGpuBytes: 3100 };
+  renderer.rebuildDirty(Infinity);
+  const column = renderer.chunks.get("0,0");
+  assert.equal(column.userData.sections.has(4), false);
+  assert.ok(renderer.sectionRejections.has("0,0,4"));
+  const ticket = world.dirtySectionRevisions.get("0,0,4");
+  const before = detailMeshResources(renderer);
+  assert.equal(before.sourceBytes, 2256);
+  const revision = renderer.meshResourceRevision;
+  const oldBytes = column.userData.sections.get(0).bytes;
+
+  world.put(0, 0, 0, BLOCK.WATER);
+  assert.equal(world.dirtySectionRevisions.get("0,0,4"), ticket);
+  renderer.rebuildDirty(Infinity);
+
+  assert.ok(renderer.meshResourceRevision > revision, "freed CPU source capacity invalidates refusals");
+  assert.equal(column.userData.sections.get(0).bytes, oldBytes, "logical geometry bytes do not shrink");
+  assert.equal(column.userData.sections.has(4), true, "untouched section retries automatically");
+  assert.equal(renderer.sectionRejections.has("0,0,4"), false);
+  assert.ok(world.acknowledgments.some(
+    ({ sy, ticket: done }) => sy === 4 && done === ticket));
+  const after = detailMeshResources(renderer);
+  assert.equal(after.gpuBytes, 2952);
+  assert.equal(after.sourceBytes, 2256);
+  assert.ok(after.gpuBytes > before.gpuBytes);
+  assert.ok(after.drawCalls > before.drawCalls);
+  assert.equal(renderer.meshLimits.maxGpuBytes, 3100);
+  assert.equal(renderer.detailCoverage().has("0,0"), true);
+});
+
 test("emitter/material budgets remain column-wide across sections and disposal releases every geometry", (t) => {
   const entries = Array.from({ length: 32 }, (_, i) => [
     i % 16,
