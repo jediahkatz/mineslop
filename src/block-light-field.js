@@ -206,6 +206,7 @@ export class BlockLightField {
       this.allocate(spec.maxY - spec.minY, radius);
     this.stats = { scans: 0, shapeReads: 0, visits: 0, seedVisits: 0, floodVisits: 0, outputVisits: 0, columnChecks: 0,
       stampChecks: 0, topologyBuilds: 0, completed: 0, staleJobs: 0, queuePeak: 0, uploadBytes: 0, uploadLayers: 0,
+      resetVisits: 0, lazyReads: 0, initializedCells: 0,
       allocationBytes: this.allocationBytes ?? 0 };
     this.allocationBytes = 0;
     const oldValid = this.valid.slice();
