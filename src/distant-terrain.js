@@ -18,6 +18,7 @@ import { installDistantSurface } from "./distant-surface-material.js";
 import { visualHorizon } from "./end-visual-policy.js";
 import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
 import { noise, seedHash } from "./noise.js";
+import { getBiomeTint } from "./mesh-palette.js";
 import { CHUNK_SIZE, WORLD_MAX, WORLD_MIN } from "./terrain.js";
 
 export const DISTANT_TERRAIN_LIMITS = Object.freeze({
@@ -92,7 +93,7 @@ function geometry(positions, normals, colors, indices, bounds) {
 // loads chunks, applies edits, or supplies collision data. Only an authoritative
 // visible chunk mesh (including a completely edited-away chunk) can cut it out.
 export class DistantTerrain {
-  constructor(scene, world, { vegetationLimits } = {}) {
+  constructor(scene, world, { vegetationLimits, atlas } = {}) {
     this.scene = scene;
     this.world = world;
     this.group = new THREE.Group();
@@ -102,7 +103,8 @@ export class DistantTerrain {
     this._terrainMaterial = new THREE.MeshLambertMaterial({
       vertexColors: true,
     });
-    this._surfaceVersion = installDistantSurface(this._terrainMaterial);
+    this._atlas = atlas;
+    this._surfaceVersion = installDistantSurface(this._terrainMaterial, atlas);
     this._waterMaterial = new THREE.MeshLambertMaterial({
       vertexColors: true,
       transparent: true,
@@ -286,6 +288,7 @@ export class DistantTerrain {
       valid: new Uint8Array(limits.vertices),
       badlands: new Uint8Array(limits.vertices),
       surfaceData: new Float32Array(limits.vertices * 3),
+      blockData: this._atlas ? new Uint16Array(limits.vertices * 3) : null,
       positions: new Float32Array(limits.vertices * 3),
       normals: new Float32Array(limits.vertices * 3),
       colors: new Float32Array(limits.vertices * 3),
@@ -338,18 +341,18 @@ export class DistantTerrain {
     job.indexCount += indices.length;
   }
 
-  _palette(biome) {
+  _palette(biome, surfaceId) {
     const profile = BIOME_PROFILES[biome?.id];
-    const surface = profile?.surface;
+    const surface = surfaceId ?? profile?.surface;
     const ground =
       surface === BLOCK.GRASS
         ? biome.grassColor
         : (BLOCKS[surface]?.color ?? biome?.color);
     const rock = BLOCKS[profile?.rock]?.color ?? ground;
-    const key = `${ground}:${biome?.waterColor}:${rock}`;
+    const key = `${surface}:${ground}:${biome?.waterColor}:${rock}`;
     if (this._colors.has(key)) return this._colors.get(key);
     const palette = [
-      ...color(ground, "#83ac52").toArray(),
+      ...(this._atlas ? getBiomeTint(surface, "top", biome) : color(ground, "#83ac52").toArray()),
       ...color(biome?.waterColor, "#489fbb").toArray(),
       ...color(rock, "#8b8b82").toArray(),
     ];
@@ -372,14 +375,21 @@ export class DistantTerrain {
       const top = generator.terrainHeight(worldX, worldZ);
       const valid = Number.isFinite(top) && top >= job.spec.minY;
       const biome = generator.getBiome(worldX, worldZ);
-      const nativeColumn = biome?.category === "badlands"
+      const nativeColumn = this._atlas || biome?.category === "badlands"
         ? generator.sampleColumn?.(worldX, worldZ) : null;
+      const profile = BIOME_PROFILES[biome?.id];
+      const surface = nativeColumn?.surface ?? profile?.surface ?? BLOCK.STONE;
       sample = {
         valid,
         height: valid
           ? Math.min(job.spec.maxY - 1, Math.floor(top)) + 1
           : job.spec.minY,
-        palette: this._palette(biome),
+        palette: this._palette(biome, this._atlas ? surface : undefined),
+        blocks: this._atlas
+          ? [surface, nativeColumn?.soil ?? profile?.soil ?? surface,
+            job.request.dimension === "overworld" && job.identity.version >= 4
+              ? BLOCK.STONE : profile?.rock ?? surface]
+          : null,
         badlands: biome?.category === "badlands",
         strataOffset: biome?.category === "badlands" ? (nativeColumn?.strataOffset ??
           Math.floor(noise(worldX / 180, worldZ / 180, seedHash(String(job.identity.seed).slice(0, 80)) ^ 1811) * 3)) : 0,
@@ -397,6 +407,7 @@ export class DistantTerrain {
     job.valid[at] = Number(sample.valid);
     job.badlands[at] = Number(sample.badlands);
     job.surfaceData.set([sample.strataOffset, Number.isFinite(sample.landTop) ? sample.landTop : job.spec.minY, Number(sample.badlands)], at * 3);
+    if (job.blockData) job.blockData.set(sample.blocks, at * 3);
     job.minHeight = Math.min(job.minHeight, sample.height);
     job.maxHeight = Math.max(job.maxHeight, sample.height);
     job.allValid &&= sample.valid;
@@ -476,7 +487,9 @@ export class DistantTerrain {
       n[offset + 1] /= length;
       n[offset + 2] /= length;
     } else n[offset + 1] = 1;
-    if (job.request.dimension !== "overworld") return;
+    // Atlas colors are native tint ratios, not albedo. A hard cap must not
+    // acquire a rock blend from a slope that is absent from its geometry.
+    if (this._atlas || job.request.dimension !== "overworld") return;
     const [x, z] = job.points[job.cursor];
     const variation =
       0.94 +
@@ -551,6 +564,8 @@ export class DistantTerrain {
     );
     terrain.name = "Distant terrain surface";
     terrain.geometry.setAttribute("lodSurface", new THREE.BufferAttribute(job.terraces.surfaceData, 3));
+    if (job.terraces.blockData)
+      terrain.geometry.setAttribute("lodBlocks", new THREE.BufferAttribute(job.terraces.blockData, 3));
     const layerGroup = new THREE.Group();
     layerGroup.position.set(job.originX, 0, job.originZ);
     layerGroup.userData = {

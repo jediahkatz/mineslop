@@ -13,6 +13,16 @@ loading, and has relevant regression tests and real browser verification.
   The user's badlands/End screenshots reopen visual acceptance: preserve narrow
   landforms instead of enlarging them into featureless coarse blocks, retain
   material/color character, and blend the near/far boundary with fog.
+  The screenshot-driven material correction now shares the native block atlas,
+  biome tint ratios and face shading, with owner-specific surface/soil/rock
+  layers instead of gray risers. Local native v3/v7 Overworld and End GPU
+  captures and v7 badlands pass; the material-only GPU gate checks twelve exact
+  native/LOD pixel comparisons plus context restoration and texture ownership.
+  This does not close geometry, vegetation, transition or performance acceptance.
+  Keep detail radii unchanged until coordinated distance work is verified:
+  current daylight/block-light fields clamp to four chunks; radius eight also
+  exceeds travel's validated apron, and dense expanded-world light atlases grow
+  too large to treat eight–twelve chunks as a safe settings-only change.
 - [ ] **Distant End landmarks.** Keep actual native obsidian pillars and their
   caps visible beyond detailed chunks. Ground-height LOD alone omits these
   features. Preserve edits and avoid duplicate proxies during partial detail

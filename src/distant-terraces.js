@@ -21,7 +21,9 @@ function edgeKey(a, b) {
 export class DistantTerraces {
   constructor(source) {
     this.source = source;
-    this.flat = source.allValid && source.minHeight === source.maxHeight;
+    // Material IDs cannot interpolate across biome boundaries, even when the
+    // lattice is flat. Atlas caps use the same bounded owner slots as risers.
+    this.flat = !source.blockData && source.allValid && source.minHeight === source.maxHeight;
     this.edges = new Map();
     this.tops = null;
     this.walls = null;
@@ -78,6 +80,7 @@ export class DistantTerraces {
     this.positions = new Float32Array(capacity * 3);
     this.colors = new Float32Array(capacity * 3);
     this.surfaceData = new Float32Array(capacity * 3);
+    this.blockData = this.source.blockData ? new Uint16Array(capacity * 3) : null;
     this.normals = new Float32Array(capacity * 3);
     this.indices = new Uint32Array(indices);
     // At a grid point at most four rectangular cells meet. For any wall
@@ -100,11 +103,14 @@ export class DistantTerraces {
     this.normals[target] = normal[0];
     this.normals[target + 1] = normal[1];
     this.normals[target + 2] = normal[2];
-    const colors = wall ? source.rockColors : source.colors;
-    this.colors[target] = colors[offset];
-    this.colors[target + 1] = colors[offset + 1];
-    this.colors[target + 2] = colors[offset + 2];
+    const colors = wall && !this.blockData ? source.rockColors : source.colors;
+    const colorOffset = this.blockData ? owner * 3 : offset;
+    this.colors[target] = colors[colorOffset];
+    this.colors[target + 1] = colors[colorOffset + 1];
+    this.colors[target + 2] = colors[colorOffset + 2];
     this.surfaceData.set(source.surfaceData.subarray(owner * 3, owner * 3 + 3), target);
+    if (this.blockData)
+      this.blockData.set(source.blockData.subarray(owner * 3, owner * 3 + 3), target);
     return at;
   }
 
@@ -117,7 +123,14 @@ export class DistantTerraces {
           this.positions[at + 1] === y &&
           this.surfaceData[at] === this.source.surfaceData[from] &&
           this.surfaceData[at + 1] === this.source.surfaceData[from + 1] &&
-          this.surfaceData[at + 2] === this.source.surfaceData[from + 2]
+          this.surfaceData[at + 2] === this.source.surfaceData[from + 2] &&
+          (!this.blockData || (
+            this.blockData[at] === this.source.blockData[from] &&
+            this.blockData[at + 1] === this.source.blockData[from + 1] &&
+            this.blockData[at + 2] === this.source.blockData[from + 2] &&
+            this.colors[at] === this.source.colors[from] &&
+            this.colors[at + 1] === this.source.colors[from + 1] &&
+            this.colors[at + 2] === this.source.colors[from + 2]))
         ) return existing;
       } else {
         const vertex = this.vertex(point, y, normal, wall, owner);
@@ -128,8 +141,8 @@ export class DistantTerraces {
     throw new RangeError("Distant grid exceeded four incident cap levels");
   }
 
-  top(point, y) {
-    return this.cachedVertex(this.tops, point * 4, point, y, [0, 1, 0], false);
+  top(point, y, owner = point) {
+    return this.cachedVertex(this.tops, point * 4, point, y, [0, 1, 0], false, owner);
   }
 
   wall(point, y, normal, owner) {
@@ -145,7 +158,8 @@ export class DistantTerraces {
     const owner = cell.anchor ?? cell.ring[0];
     const height = source.heights[owner];
     for (let i = cell.start; i < cell.start + cell.count; i++)
-      this.indices[this.indexCount++] = this.top(source.indices[i], height);
+      this.indices[this.indexCount++] = this.top(source.indices[i], height,
+        this.blockData ? owner : source.indices[i]);
     for (let i = 0; i < cell.ring.length; i++) {
       const a = cell.ring[i];
       const b = cell.ring[(i + 1) % cell.ring.length];
@@ -205,6 +219,7 @@ export class DistantTerraces {
       normals: this.normals.subarray(0, this.vertexCount * 3),
       colors: this.colors.subarray(0, this.vertexCount * 3),
       surfaceData: this.surfaceData.subarray(0, this.vertexCount * 3),
+      blockData: this.blockData?.subarray(0, this.vertexCount * 3) ?? null,
       indices,
       ranges: this.ranges,
     };
