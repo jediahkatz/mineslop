@@ -192,6 +192,7 @@ export class DaylightMaterial {
       !atmosphere.inLava
     );
     u.uCaveFog.value.copy(atmosphere.dimensionHorizon);
+    u.uSkyCeilings.value = this.columns.texture;
     u.uSkyField.value.set(this.columns.origin.x, this.columns.origin.y, this.columns.size);
     u.uSurfaceDaylight.value = this.columns.surfaceLight.texture;
     u.uSurfaceField.value.set(this.columns.spec.minY, this.columns.surfaceLight.height, this.columns.surfaceLight.tiles);

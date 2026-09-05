@@ -9,13 +9,14 @@ import {
   readGeometryCell,
 } from "./geometry-world.js";
 import { opaqueCube } from "./mesh-palette.js";
+import { MAX_RENDER_RADIUS, renderDistanceLayout } from "./render-distance.js";
 import { SurfaceDaylight } from "./surface-daylight.js";
 import { CHUNK_SIZE } from "./terrain.js";
 
 export const SKY_COLUMN_LIMITS = Object.freeze({
-  cachedChunks: 169,
+  cachedChunks: renderDistanceLayout(MAX_RENDER_RADIUS).spareChunks,
   scalarColumns: 256,
-  renderRadius: 4,
+  renderRadius: MAX_RENDER_RADIUS,
   height: 384,
 });
 export const UNKNOWN_SKY_HEIGHT = 1_000_000;
@@ -27,14 +28,23 @@ const LAYER = CHUNK_SIZE * CHUNK_SIZE;
  * roofs. This is only skylight data, never terrain admission or collision.
  */
 export class SkyColumns {
-  constructor() {
+  constructor(radius = 4) {
     this.cache = new Map();
     this.scalars = new Map();
     this.chunkIds = new WeakMap();
     this.nextChunkId = 0;
     this.serial = 0;
     this.origin = new THREE.Vector2();
-    this.size = (SKY_COLUMN_LIMITS.renderRadius * 2 + 1) * CHUNK_SIZE;
+    this.setRadius(radius);
+    this.surfaceLight = new SurfaceDaylight(this, SKY_COLUMN_LIMITS);
+  }
+
+  setRadius(radius) {
+    const layout = renderDistanceLayout(radius);
+    if (this.layout?.radius === radius) return;
+    this.layout = layout;
+    this.texture?.dispose();
+    this.size = layout.tiles * CHUNK_SIZE;
     this.data = new Float32Array(this.size * this.size);
     this.data.fill(UNKNOWN_SKY_HEIGHT);
     this.texture = new THREE.DataTexture(
@@ -47,7 +57,10 @@ export class SkyColumns {
     this.texture.magFilter = this.texture.minFilter = THREE.NearestFilter;
     this.texture.generateMipmaps = false;
     this.texture.needsUpdate = true;
-    this.surfaceLight = new SurfaceDaylight(this, SKY_COLUMN_LIMITS);
+    this.fieldKey = null;
+    while (this.cache.size > layout.spareChunks)
+      this.cache.delete(this.cache.keys().next().value);
+    this.surfaceLight?.setRadius(radius);
   }
 
   begin(world) {
@@ -142,7 +155,7 @@ export class SkyColumns {
     const result = { heights, stamps, serial: ++this.serial };
     this.cache.delete(key);
     this.cache.set(key, result);
-    if (this.cache.size > SKY_COLUMN_LIMITS.cachedChunks)
+    if (this.cache.size > this.layout.spareChunks)
       this.cache.delete(this.cache.keys().next().value);
     this.stats.chunkBuilds++;
     return result;
@@ -195,6 +208,7 @@ export class SkyColumns {
     const r = Number.isFinite(radius)
       ? Math.max(0, Math.min(SKY_COLUMN_LIMITS.renderRadius, Math.floor(radius)))
       : 0;
+    this.setRadius(r);
     const cx = Math.floor(position.x / CHUNK_SIZE);
     const cz = Math.floor(position.z / CHUNK_SIZE);
     const tiles = [];

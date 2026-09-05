@@ -1,15 +1,16 @@
 import * as THREE from "three";
 import { CAVE_DAYLIGHT_LIMITS, entranceLightWeight } from "./cave-daylight.js";
 import { columnLoaded } from "./geometry-world.js";
+import { MAX_RENDER_RADIUS, renderDistanceLayout } from "./render-distance.js";
 import { prioritizeDaylight, SurfaceTopology } from "./surface-topology.js";
 import { CHUNK_SIZE } from "./terrain.js";
 
 export const SURFACE_DAYLIGHT_LIMITS = Object.freeze({
   chunkBuilds: 2,
-  cachedChunks: 121,
+  cachedChunks: renderDistanceLayout(MAX_RENDER_RADIUS).sourceChunks,
   // At most the former two builds' nine source columns worth of cell reads.
   topologyBuilds: 18,
-  topologyChunks: 169,
+  topologyChunks: renderDistanceLayout(MAX_RENDER_RADIUS).spareChunks,
   radius: CAVE_DAYLIGHT_LIMITS.lightRadius,
   atlasWidth: 64,
 });
@@ -29,15 +30,32 @@ export class SurfaceDaylight {
   constructor(columns, limits) {
     this.columns = columns;
     this.limits = limits;
-    this.tiles = limits.renderRadius * 2 + 1;
+    this.layout = columns.layout;
+    this.tiles = this.layout.tiles;
     this.cache = new Map();
     this.ids = new WeakMap();
     this.serial = 0;
     this.nextId = 0;
     this.age = 0;
     this.waiting = new Map();
-    this.topology = new SurfaceTopology(columns, SURFACE_DAYLIGHT_LIMITS);
+    this.topology = new SurfaceTopology(columns, {
+      ...SURFACE_DAYLIGHT_LIMITS, topologyChunks: this.layout.spareChunks,
+    });
     this.allocate(1);
+  }
+
+  setRadius(radius) {
+    const layout = renderDistanceLayout(radius);
+    if (layout.radius === this.layout.radius) return;
+    this.layout = layout;
+    this.tiles = layout.tiles;
+    this.allocate(this.height);
+    // Ring modulo changes invalidate uploads, not verified world-space entries.
+    this.waiting.clear();
+    this.sources?.clear();
+    while (this.cache.size > layout.sourceChunks)
+      this.cache.delete(this.cache.keys().next().value);
+    this.topology.setCapacity(layout.spareChunks);
   }
 
   allocate(height) {
@@ -148,7 +166,7 @@ export class SurfaceDaylight {
       this.upload(this.slot(tile.x, tile.z), entry);
       waiting.delete(tile.key);
       built++;
-      if (this.cache.size > SURFACE_DAYLIGHT_LIMITS.cachedChunks)
+      if (this.cache.size > this.layout.sourceChunks)
         this.cache.delete(this.cache.keys().next().value);
     }
     this.waiting = waiting;
@@ -247,6 +265,7 @@ export class SurfaceDaylight {
       atlasBytes: this.data.byteLength, cacheBytes, cachedChunks: this.cache.size,
       scratchBytes: this.distance.byteLength + this.queue.byteLength,
       layers: this.tiles * this.tiles, pending: this.pending,
+      cacheLimit: this.layout.sourceChunks,
       ...this.topology.resources(),
     };
   }

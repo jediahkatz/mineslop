@@ -119,10 +119,12 @@ test("skylight work is bounded to resident columns and never queries a generator
   const probe = sampler(t, fixture);
   const count = fixture.world.chunks.size;
   const access = probe.at(8.5);
+  assert.equal(probe.columns.data.byteLength, 144 * 144 * 4, "default radius remains four");
   probe.columns.updateField(fixture.position(8.5), 1000);
   assert.equal(fixture.world.chunks.size, count);
   assert.ok(probe.columns.cache.size <= SKY_COLUMN_LIMITS.cachedChunks);
-  assert.equal(probe.columns.data.byteLength, 144 * 144 * 4);
+  assert.equal(probe.columns.layout.radius, 6, "oversized requests clamp to the supported maximum");
+  assert.equal(probe.columns.data.byteLength, 208 * 208 * 4);
   assert.ok(probe.columns.stats.chunkBuilds <= count);
   assert.ok(probe.columns.stats.cellReads <= count * 16 * 16 * SKY_COLUMN_LIMITS.height);
   const textureVersion = probe.columns.texture.version;
