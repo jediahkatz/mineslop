@@ -21,6 +21,7 @@ import { createMiningTextures } from "./mining-art.js";
 import { playerWaterFogFar } from "./player-visual-effects.js";
 import { raycast } from "./raycast.js";
 import { RenderScaleController } from "./render-scale.js";
+import { validateRenderDistanceOverride } from "./render-distance.js";
 import {
   cancelSectionColumn,
   clearSectionJobs,
@@ -292,7 +293,22 @@ export class GameRenderer {
   }
 
   get renderRadius() {
-    return QUALITY[this.quality].renderRadius;
+    return this.renderDistanceOverride ?? QUALITY[this.quality].renderRadius;
+  }
+
+  /** Diagnostic opt-in; keeps quality effects and render scale unchanged.
+   * Pass null (or select a quality preset) to return to the preset distance. */
+  setRenderDistanceOverride(radius) {
+    const spec = geometryWorldSpec(this.world);
+    const next = validateRenderDistanceOverride(
+      radius, radius === null ? null : this.renderer.getContext(), spec.maxY - spec.minY
+    );
+    this.renderDistanceOverride = next;
+    this.viewCenter = null;
+    this.expandedFog = undefined;
+    this.scene.fog.near = qualityFogDistance(this.renderRadius) * 0.38;
+    this.scene.fog.far = qualityFogDistance(this.renderRadius);
+    return this.renderRadius;
   }
 
   removeChunk(key) {
@@ -674,7 +690,7 @@ export class GameRenderer {
   updateDaylight() {
     if (!this.atmosphere.setSkyAccess) return;
     if (!this.skyColumns) {
-      this.skyColumns = new SkyColumns();
+      this.skyColumns = new SkyColumns(this.renderRadius);
       this.caveDaylight = new CaveDaylight(this.skyColumns);
       this.daylightMaterial = new DaylightMaterial(this.skyColumns, this.scene);
       this.blockLight = this.daylightMaterial.blockLight;
@@ -687,6 +703,7 @@ export class GameRenderer {
     this.camera.getWorldPosition(this.daylightPosition);
     this.camera.getWorldDirection(this.daylightForward);
     this.blockLight.update(this.world, this.daylightPosition, this.renderRadius);
+    this.skyColumns.setRadius(this.renderRadius);
     this.skyColumns.begin(this.world);
     if (this.world.dimension === "overworld")
       this.skyColumns.updateField(this.daylightPosition, this.renderRadius);
@@ -857,6 +874,7 @@ export class GameRenderer {
   setQuality(quality) {
     const hadRipples = QUALITY[this.quality].ripples;
     this.quality = Object.hasOwn(QUALITY, quality) ? quality : "medium";
+    this.renderDistanceOverride = null;
     const settings = QUALITY[this.quality];
     this.atmosphere.cloudsEnabled = settings.clouds;
     this.updateLightingMode();

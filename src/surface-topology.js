@@ -28,6 +28,13 @@ export class SurfaceTopology {
     this.serial = 0;
   }
 
+  setCapacity(topologyChunks) {
+    this.limits = { ...this.limits, topologyChunks };
+    while (this.cache.size > topologyChunks)
+      this.cache.delete(this.cache.keys().next().value);
+    this.waiting.clear();
+  }
+
   update(cx, cz, radius, stamps, age, tileWaiting) {
     const stats = this.columns.stats, entries = new Map(), pending = [], waiting = new Map();
     for (let z = cz - radius - 1; z <= cz + radius + 1; z++)
@@ -144,7 +151,8 @@ export class SurfaceTopology {
   resources() {
     let bytes = 0;
     for (const entry of this.cache.values()) bytes += entry.blocked.byteLength + entry.heights.byteLength;
-    return { topologyBytes: bytes, topologyChunks: this.cache.size, topologyPending: this.waiting.size };
+    return { topologyBytes: bytes, topologyChunks: this.cache.size, topologyPending: this.waiting.size,
+      topologyLimit: this.limits.topologyChunks };
   }
 
   clear() {

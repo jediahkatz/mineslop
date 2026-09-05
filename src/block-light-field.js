@@ -3,9 +3,10 @@ import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
 import { BlockLightRevisions } from "./block-light-revisions.js";
 import { BLOCK_LIGHT_PALETTE_BYTES, BlockLightTopologyJob } from "./block-light-topology.js";
 import { BlockLightSolver, BLOCK_LIGHT_PAGE_CELLS } from "./block-light-solver.js";
+import { MAX_RENDER_RADIUS, renderDistanceLayout } from "./render-distance.js";
 
 export const BLOCK_LIGHT_LIMITS = Object.freeze({
-  maxRadius: 4, maxHeight: 384, milliseconds: 2,
+  maxRadius: MAX_RENDER_RADIUS, maxHeight: 384, milliseconds: 2,
   scans: 8192, visits: 32768, uploads: 2, publications: 8, atlasWidth: 80,
 });
 export const BLOCK_LIGHT_GAIN = 1;
@@ -30,11 +31,12 @@ export class BlockLightField {
   }
 
   allocate(height, radius) {
+    const layout = renderDistanceLayout(radius);
     this.texture?.dispose();
     this.validTexture?.dispose();
     this.height = height;
     this.radius = radius;
-    this.tiles = radius * 2 + 1;
+    this.tiles = layout.tiles;
     this.sections = height / 16;
     this.layerBytes = height * 400 * 4;
     this.data = new Uint8Array(this.layerBytes * this.tiles ** 2);
@@ -154,7 +156,12 @@ export class BlockLightField {
         for (let y = this.spec.minY / 16; y < this.spec.maxY / 16; y++) {
           const id = key(x, z, y), at = this.index(x, z, y), cached = this.cache.get(id);
           if (cached) {
-            if (this.uploaded[at] !== `${id}:${cached.serial}`) this.uploadQueue.push(cached);
+            if (this.uploaded[at] !== `${id}:${cached.serial}`) {
+              // A wrapped ring slot is unavailable until its new owner is
+              // published; bounded uploads must never expose the old owner.
+              this.valid[at] = 0; this.uploaded[at] = null;
+              this.uploadQueue.push(cached);
+            }
             continue;
           }
           this.valid[at] = 0; this.uploaded[at] = null;
@@ -179,7 +186,8 @@ export class BlockLightField {
     const started = performance.now(), spec = geometryWorldSpec(world);
     if (spec.minY % 16 || spec.maxY % 16 || spec.maxY - spec.minY > BLOCK_LIGHT_LIMITS.maxHeight)
       throw new RangeError("Unsupported block-light height");
-    radius = Math.max(0, Math.min(BLOCK_LIGHT_LIMITS.maxRadius, Math.floor(radius)));
+    radius = Number.isFinite(radius)
+      ? Math.max(0, Math.min(BLOCK_LIGHT_LIMITS.maxRadius, Math.floor(radius))) : 0;
     const reset = this.world !== world || this.epoch !== geometryEpoch(world) ||
       this.dimension !== world.dimension || this.version !== world.generatorVersion ||
       this.spec?.minY !== spec.minY || this.spec?.maxY !== spec.maxY;
