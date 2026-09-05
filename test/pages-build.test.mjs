@@ -7,7 +7,9 @@ import test from "node:test";
 import { chromium } from "playwright";
 
 const prefix = "/mineslop/";
-const dist = fileURLToPath(new URL("../dist/", import.meta.url));
+// Validate a frozen candidate without overwriting a running preview's build.
+const dist = resolve(process.env.MINESLOP_BUILD_DIR ??
+  fileURLToPath(new URL("../dist/", import.meta.url)));
 const types = {
   ".html": "text/html",
   ".js": "text/javascript",
