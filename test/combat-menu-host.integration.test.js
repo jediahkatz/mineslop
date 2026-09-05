@@ -40,7 +40,15 @@ function fixture(t, kind = "chest") {
     miningKey: "previous-target",
     miningProgress: 0.4,
     combatFeedback: new CombatFeedback(),
-    player: { enabled: true, unlock: t.mock.fn() },
+    player: {
+      enabled: true,
+      unlock: t.mock.fn(),
+      eyePosition: {
+        x: domain.hit.x + 0.5,
+        y: domain.hit.y + 2,
+        z: domain.hit.z + 0.5,
+      },
+    },
     effects: { shoot: t.mock.fn() },
     ui: {
       isHudVisible: true,
