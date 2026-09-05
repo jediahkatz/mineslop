@@ -92,7 +92,8 @@ test("the real scheduler completes all 24 sections at default limits instead of 
   assert.equal(world.dirtyChunks.size, 0);
   assert.equal(renderer.sectionRejections.size, 0);
   const resources = detailMeshResources(renderer);
-  assert.equal(resources.gpuBytes, target.bytes);
+  assert.equal(resources.sourceBytes, target.bytes);
+  assert.equal(resources.gpuBytes, target.bytes - 804864 * 9);
   assert.equal(resources.drawCalls, target.draws);
   assert.equal(resources.activeJobs, 0);
   assert.equal(resources.snapshotBytes, 0);

@@ -90,7 +90,7 @@ test("re-admitting identical column coordinates removes the old incarnation even
   renderer.rebuildDirty(0);
   assert.equal(renderer.chunks.has("0,0"), false);
   assert.equal(renderer.detailCoverage().size, 0);
-  assert.equal(disposed, 1);
+  assert.equal(disposed, 2, "CPU source and GPU page each release once");
   renderer.rebuildDirty(Infinity);
   const next = renderer.chunks.get("0,0");
   assert.notEqual(next.userData.incarnation, oldIncarnation);
@@ -137,7 +137,7 @@ test("GPU/draw admission is bounded, observable, and preserves old buffers plus 
 test("a smaller replacement releases capacity for previously rejected sections without a new cell edit", (t) => {
   const { world, renderer } = fixture(t, [
     [0, 0, 0, BLOCK.STONE],
-    [0, 16, 0, BLOCK.STONE],
+    [0, 16, 0, BLOCK.WATER],
   ]);
   renderer.meshLimits = { maxDrawCalls: 1 };
   renderer.rebuildDirty(Infinity);
@@ -298,7 +298,9 @@ for (const [name, limits] of [
     assert.equal(first.draws, 6);
     assert.equal(column.userData.sections.has(1), false);
     assert.equal(renderer.meshStats.drawCalls, first.draws);
-    assert.equal(renderer.meshStats.gpuBytes, first.bytes);
+    const gpuBytes = 6 * (4 * 35 + 6 * 2);
+    assert.equal(renderer.meshStats.gpuBytes, gpuBytes);
+    assert.equal(renderer.meshStats.sourceBytes, first.bytes);
     assert.equal(renderer.detailCoverage().has("0,0"), false);
     assert.equal(world.dirtySectionRevisions.get("0,0,1"), ticket);
     const token = renderer.sectionRejections.get("0,0,1");
@@ -316,7 +318,8 @@ for (const [name, limits] of [
     assert.equal(disposed, first.draws);
     assert.equal(column.userData.sections.get(1).draws, 6);
     assert.equal(renderer.meshStats.drawCalls, 6);
-    assert.equal(renderer.meshStats.gpuBytes, first.bytes);
+    assert.equal(renderer.meshStats.gpuBytes, gpuBytes);
+    assert.equal(renderer.meshStats.sourceBytes, first.bytes);
     assert.equal(renderer.detailCoverage().has("0,0"), true);
     assert.equal(renderer.sectionRejections.has("0,0,1"), false);
     assert.ok(

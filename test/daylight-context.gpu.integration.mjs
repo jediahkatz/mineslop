@@ -113,7 +113,7 @@ test("retained entrance atlas layers restore alongside partial lost-context topo
       return { before, whileLost, first, warm, fullUploadControl,
         atlasBytes: data.byteLength, layers: light.tiles ** 2, sameCpuBuffer: data === light.data,
         worldAfterEdit, worldAfterRestore: [...f.world.chunks].map(([key, chunk]) => [key, chunk.revision, chunk.incarnation]),
-        quality: g.quality, fullbright: g.fullbrightInspection,
+        quality: g.quality, radius: g.renderRadius, fullbright: g.fullbrightInspection,
         epoch: window.__glCallTrace.reports[0].epoch,
         glErrors: window.__glCallTrace.reports.flatMap((report) => report.firstErrors), glError: gl.getError() };
     } finally {
@@ -135,8 +135,8 @@ test("retained entrance atlas layers restore alongside partial lost-context topo
   assert.deepEqual(result.worldAfterRestore, result.worldAfterEdit);
   assert.equal(result.quality, "medium");
   assert.equal(result.fullbright, false);
-  assert.equal(result.layers, 81);
-  assert.equal(result.atlasBytes, 81 * 256 * 384);
+  assert.equal(result.layers, (result.radius * 2 + 1) ** 2);
+  assert.equal(result.atlasBytes, result.layers * 256 * 384);
   assert.ok(result.whileLost.work.surfaceBuilds > 0 && result.whileLost.work.surfaceBuilds <= 2);
   for (const frame of [result.first, result.warm, result.fullUploadControl]) {
     assert.equal(frame.cpu, result.before.cpu);

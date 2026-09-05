@@ -19,10 +19,19 @@ loading, and has relevant regression tests and real browser verification.
   captures and v7 badlands pass; the material-only GPU gate checks twelve exact
   native/LOD pixel comparisons plus context restoration and texture ownership.
   This does not close geometry, vegetation, transition or performance acceptance.
-  Keep detail radii unchanged until coordinated distance work is verified:
-  current daylight/block-light fields clamp to four chunks; radius eight also
-  exceeds travel's validated apron, and dense expanded-world light atlases grow
-  too large to treat eight–twelve chunks as a safe settings-only change.
+  Preset detail radii remain 2/3/4. A diagnostic-only radius-six override now
+  coordinates daylight/block-light fields and cache bounds, with GPU-cap checks.
+  Bounded section/material pages restore complete native v7 detail ownership:
+  radius four covers 81 columns at 431 submissions; radius six covers 169 at
+  871, within the unchanged 128 MiB geometry and 1,024-submission limits.
+  Radius six is not a performance recommendation: the measured scene retains
+  another 128.7 MB of CPU source buffers and submits about 35% more camera-frustum
+  triangles than section-sized meshes. Streaming and normal-lighting readiness
+  remain acceptance gates. The frozen pre-atlas radius-four baseline completes
+  detail, surface lighting and LOD, but still has 47 block-light pages unavailable
+  at its strict 300-second deadline; no stationary FPS comparison is accepted.
+  Radius eight exceeds travel's validated apron, and dense expanded-world light
+  atlases are too large to treat eight–twelve chunks as a settings-only change.
 - [ ] **Distant End landmarks.** Keep actual native obsidian pillars and their
   caps visible beyond detailed chunks. Ground-height LOD alone omits these
   features. Preserve edits and avoid duplicate proxies during partial detail

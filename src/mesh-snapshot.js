@@ -182,7 +182,7 @@ export function snapshotMeshRange(world, cx, cz, bottom, top) {
   }
   const lighting = getColumnLighting(world, cx, cz);
   const shapes = new Map();
-  const cellAt = (x, y, z) => {
+  const cellIndex = (x, y, z) => {
     if (
       x < -MESH_APRON ||
       x >= CHUNK_SIZE + MESH_APRON ||
@@ -194,8 +194,12 @@ export function snapshotMeshRange(world, cx, cz, bottom, top) {
       y >= spec.maxY ||
       !available[(z + MESH_APRON) * SNAPSHOT_WIDTH + x + MESH_APRON]
     )
-      return null;
-    const at = index(x, y, z);
+      return -1;
+    return index(x, y, z);
+  };
+  const cellAt = (x, y, z) => {
+    const at = cellIndex(x, y, z);
+    if (at < 0) return null;
     return { id: ids[at], state: states[at], fluid: fluids[at] };
   };
   return {
@@ -218,16 +222,22 @@ export function snapshotMeshRange(world, cx, cz, bottom, top) {
       fluids.byteLength +
       available.byteLength,
     cellAt,
+    // Face/AO culling usually needs only an ID. Avoid allocating state/fluid
+    // objects on every neighboring-cube query, with identical apron bounds.
+    idAt(x, y, z) {
+      const at = cellIndex(x, y, z);
+      return at < 0 ? null : ids[at];
+    },
     shapeAt(x, y, z) {
-      const cell = cellAt(x, y, z);
-      if (!cell) return null;
-      const at = index(x, y, z);
-      if (!shapes.has(at))
-        shapes.set(
-          at,
-          resolveShape(cell, (dx, dy, dz) => cellAt(x + dx, y + dy, z + dz))
-        );
-      return shapes.get(at);
+      const at = cellIndex(x, y, z);
+      if (at < 0) return null;
+      let shape = shapes.get(at);
+      if (!shape) {
+        const cell = { id: ids[at], state: states[at], fluid: fluids[at] };
+        shape = resolveShape(cell, (dx, dy, dz) => cellAt(x + dx, y + dy, z + dz));
+        shapes.set(at, shape);
+      }
+      return shape;
     },
   };
 }
