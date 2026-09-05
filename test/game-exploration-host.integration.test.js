@@ -774,6 +774,7 @@ test("actual GameInventoryActions first-open commits exactly ledger plus Settlem
   const entry = chartEntry(f),
     hit = f.hit(entry.marker),
     order = [];
+  f.approachContainer(entry.marker);
   const commits = traceCommits(t, f.coordinator);
   const open = f.service.openContainer,
     read = f.settlement.getContainerState;
@@ -848,6 +849,7 @@ test("actual first-open adopts initialized archive slots without rerolling or se
     variant: "mapped",
   });
   const entry = chartEntry(source);
+  source.approachContainer(entry.marker);
   assert.equal(
     source.game.inventoryActions.openStation(source.hit(entry.marker)),
     true
@@ -861,6 +863,7 @@ test("actual first-open adopts initialized archive slots without rerolling or se
     variant: "mapped",
     saved,
   });
+  f.approachContainer(entry.marker);
   const before = f.settlement.serialize();
   t.mock.method(f.service.exploration, "_rollLoot", () =>
     assert.fail("initialized ownership is adoption only")
@@ -880,6 +883,12 @@ test("first-open budget refusal and missing canonical admission never fall throu
   const entry = firstEntry(f),
     hit = f.hit(entry.marker),
     blocker = {};
+  // The structure origin is not necessarily within reach of its containers.
+  const distant = f.ownership();
+  assert.equal(f.game.inventoryActions.openStation(hit), false);
+  assert.equal(f.calls.uiReads.length, 0);
+  assert.deepEqual(f.ownership(), distant);
+  f.approachContainer(entry.marker);
   assert.equal(
     f.coordinator.register(
       blocker,
@@ -1160,6 +1169,7 @@ test("emptied native map chest stays consumed through actual open, break, paid r
   const held = holdExplorationTool(f),
     entry = chartEntry(f),
     hit = f.hit(entry.marker);
+  f.approachContainer(entry.marker);
   assert.equal(f.game.inventoryActions.openStation(hit), true);
   const original = f.settlement.inspectContainer(f.world, hit).slots;
   const claim = f.service.exploration.container(entry.marker);
@@ -1240,6 +1250,7 @@ test("emptied native map chest stays consumed through actual open, break, paid r
   t.mock.method(restored.service.exploration, "_rollLoot", () =>
     assert.fail("a restored claim cannot reroll")
   );
+  restored.approachContainer(entry.marker);
   assert.equal(
     restored.game.inventoryActions.openStation(restored.hit(entry.marker)),
     true
@@ -1265,6 +1276,7 @@ test("actual first-open persists an explicit null map destination across archive
     variant: "unmapped",
   });
   const entry = chartEntry(f);
+  f.approachContainer(entry.marker);
   assert.equal(f.game.inventoryActions.openStation(f.hit(entry.marker)), true);
   const claim = f.service.exploration.container(entry.marker);
   assert.equal(Object.hasOwn(claim, "mapTarget"), true);
@@ -1289,6 +1301,7 @@ test("actual first-open persists an explicit null map destination across archive
   t.mock.method(restored.service.exploration, "_rollLoot", () =>
     assert.fail("null destination is final")
   );
+  restored.approachContainer(entry.marker);
   assert.equal(
     restored.game.inventoryActions.openStation(restored.hit(entry.marker)),
     true
@@ -1312,6 +1325,7 @@ test("real GameTravel and Game.prepareWorld preserve current/inactive claims, ex
   const entry = chartEntry(f),
     service = f.service,
     ledger = service.exploration;
+  f.approachContainer(entry.marker);
   assert.equal(f.game.inventoryActions.openStation(f.hit(entry.marker)), true);
   const overworldClaim = ledger.container(entry.marker);
   const overworldSlots = f.settlement.inspectContainer(
@@ -1346,6 +1360,7 @@ test("real GameTravel and Game.prepareWorld preserve current/inactive claims, ex
   assert.ok(nether);
   f.game.paused = false;
   f.player.enabled = true;
+  f.approachContainer(nether.marker);
   assert.equal(f.game.inventoryActions.openStation(f.hit(nether.marker)), true);
   const netherClaim = ledger.container(nether.marker);
   const saved = normalizeWorldComponents(
@@ -1370,6 +1385,7 @@ test("real GameTravel and Game.prepareWorld preserve current/inactive claims, ex
     t.mock.method(restored.service.exploration, "_rollLoot", () =>
       assert.fail("travel/reload cannot roll either saved claim")
     );
+    restored.approachContainer(nether.marker);
     assert.equal(
       restored.game.inventoryActions.openStation(restored.hit(nether.marker)),
       true
@@ -1390,6 +1406,7 @@ test("real GameTravel and Game.prepareWorld preserve current/inactive claims, ex
     await admitNativeStructure(restored.world, f.descriptor);
     restored.game.paused = false;
     restored.player.enabled = true;
+    restored.approachContainer(entry.marker);
     assert.equal(
       restored.game.inventoryActions.openStation(restored.hit(entry.marker)),
       true

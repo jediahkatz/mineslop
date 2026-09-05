@@ -25,6 +25,7 @@ import { createWorldContext } from "../src/world-spec.js";
 import { InputElement } from "./control-fixture.js";
 import {
   admitNativeStructure,
+  NATIVE_UNMAPPED_SEED,
   nativeExplorationSite,
   retainedStacks,
 } from "./exploration-services-fixture.js";
@@ -355,6 +356,12 @@ export function hostFromExplorationStage(
       const { x, y, z } = marker.position ?? marker;
       return { x, y, z, dimension: world.dimension, ...world.getCell(x, y, z) };
     },
+    approachContainer(marker) {
+      const { x, y, z } = marker.position ?? marker;
+      // Stage the physical player atop the native container, within use reach.
+      // This is host setup, not a simulated Survival journey or a loot grant.
+      player.setPosition({ x: x + 0.5, y: y + 1, z: z + 0.5 });
+    },
     entries() {
       return host.service.index
         .list("container")
@@ -478,7 +485,9 @@ export async function nativeExplorationHost(
   for (const candidate of saved
     ? [saved.world.seed]
     : seed === undefined
-      ? ["cedar-valley", "tidal-archive", "basalt-crossing"]
+      ? variant === "unmapped"
+        ? [NATIVE_UNMAPPED_SEED]
+        : ["cedar-valley", "tidal-archive", "basalt-crossing"]
       : [seed]) {
     world = new World(candidate, {
       generatorVersion: 4,

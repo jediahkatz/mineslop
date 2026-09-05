@@ -34,6 +34,10 @@ const origins = [
   { x: 6144, z: 4096 },
   { x: -6144, z: 6144 },
 ];
+// A native corner window whose chart has no destination in its complete search.
+// Inland windows contain treasure; absence must not be fabricated by a mock.
+export const NATIVE_UNMAPPED_SEED = "unmapped-regression-0";
+const unmappedOrigins = [{ x: -29999800, z: -29999800 }];
 const sites = new Map();
 
 /**
@@ -51,7 +55,7 @@ export function nativeExplorationSite(
   if (sites.has(key)) return sites.get(key);
   const context = nativeExplorationContext(world);
   const attempts = [];
-  for (const from of origins) {
+  for (const from of variant === "unmapped" ? unmappedOrigins : origins) {
     const located = locateStructure(
       kind,
       context,
@@ -135,7 +139,9 @@ export async function explorationServicesFixture(
   const coordinator = new TransactionCoordinator();
   let world, descriptor;
   for (const candidate of seed === undefined
-    ? ["cedar-valley", "tidal-archive", "basalt-crossing"]
+    ? variant === "unmapped"
+      ? [NATIVE_UNMAPPED_SEED]
+      : ["cedar-valley", "tidal-archive", "basalt-crossing"]
     : [seed]) {
     world = new World(candidate, {
       generatorVersion,
