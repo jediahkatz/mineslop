@@ -209,7 +209,7 @@ export class GameRenderer {
     this.chunkGenerator = world.generator;
     this.chunkEpoch = geometryEpoch(world);
     this.atmosphere = new Atmosphere(this.scene, world);
-    this.distant = new DistantTerrain(this.scene, this.world);
+    this.distant = new DistantTerrain(this.scene, this.world, { atlas: this.atlas });
     this.localLights = Array.from(
       { length: LOCAL_LIGHT_LIMITS.maxSources },
       () => {
