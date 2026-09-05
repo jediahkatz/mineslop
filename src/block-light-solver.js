@@ -1,0 +1,92 @@
+import { LIGHT_BLOCKED, LIGHT_WATER } from "./block-light-topology.js";
+
+const SIDE = 48, PLANE = SIDE * SIDE, COUNT = SIDE * PLANE;
+export const BLOCK_LIGHT_TILE_SIDE = 20; // Two-cell render/shape apron.
+export const BLOCK_LIGHT_PAGE_CELLS = 20 * 20 * 16;
+
+// One reusable, fixed-capacity wavefront. Strongest level wins; equal-level
+// colors use a deterministic packed-color tie break, independent of traversal.
+export class BlockLightSolver {
+  constructor() {
+    this.light = new Uint32Array(COUNT);
+    this.cost = new Uint8Array(COUNT);
+    this.queue = new Uint32Array(COUNT);
+    this.queued = new Uint8Array(COUNT);
+  }
+
+  begin(sources) {
+    this.sources = sources;
+    this.cursor = 0;
+    this.head = this.tail = this.count = this.peak = 0;
+    this.phase = "seed";
+    this.values = new Uint8Array(BLOCK_LIGHT_PAGE_CELLS * 4);
+    this.lit = false;
+  }
+
+  enqueue(i) {
+    if (this.queued[i]) return;
+    if (this.count >= COUNT) throw new Error("Block-light queue capacity exceeded");
+    this.queued[i] = 1;
+    this.queue[this.tail] = i;
+    this.tail = (this.tail + 1) % COUNT;
+    this.count++;
+    this.peak = Math.max(this.peak, this.count);
+  }
+
+  spread(i, source) {
+    if (this.cost[i] === 255) return;
+    const level = (source & 15) - this.cost[i];
+    if (level <= 0) return;
+    const value = ((source & 0xffffff00) | level) >>> 0, old = this.light[i];
+    if (level < (old & 15) || (level === (old & 15) && value <= old)) return;
+    this.light[i] = value;
+    this.enqueue(i);
+  }
+
+  step(budget, stats) {
+    while (budget.visit()) {
+      if (this.phase === "seed") {
+        const i = this.cursor++, x = i % SIDE, z = Math.floor(i / SIDE) % SIDE, y = Math.floor(i / PLANE);
+        const source = this.sources[Math.floor(y / 16) * 9 + Math.floor(z / 16) * 3 + Math.floor(x / 16)];
+        const at = (y % 16) * 256 + (z % 16) * 16 + x % 16;
+        const code = source ? (source.uniform ?? source.values[at]) : LIGHT_BLOCKED;
+        this.cost[i] = code & LIGHT_BLOCKED ? 255 : code & LIGHT_WATER ? 2 : 1;
+        this.light[i] = (code & 0xffffff0f) >>> 0;
+        this.queued[i] = 0;
+        if (code & 15) this.enqueue(i);
+        stats.seedVisits++;
+        if (this.cursor === COUNT) this.phase = "flood";
+      } else if (this.phase === "flood") {
+        if (!this.count) { this.phase = "output"; this.cursor = 0; continue; }
+        const i = this.queue[this.head], source = this.light[i];
+        this.head = (this.head + 1) % COUNT;
+        this.count--;
+        this.queued[i] = 0;
+        const x = i % SIDE, z = Math.floor(i / SIDE) % SIDE;
+        if (x) this.spread(i - 1, source);
+        if (x < SIDE - 1) this.spread(i + 1, source);
+        if (z) this.spread(i - SIDE, source);
+        if (z < SIDE - 1) this.spread(i + SIDE, source);
+        if (i >= PLANE) this.spread(i - PLANE, source);
+        if (i + PLANE < COUNT) this.spread(i + PLANE, source);
+        stats.floodVisits++;
+      } else {
+        const i = this.cursor++, x = i % 20, z = Math.floor(i / 20) % 20, y = Math.floor(i / 400);
+        const light = this.light[(y + 16) * PLANE + (z + 14) * SIDE + x + 14];
+        const weight = ((light & 15) / 15) ** 2, at = i * 4;
+        this.values[at] = Math.round((light >>> 24) * weight);
+        this.values[at + 1] = Math.round(((light >>> 16) & 255) * weight);
+        this.values[at + 2] = Math.round(((light >>> 8) & 255) * weight);
+        this.lit ||= weight > 0;
+        stats.outputVisits++;
+        if (this.cursor === BLOCK_LIGHT_PAGE_CELLS) return true;
+      }
+    }
+    stats.queuePeak = Math.max(stats.queuePeak, this.peak);
+    return false;
+  }
+
+  resources() {
+    return this.light.byteLength + this.cost.byteLength + this.queue.byteLength + this.queued.byteLength;
+  }
+}

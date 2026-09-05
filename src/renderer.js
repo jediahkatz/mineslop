@@ -10,11 +10,7 @@ import { DistantTerrain } from "./distant-terrain.js";
 import { landmarkDetailSections } from "./distant-landmarks.js";
 import { endVisualFog } from "./end-visual-policy.js";
 import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
-import {
-  LOCAL_LIGHT_LIMITS,
-  localLightStyle,
-  selectLocalLightSources,
-} from "./local-lighting.js";
+import { LOCAL_LIGHT_LIMITS } from "./local-lighting.js";
 import { disposeBatches, geometryBytes } from "./mesh-palette.js";
 import {
   captureMeshRevision,
@@ -259,13 +255,22 @@ export class GameRenderer {
     );
     this.atmosphere.update(0, 0, this.camera.position, this.camera);
     this.contextResourceOwners = new Set();
-    this.contextLostHandler = () => releaseLostContextResources(
-      this.renderer, this.scene, [
-        this.atlas.texture, this.atlas.emissiveTexture, ...this.miningTextures,
-        this.skyColumns?.texture, this.skyColumns?.surfaceLight.texture,
-      ], this.contextResourceOwners
-    );
-    this.contextRestoredHandler = () => { this.shadowDirty = true; };
+    this.contextLostHandler = () => {
+      releaseLostContextResources(
+        this.renderer, this.scene, [
+          this.atlas.texture, this.atlas.emissiveTexture, ...this.miningTextures,
+          this.skyColumns?.texture, this.skyColumns?.surfaceLight.texture,
+          this.blockLight?.texture, this.blockLight?.validTexture,
+        ], this.contextResourceOwners
+      );
+      // The generic array-texture recovery marks every layer dirty. This
+      // field has its own bounded cache republisher, including while lost.
+      if (this.renderer.getContext().isContextLost()) this.blockLight?.restoreGPU();
+    };
+    this.contextRestoredHandler = () => {
+      this.shadowDirty = true;
+      this.blockLight?.restoreGPU();
+    };
     this.renderer.domElement.addEventListener("webglcontextlost", this.contextLostHandler);
     this.renderer.domElement.addEventListener("webglcontextrestored", this.contextRestoredHandler);
   }
@@ -658,6 +663,7 @@ export class GameRenderer {
       this.skyColumns = new SkyColumns();
       this.caveDaylight = new CaveDaylight(this.skyColumns);
       this.daylightMaterial = new DaylightMaterial(this.skyColumns, this.scene);
+      this.blockLight = this.daylightMaterial.blockLight;
       this.daylightPosition = new THREE.Vector3();
       this.daylightForward = new THREE.Vector3();
       for (const material of Object.values(this.materials))
@@ -666,6 +672,7 @@ export class GameRenderer {
     }
     this.camera.getWorldPosition(this.daylightPosition);
     this.camera.getWorldDirection(this.daylightForward);
+    this.blockLight.update(this.world, this.daylightPosition, this.renderRadius);
     this.skyColumns.begin(this.world);
     if (this.world.dimension === "overworld")
       this.skyColumns.updateField(this.daylightPosition, this.renderRadius);
@@ -685,33 +692,15 @@ export class GameRenderer {
     );
   }
 
-  updateLocalLights(time, position) {
-    if (
-      this.fullbrightInspection ||
-      time - this.lastLightTime < LOCAL_LIGHT_LIMITS.refreshSeconds
-    )
-      return;
+  updateLocalLights(time) {
     this.lastLightTime = time;
-    const count = QUALITY[this.quality].localLights;
-    this.lightStats ??= {};
-    const sources = selectLocalLightSources(
-      this.chunks,
-      position,
-      count,
-      this.localLights.map((light) => light.userData.emitter),
-      this.lightStats
-    );
-    for (let i = 0; i < this.localLights.length; i++) {
-      const source = sources[i];
-      const light = this.localLights[i];
-      const style = source ? localLightStyle(source.id) : null;
-      light.userData.emitter = source ?? null;
-      light.intensity = style?.intensity ?? 0;
-      if (!style) continue;
-      light.position.set(source.x, source.y, source.z);
-      light.distance = style.distance;
-      light.color.set(style.color);
+    // Voxel emission is entirely represented by the world-space field. Keep
+    // the bounded pool inert, without touching independently owned dynamic lights.
+    for (const light of this.localLights) {
+      light.userData.emitter = null;
+      light.intensity = 0;
     }
+    this.lightStats = this.blockLight?.stats ?? {};
   }
 
   updateShadows(time, position) {

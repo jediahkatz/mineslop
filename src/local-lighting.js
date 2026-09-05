@@ -29,6 +29,7 @@ export function localLightStyle(id) {
     Math.min(15, block.lightLevel ?? LEGACY_LEVELS.get(id) ?? 12)
   );
   const style = Object.freeze({
+    level,
     intensity: 8 * (level / 15) ** 2,
     distance: 4 + level * 0.4,
     color:

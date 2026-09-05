@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { UNKNOWN_SKY_HEIGHT } from "./sky-columns.js";
 import { SURFACE_DAYLIGHT_LIMITS } from "./surface-daylight.js";
+import { BlockLightField } from "./block-light-field.js";
+import { BLOCK_LIGHT_DECLARATIONS, blockLightUniforms, updateBlockLightUniforms } from "./block-light-material.js";
 
 const sceneDaylight = new WeakMap();
 const installations = new WeakMap();
@@ -76,7 +78,7 @@ vec2 daylightMask(vec3 point) {
 
 /**
  * Only natural directional/hemisphere irradiance is spatially masked.
- * Torch point lights, emissive art, AO, fluid shaders and Fullbright's white
+ * Dynamic point lights, emissive art, AO, fluid shaders and Fullbright's white
  * ambient term remain in Three's normal pipeline. Exposed LOD is always lit
  * as exterior terrain, irrespective of the camera's cave classification.
  */
@@ -87,7 +89,9 @@ export class DaylightMaterial {
     this.binding = ++nextBinding;
     if (scene) sceneDaylight.set(scene, this);
     this.installed = new WeakSet();
+    this.blockLight = new BlockLightField();
     this.uniforms = {
+      ...blockLightUniforms(this.blockLight),
       uDaylightEnabled: { value: 0 },
       uDaylightFogEnabled: { value: 0 },
       uSkyCeilings: { value: columns.texture },
@@ -150,26 +154,32 @@ export class DaylightMaterial {
         gl_FragColor.rgb = mix( gl_FragColor.rgb, localFog, fogFactor );`
       );
       shader.fragmentShader =
-        `${exterior ? "#define MINESLOP_EXTERIOR_DAYLIGHT\n" : ""}${DECLARATIONS}\n${shader.fragmentShader}`
+        `${exterior ? "#define MINESLOP_EXTERIOR_DAYLIGHT\n" : ""}${DECLARATIONS}\n${BLOCK_LIGHT_DECLARATIONS}\n${shader.fragmentShader}`
           .replace(
             "#include <lights_fragment_begin>",
             `vec3 daylightNormal = transformNormalByInverseViewMatrix(normal, viewMatrix);
             vec2 skyMask = daylightMask(vDaylightPosition + daylightNormal * 0.02);
-            ${lights}`
+            ${lights}
+            #if defined(RE_IndirectDiffuse)
+              irradiance += blockLightAt(vDaylightPosition + daylightNormal * 0.02);
+            #endif`
           )
           .replace("#include <fog_fragment>", fog);
     };
-    material.customProgramCacheKey = () => `${cacheKey()}:daylight-2:${Number(exterior)}:surface-atlas-1:${this.binding}`;
+    material.customProgramCacheKey = () => `${cacheKey()}:daylight-2:${Number(exterior)}:surface-atlas-1:block-light-1:${this.binding}`;
     material.needsUpdate = true;
   }
 
   dispose() {
+    this.uniforms.uBlockLightEnabled.value = 0;
+    this.blockLight.dispose();
     if (this.scene && sceneDaylight.get(this.scene) === this)
       sceneDaylight.delete(this.scene);
   }
 
   update(atmosphere) {
     const u = this.uniforms;
+    updateBlockLightUniforms(this.blockLight, u, atmosphere.fullbrightInspection);
     u.uDaylightEnabled.value = Number(
       atmosphere.dimension === "overworld" &&
       this.columns.world.dimension === "overworld" &&
