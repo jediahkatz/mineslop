@@ -13,6 +13,10 @@ import { hasRegionalDeadRanges, stepSectionCompaction } from "./section-compacti
 import { emptySectionJob } from "./empty-section-job.js";
 import { SectionWaterFusion } from "./section-water-fusion.js";
 import {
+  EXPERIMENTAL_FALLBACK_BYTES, experimentalColdTailEpoch, experimentalTailHeadroom,
+  experimentalTailPlanCurrent, invalidateExperimentalColdTailEpoch,
+} from "./experimental-tail-sealing.js";
+import {
   bufferBytes, geometryBuffers, meshSubmissionCount, publishRegionalPages, pruneEmptySectionRegions,
   regionalPagePlan, releaseRegionalColumn, sectionRegion,
 } from "./regional-section-pages.js";
@@ -76,6 +80,10 @@ function state(renderer) {
   };
   const limits = { ...DETAIL_MESH_LIMITS,
     ...(regional(renderer) ? REGIONAL_MESH_LIMITS : {}), ...renderer.meshLimits };
+  experimentalColdTailEpoch(renderer);
+  const experimentalHeadroom = experimentalTailHeadroom(renderer);
+  if (experimentalHeadroom)
+    limits.compactionHeadroomBytes = Math.max(limits.compactionHeadroomBytes ?? 0, experimentalHeadroom);
   if (regional(renderer) && !renderer.geometryPalette) {
     const allocation = GeometryColorPalette.allocation(limits.paletteCapacity);
     if (allocation.cpuBytes + allocation.gpuBytes <= limits.maxCpuBytes &&
@@ -145,6 +153,7 @@ export function cancelSectionColumn(renderer, key) {
 }
 
 export function clearSectionJobs(renderer) {
+  invalidateExperimentalColdTailEpoch(renderer);
   renderer.sectionCompaction?.plan.dispose();
   renderer.sectionCompaction = null;
   if (renderer.meshStats) renderer.meshStats.compactionBlocked = null;
@@ -307,7 +316,8 @@ function regionalResources(renderer) {
     waterAllocatedGpuBytes: water?.allocatedGpu ?? 0,
     palette, paletteUploadStagingBytes,
     maxPageBytes, maxCompactionBytes,
-    reservedCompactionHeadroomBytes: Math.max(renderer.meshLimits?.compactionHeadroomBytes ?? 0, maxCompactionBytes),
+    reservedCompactionHeadroomBytes: Math.max(renderer.meshLimits?.compactionHeadroomBytes ?? 0,
+      maxCompactionBytes, experimentalTailHeadroom(renderer)),
     retainedCpuBytes: canonicalBytes, retainedDeadBytes, combinedCpuBytes: canonicalBytes + stagingBytes,
     stagingBytes, stagingSourceBytes, stagingUnsealedVertices: unsealed,
     stagingPageBytes, reservedPageBytes, snapshotBytes,
@@ -415,6 +425,8 @@ function sectionQueueBudgetKey(renderer, limits) {
     limits.paletteCapacity, renderer.geometryPalette?.freeCount,
     renderer.sectionMeshLimits?.maxVertices, renderer.sectionMeshLimits?.maxBytes,
     renderer.sectionMeshLimits?.maxTotalBytes, renderer.sectionMeshLimits?.maxDrawCalls,
+    ...(limits.experimentalColdTailSealing !== undefined || experimentalTailHeadroom(renderer)
+      ? [limits.experimentalColdTailSealing, limits.compactionHeadroomBytes] : []),
   ].join(":");
 }
 
@@ -472,7 +484,8 @@ function installTransaction(renderer, job, result) {
     emitters.push(...(mesh.geometry.userData.emitters ?? []));
   // Assemble every part while detached. A stale or failed assembly must not
   // disturb the previous section or acknowledge any of its dirty work.
-  if (job.world !== renderer.world || !job.current()) return false;
+  if (job.world !== renderer.world || !job.current() ||
+      !experimentalTailPlanCurrent(renderer, plan)) return false;
   const source = renderer.world.chunks.get(key);
   let column = renderer.chunks.get(key);
   const owner = regional(renderer) ? sectionRegion(renderer, cx, cz) : column;
@@ -762,7 +775,8 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
       : renderer.chunks.get(`${job.stamp.cx},${job.stamp.cz}`);
     if (column?.userData.waterRetirement) { blocked.add(key); continue; }
     if (job.pagePlan && (job.pagePlan.column !== column ||
-        job.pagePlan.revision !== (column?.userData.pageRevision ?? 0))) {
+        job.pagePlan.revision !== (column?.userData.pageRevision ?? 0) ||
+        !experimentalTailPlanCurrent(renderer, job.pagePlan))) {
       // A peer section can publish while this copy yields. Keep its immutable
       // meshing result, but repack against the newly installed column pages.
       job.pagePlan.dispose();
@@ -864,6 +878,29 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
       };
       const now = renderer.sectionWater ? detailMeshResources(renderer) : evictHiddenRegionalRetention(renderer, fits);
       admitted = fits(now);
+      if (admitted && plan.experimentalDenseProjection) {
+        const dense = plan.experimentalDenseProjection;
+        const extra = dense.stagingBytes - plan.stagingBytes;
+        const denseFinal = dense.bytes + dense.transparentBytes;
+        const headroom = Math.max(EXPERIMENTAL_FALLBACK_BYTES,
+          limits.compactionHeadroomBytes, now.maxCompactionBytes);
+        admitted = dense.stagingBytes <= EXPERIMENTAL_FALLBACK_BYTES &&
+          now.gpuBytes - oldColumnBytes + denseFinal + headroom <= limits.maxGpuBytes &&
+          now.canonicalBytes - oldColumnBytes + denseFinal +
+            now.paletteUploadStagingBytes + headroom <= limits.maxCpuBytes &&
+          now.gpuBytes + dense.stagingBytes + newTransparentBytes <= limits.maxGpuBytes &&
+          now.stagingBytes + extra <= limits.maxStagingBytes &&
+          now.combinedCpuBytes + extra <= limits.maxCpuBytes &&
+          now.drawCalls - oldColumnDraws + dense.draws <= limits.maxDrawCalls;
+      }
+      if (!admitted && plan.experimentalEpoch) {
+        // Retry this same meshed source through the old planner. Candidate
+        // refusal never acknowledges a ticket or discards completed meshing.
+        invalidateExperimentalColdTailEpoch(renderer);
+        plan.dispose();
+        job.pagePlan = null;
+        continue;
+      }
       if (admitted) recordRegionalPeak(renderer, now, plan.stagingBytes + newTransparentBytes);
       if (!admitted) renderer.meshStats.blocked = {
         reason: "regional-publication", key, ...now,

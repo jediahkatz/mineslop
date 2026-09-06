@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { geometryBytes, MESH_BATCHES } from "./mesh-palette.js";
 import { MESH_PART_LIMITS } from "./mesh-partitions.js";
 import { MeshBudgetError } from "./mesh-geometry.js";
+import { EXPERIMENTAL_TAIL_VERTICES } from "./experimental-tail-sealing.js";
 
 const TRANSPARENT = new Set(["water", "glass"]);
 const COPY_QUANTUM = 16384;
@@ -15,8 +16,10 @@ export function disposeSectionPage(geometry) {
   // Do not let those entries retain freed canonical arrays or palette leases.
   geometry.attributes = {};
   geometry.index = null;
+  geometry.userData.releaseExperimentalTail?.();
   delete geometry.userData.releaseColorPalette;
   delete geometry.userData.colorPalette;
+  delete geometry.userData.releaseExperimentalTail;
 }
 
 function installPageCulling(mesh) {
@@ -156,9 +159,33 @@ export class SectionPagePlan {
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(mesh);
       }
-    for (const meshes of groups.values()) {
+    const seal = limits.experimentalTailSealing === true && this.canonical &&
+      !limits.compactPage && !column?.userData.sections?.has(this.sectionKey) &&
+      group.children.filter((mesh) => mesh.userData.sectionSource).every((mesh) =>
+        mesh.geometry.attributes.position.count <= EXPERIMENTAL_TAIL_VERTICES);
+    if (seal) {
+      this.experimentalTailSealing = true;
+      this.retainExperimentalTail = limits.retainExperimentalTail;
+    }
+    for (const [key, meshes] of groups) {
+      let copying = meshes;
+      if (seal) {
+        const previous = (column?.userData.pageDescriptors ?? [])
+          .filter((page) => keyFor(page.sources[0]) === key);
+        const incoming = meshes.filter((mesh) => mesh.parent === group);
+        const tail = previous.at(-1);
+        const extendTail = tail && !tail.experimentalSealed &&
+          tail.vertices + incoming[0].geometry.attributes.position.count <= EXPERIMENTAL_TAIL_VERTICES;
+        for (const page of previous) {
+          if (page === tail && extendTail) continue;
+          this.pages.push({ ...page, reused: true, experimentalSealed: true });
+          for (const source of page.sources)
+            this.ranges.set(source, column.userData.sectionRanges.get(source));
+        }
+        copying = [...(extendTail ? tail.sources : []), ...incoming];
+      }
       let page;
-      for (const mesh of meshes) {
+      for (const mesh of copying) {
         const geometry = mesh.geometry;
         const vertices = geometry.attributes.position.count;
         const indices = geometry.index.count;
@@ -166,10 +193,12 @@ export class SectionPagePlan {
         const integralPositions = this.canonical && geometry.userData.integralPositions === true;
         const narrowColors = this.palette && geometry.userData.colorPalette === this.palette &&
           geometry.attributes.color?.array instanceof Uint8Array;
-        if (!page || page.vertices + vertices > cap.maxVertices ||
+        if (!page || page.vertices + vertices > Math.min(cap.maxVertices,
+            seal ? EXPERIMENTAL_TAIL_VERTICES : Infinity) ||
             pageBytes(page.vertices + vertices, page.indices + indices, geometry.attributes,
               page.packedNormals && axisNormals, page.integralPositions && integralPositions,
               this.palette, page.narrowColors && narrowColors) > cap.maxBytes) {
+          if (seal && page) page.experimentalSealed = true;
           page = { sources: [], vertices: 0, indices: 0, bytes: 0, mesh: null,
             packedNormals: true, integralPositions, narrowColors };
           this.pages.push(page);
@@ -204,6 +233,7 @@ export class SectionPagePlan {
       const source = page.sources[0];
       const geometry = new THREE.BufferGeometry();
       page.mesh = new THREE.Mesh(geometry, source.material);
+      if (page.experimentalSealed) this.retainExperimentalTail?.(geometry);
       page.mesh.castShadow = source.castShadow;
       page.mesh.receiveShadow = source.receiveShadow;
       page.mesh.renderOrder = source.renderOrder;

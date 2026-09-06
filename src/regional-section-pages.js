@@ -1,5 +1,10 @@
 import * as THREE from "three";
 import { SectionPagePlan, disposeSectionPage } from "./section-pages.js";
+import {
+  EXPERIMENTAL_FALLBACK_BYTES, EXPERIMENTAL_TAIL_VERTICES,
+  experimentalColdTailEpoch, experimentalTailPlanCurrent, invalidateExperimentalColdTailEpoch,
+  retainExperimentalTailPage,
+} from "./experimental-tail-sealing.js";
 
 export const REGION_COLUMNS = 4;
 
@@ -51,11 +56,37 @@ export function sectionRegion(renderer, cx, cz) {
 export function regionalPagePlan(renderer, cx, cz, sy, group, limits) {
   const region = sectionRegion(renderer, cx, cz);
   group.userData.pageOffset = [cx * 16 - region.position.x, cz * 16 - region.position.z];
-  const plan = new SectionPagePlan(region, sy, group, {
+  const options = {
     ...limits, canonical: true, palette: renderer.geometryPalette, sectionKey: `${cx},${cz},${sy}`,
-  });
+  };
+  let plan = new SectionPagePlan(region, sy, group, options);
   plan.draws = plan.pages.length + plan.transparentMeshes.reduce(
     (sum, mesh) => sum + meshSubmissionCount(mesh), 0);
+  const epoch = experimentalColdTailEpoch(renderer);
+  if (epoch && group.children.some((mesh) => mesh.userData.sectionSource)) {
+    const compatible = !limits.compactPage && !region.userData.sections.has(options.sectionKey) &&
+      !region.userData.pageDescriptors.some((page) => page.retainedDeadBytes) &&
+      group.children.every((mesh) => !mesh.userData.sectionSource || (
+        mesh.material === renderer.regionalMaterials?.[mesh.userData.batch] &&
+        mesh.geometry.attributes.position.count <= EXPERIMENTAL_TAIL_VERTICES &&
+        Object.keys(mesh.geometry.attributes).length === 4 &&
+        Object.entries({ position: 3, normal: 3, uv: 2, color: 3 }).every(([key, size]) => {
+          const a = mesh.geometry.attributes[key];
+          return a?.itemSize === size && a.array instanceof Float32Array && !a.normalized &&
+            a.gpuType === THREE.FloatType;
+        }))) && plan.stagingBytes <= EXPERIMENTAL_FALLBACK_BYTES;
+    if (compatible) {
+      const dense = { bytes: plan.bytes, transparentBytes: plan.transparentBytes,
+        stagingBytes: plan.stagingBytes, draws: plan.draws };
+      plan.dispose(); // Dense preflight is metadata only; owns no buffers.
+      plan = new SectionPagePlan(region, sy, group, { ...options, experimentalTailSealing: true,
+        retainExperimentalTail: (geometry) => retainExperimentalTailPage(renderer, geometry) });
+      plan.draws = plan.pages.length + plan.transparentMeshes.reduce(
+        (sum, mesh) => sum + meshSubmissionCount(mesh), 0);
+      plan.experimentalEpoch = epoch;
+      plan.experimentalDenseProjection = dense;
+    } else invalidateExperimentalColdTailEpoch(renderer);
+  }
   return plan;
 }
 
@@ -82,7 +113,8 @@ export function invalidateRegionalPlans(renderer, region, except) {
  */
 export function publishRegionalPages(renderer, column, sy, plan, transaction) {
   const region = plan.column;
-  if (!plan.done || region.userData.pageRevision !== plan.revision)
+  if (!plan.done || region.userData.pageRevision !== plan.revision ||
+      !experimentalTailPlanCurrent(renderer, plan))
     return false;
   const oldPages = region.userData.pages;
   const attached = [];
@@ -96,11 +128,16 @@ export function publishRegionalPages(renderer, column, sy, plan, transaction) {
     for (const mesh of attached) if (mesh.parent === region) region.remove(mesh);
     throw error;
   }
-  if (transaction && !transaction.validate()) {
+  if (!experimentalTailPlanCurrent(renderer, plan) ||
+      (plan.experimentalEpoch && region.userData.pageRevision !== plan.revision) ||
+      (transaction && !transaction.validate())) {
     for (const mesh of attached) if (mesh.parent === region) region.remove(mesh);
     return false;
   }
   plan.bindCanonicalRanges();
+  if (plan.experimentalEpoch)
+    for (const page of plan.pages)
+      if (page.experimentalSealed) retainExperimentalTailPage(renderer, page.mesh.geometry);
   region.userData.sections.set(plan.sectionKey, { group: plan.group });
   region.visible = column.visible ||
     [...region.userData.sections.values()].some(({ group }) => group.parent?.visible);
@@ -133,6 +170,7 @@ export function publishRegionalPages(renderer, column, sy, plan, transaction) {
  * affected-band publication compacts them. Empty pages/regions free immediately.
  */
 export function releaseRegionalColumn(renderer, key) {
+  invalidateExperimentalColdTailEpoch(renderer);
   const column = renderer.chunks.get(key);
   const region = column?.userData.sectionRegion;
   if (!region) return;

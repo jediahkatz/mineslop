@@ -74,6 +74,8 @@ export function authoredColumns(columns = [[0, 0]], entries = []) {
   };
   let nextIncarnation = 0,
     nextTicket = 0;
+  // Match World's monotonic mutation clock; acknowledgements do not advance it.
+  Object.defineProperty(world, "_nextDirtyTicket", { get: () => nextTicket });
   world.admit = (cx, cz) => {
     const chunk = {
       cx,
