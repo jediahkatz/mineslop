@@ -41,17 +41,20 @@ function readOnlyProjection(world, entries) {
   const changes = new Map(entries);
   const get = (x, y, z) => changes.get(`${x},${y},${z}`) ?? world.get(x, y, z);
   return {
+    spec: world.spec,
+    dimension: world.dimension,
     get,
     isSolid: (x, y, z) => isSolid(get(x, y, z)),
     isLoaded: (x, z) => world.isLoaded(x, z),
   };
 }
 
-test("real generated tree plan preserves terrain and passes real raycast/collision checks", {
+for (const generatorVersion of [3, 7])
+test(`v${generatorVersion} generated tree plan preserves terrain and passes real raycast/collision checks`, {
   // Actual terrain generation, not a mocked planner-only microbenchmark.
   timeout: 10000,
 }, () => {
-  const world = new World("cedar-valley", { useWorker: false }).generate(1);
+  const world = new World("cedar-valley", { useWorker: false, generatorVersion }).generate(1);
   try {
     const origin = world.generator.getSpawn();
     const original = [...world.chunks].map(([id, chunk]) => [
@@ -65,6 +68,9 @@ test("real generated tree plan preserves terrain and passes real raycast/collisi
       rules: survivalPlanningRules,
     });
     assert.equal(plan.trunk.length, 3);
+    if (generatorVersion === 7)
+      assert.ok(plan.trunk.every(({ y }) => y >= survivalPlanningRules.worldHeight),
+        "expanded native fixture must exercise trees above the historical height");
     assert.ok(plan.approachDistance >= 2 && plan.approachDistance <= 3);
     assert.ok(!collidesWithWorld(world, plan.approach));
     const eye = { ...plan.approach, y: plan.approach.y + EYE_HEIGHT };

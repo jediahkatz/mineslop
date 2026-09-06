@@ -57,6 +57,10 @@ export function planNaturalTree({ rules, world, origin }) {
   origin ??= window.__voxelBot.game.player.position;
   const { chunkSize, worldHeight, eyeHeight, playerHeight, playerWidth } =
     rules;
+  // Chunk arrays start at the saved world's minimum Y, not necessarily zero.
+  // Keep the historical bounds only for older, lightweight planner fixtures.
+  const minY = world.minY ?? 0;
+  const maxY = world.maxY ?? worldHeight;
   const logs = new Set(rules.logIds);
   const grounds = new Set(rules.groundIds);
   const wearGrounds = new Set(rules.wearGroundIds);
@@ -65,8 +69,8 @@ export function planNaturalTree({ rules, world, origin }) {
   for (const chunk of world.chunks.values()) {
     for (let z = 0; z < chunkSize; z++) {
       for (let x = 0; x < chunkSize; x++) {
-        for (let y = 1; y < worldHeight - 4; y++) {
-          const id = chunk.blocks[y * chunkSize ** 2 + z * chunkSize + x];
+        for (let y = minY + 1; y < maxY - 4; y++) {
+          const id = chunk.blocks[(y - minY) * chunkSize ** 2 + z * chunkSize + x];
           if (!logs.has(id)) continue;
           const wx = chunk.cx * chunkSize + x;
           const wz = chunk.cz * chunkSize + z;
