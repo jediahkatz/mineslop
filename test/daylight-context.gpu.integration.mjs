@@ -48,8 +48,13 @@ test("retained entrance pages restore alongside partial lost-context topology wo
       const tick = () => {
         g.rebuildDirty(Infinity);
         g.update(0, 0, f.position(4.5));
-        g.render();
+        // Continue CPU topology work during loss; the production draw barrier
+        // deliberately rejects GPU publication until the context is restored.
+        if (!g.renderer.getContext().isContextLost()) g.render();
       };
+      // The public update initializes lazy daylight state before the fixture
+      // captures its surface field; publication still goes through tick/render.
+      g.update(0, 0, f.position(4.5));
       const gl = g.renderer.getContext(), light = g.skyColumns.surfaceLight;
       const settle = () => {
         for (let i = 0; i < 4096; i++) {
