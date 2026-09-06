@@ -4,6 +4,42 @@ import { BLOCK } from "../src/blocks.js";
 import { regionalRegressionFixture } from "./regional-regression-fixture.js";
 import { observeRegionalCensuses, assertCensusAccounting, stageReadyJob } from "./regional-census-fixture.js";
 
+test("regional census: charged admission progresses a real job within the unchanged cooperative budget", (t) => {
+  const { renderer } = regionalRegressionFixture(t, [
+    [1, 0, 1, BLOCK.STONE], [17, 0, 1, BLOCK.STONE],
+  ]);
+  renderer.meshLimits.maxSliceMs = 2;
+  renderer.sectionMeshLimits = { maxCellsPerSlice: 32 };
+  renderer.rebuildDirty(0);
+  let clock = 0;
+  t.mock.method(performance, "now", () => clock);
+  const census = observeRegionalCensuses(t, renderer);
+  const resources = renderer.geometryPalette.resources.bind(renderer.geometryPalette);
+  // Late-window censuses measured roughly 0.6–0.7ms each. Three censuses
+  // before stepping exhaust 2ms; the reservation and peak checks alone do not.
+  const charged = t.mock.method(renderer.geometryPalette, "resources", () => {
+    clock += 0.7;
+    return resources();
+  });
+  renderer.rebuildDirty(1);
+  charged.mock.restore();
+  census.stop();
+  assert.ok(renderer.meshStats.lastSliceCells > 0, "duplicate census must not starve mesher work");
+  assert.ok(renderer.meshStats.lastSliceSteps > 0);
+  const [job] = renderer.sectionJobs.values();
+  assert.equal(job.constructor.name, "SectionMeshJob");
+  assert.ok(!job.done && job.mesher.cursor > 0, "real yielded snapshot/mesher, not a fake job");
+  assert.equal(renderer.meshStats.limits.maxSliceMs, 2);
+  assert.equal(renderer.meshStats.limits.maxJobs, 1);
+  assert.ok(renderer.meshStats.lastSliceCells <= 8192);
+  assert.ok(renderer.meshStats.lastSliceSteps <= 16);
+  // Reservation, post-insertion peak, final reporting all remain fresh.
+  assert.equal(census.events.length, 3);
+  assert.equal(census.events[0].state.jobs.length, 0);
+  assert.equal(census.events[1].state.jobs.length, 1);
+  assertCensusAccounting(renderer);
+});
+
 test("regional census: no-eviction admission uses one decision census per real job", (t) => {
   const { renderer } = regionalRegressionFixture(t, [
     [1, 0, 1, BLOCK.STONE], [17, 0, 1, BLOCK.STONE],
@@ -16,9 +52,9 @@ test("regional census: no-eviction admission uses one decision census per real j
   assert.equal(renderer.sectionJobs.size, 2);
   assert.ok([...renderer.sectionJobs.values()].every((job) => job.constructor.name === "SectionMeshJob"));
   assertCensusAccounting(renderer);
-  // Initial slice + final slice + two (decision census + post-insertion peak).
+  // Final slice + two (decision census + post-insertion peak).
   // Never reuse a census across the intervening job insertions.
-  assert.equal(census.events.length, 6, "unchanged admission must not enumerate twice inside/after eviction helper");
+  assert.equal(census.events.length, 5, "unchanged admission must not enumerate twice inside/after eviction helper");
 });
 
 test("regional census: mixed ready/pending publication reuses the no-eviction result", (t) => {
@@ -37,9 +73,9 @@ test("regional census: mixed ready/pending publication reuses the no-eviction re
   assert.ok([...renderer.sectionJobs.values()].some((job) => !job.done));
   assert.deepEqual(after, before, "no copying, allocation, eviction or publication occurred");
   for (const event of census.events) assert.deepEqual(event.state, census.events[0].state);
-  // Initial slice + one publication decision + final slice. The latter stays
+  // One publication decision + final slice. The latter stays
   // fresh: a normal copy/publication may have changed resources before it.
-  assert.equal(census.events.length, 3, "publication must consume the helper's final census");
+  assert.equal(census.events.length, 2, "publication must consume the helper's final census");
 });
 
 test("regional census: eviction refreshes after removal but does not repeat that final census", (t) => {
@@ -71,9 +107,8 @@ test("regional census: eviction refreshes after removal but does not repeat that
   const initial = census.events[0].state, final = census.events.at(-1).state;
   assert.ok(final.physicalBytes < initial.physicalBytes);
   assert.ok(final.revision > initial.revision);
-  // Initial slice + pre-eviction decision + post-removal refresh + final slice.
-  assert.equal(census.events.length, 4, "caller must use the refreshed post-eviction census");
-  assert.deepEqual(census.events[1].state, initial);
-  assert.deepEqual(census.events[2].state, final,
+  // Pre-eviction decision + post-removal refresh + final slice.
+  assert.equal(census.events.length, 3, "caller must use the refreshed post-eviction census");
+  assert.deepEqual(census.events[1].state, final,
     "post-removal decision must already see the final ownership, before the end-of-slice census");
 });

@@ -654,7 +654,9 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
     }
   }
   const pending = queue(renderer);
-  const resources = detailMeshResources(renderer, true);
+  // Regional admission takes fresh censuses at each ownership decision.
+  // Only legacy column admission consumes this pre-loop snapshot.
+  const legacyResources = regional(renderer) ? null : detailMeshResources(renderer, true);
   let completed = 0;
   const stepped = new Set();
   const blocked = new Set();
@@ -826,13 +828,15 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
     const oldSourceBytes = sourceBytes(column?.userData.sections?.get(job.stamp.sy)?.group);
     const newSourceBytes = sourceBytes(plan?.group);
     job.sourceDelta = newSourceBytes - oldSourceBytes;
-    let admitted =
-      job.status === "ready" &&
-      resources.sourceBytes - oldSourceBytes + newSourceBytes <= limits.maxGpuBytes &&
-      resources.gpuBytes - oldColumnBytes + plan.bytes + plan.transparentBytes <=
-        limits.maxGpuBytes &&
-      resources.drawCalls - oldColumnDraws + plan.draws <=
-        limits.maxDrawCalls;
+    let admitted = false;
+    if (!regional(renderer) && legacyResources !== null && job.status === "ready") {
+      admitted =
+        legacyResources.sourceBytes - oldSourceBytes + newSourceBytes <= limits.maxGpuBytes &&
+        legacyResources.gpuBytes - oldColumnBytes + plan.bytes + plan.transparentBytes <=
+          limits.maxGpuBytes &&
+        legacyResources.drawCalls - oldColumnDraws + plan.draws <=
+          limits.maxDrawCalls;
+    }
     if (regional(renderer) && job.status === "ready") {
       const meshBytes = mesh => renderer.sectionWater?.meshBytes(mesh) ?? geometryBytes(mesh.geometry);
       const newTransparentBytes = plan.group.children.reduce((sum, mesh) =>
@@ -920,9 +924,11 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
           if (install(renderer, job, result, renderer.sectionWater ? started + limits.maxSliceMs : Infinity)) {
             renderer.sectionRejections.delete(key);
             renderer.sectionRejectionDetails.delete(key);
-            resources.gpuBytes += plan.bytes + plan.transparentBytes - oldColumnBytes;
-            resources.drawCalls += plan.draws - oldColumnDraws;
-            resources.sourceBytes += newSourceBytes - oldSourceBytes;
+            if (!regional(renderer) && legacyResources !== null) {
+              legacyResources.gpuBytes += plan.bytes + plan.transparentBytes - oldColumnBytes;
+              legacyResources.drawCalls += plan.draws - oldColumnDraws;
+              legacyResources.sourceBytes += newSourceBytes - oldSourceBytes;
+            }
             completed++;
           } else {
             disposeMeshPartitions(result);
