@@ -220,6 +220,71 @@ test("one-operation reclaim retains shared page bytes, invalidates plans and pro
   assert.ok(f.until(() => !f.world.dirtySectionRevisions.has("0,0,0")));
 });
 
+test("one-operation reclaim keeps an empty exclusive region owned across scheduler pruning until page release", t => {
+  const f = pressureFixture(t, { columns: [[-3, 0], [0, 0]], cameraX: -8,
+    limits: { maxCopyBytesPerSlice: 32768 },
+    cells: [[-40, 8, 8, BLOCK.STONE], [8, 8, 8, BLOCK.WATER]] });
+  f.settle();
+  f.g.camera.position.set(8, 12, 12); f.g.camera.lookAt(8, 8, 8); f.tick(0);
+  const hidden = f.g.chunks.get("-3,0"), region = hidden.userData.sectionRegion;
+  assert.equal(hidden.visible, false);
+  assert.equal(region.userData.key, "-1,0");
+  assert.equal(region.userData.pageDescriptors.length, 1);
+  const page = region.userData.pageDescriptors[0], geometry = page.mesh.geometry;
+  const attributes = [...Object.values(geometry.attributes), geometry.index];
+  const pageBytes = attributes.reduce((n, a) => n + a.array.byteLength, 0);
+  assert.equal(pageBytes, 504);
+  const h = f.g.sectionWater, old = f.g.chunks.get("0,0").userData.sections.get(0).group;
+  const gate = f.holdPreparation();
+  f.world.put(8, 8, 8, BLOCK.WATER, 0, 2);
+  const job = gate.wait(), ticket = f.world.dirtySectionRevisions.get("0,0,0");
+  const resident = h.accounting.external().gpuBytes;
+  let disposals = 0, emptyLiveSlices = 0, emptyPublishedSlices = 0;
+  geometry.addEventListener("dispose", () => {
+    disposals++;
+    assert.equal(f.g.sectionRegions.get(region.userData.key), region);
+    // Admission is intentionally closed inside this mutation; inspect backing
+    // ownership directly until the physical-disposal callback returns.
+    for (const attribute of attributes)
+      assert.ok(h.accounting.gpu.refs.has(attribute),
+        "physical disposal must precede removing the page's GPU charge");
+  });
+  h.reclaim.capacity(job, 0, Math.floor(pageBytes / 2), 0);
+  const work = [];
+  for (let i = 0; i < 512 && (h.reclaim.active || !h.reclaim.fits()); i++) {
+    const b = waterFusionBudget({ bytes: 0, operations: 1, milliseconds: 8 });
+    h.reclaim.step(b); work.push(...b.work);
+    assert.ok(b.work.length <= 1);
+    assert.equal(b.usedBytes, 0);
+    // Run the real scheduler's end-of-slice pruning without advancing reclaim.
+    f.tick(0);
+    assert.equal(h.accounting.external().gpuBytes, resident - (disposals ? pageBytes : 0),
+      "scheduler pruning must not uncharge a live exclusive page");
+    for (const attribute of attributes)
+      assert.equal(h.accounting.gpu.refs.has(attribute), !disposals);
+    if (region.userData.waterRetirement && f.g.chunks.has("-3,0")) {
+      assert.equal(f.g.sectionRegions.get(region.userData.key), region,
+        "retain the retirement owner through page-list publication and column release");
+      if (!region.userData.sections.size && !disposals) emptyLiveSlices++;
+      if (!region.userData.pages.length) emptyPublishedSlices++;
+    }
+    assert.equal(f.g.chunks.get("0,0").userData.sections.get(0).group, old);
+    assert.equal(f.world.dirtySectionRevisions.get("0,0,0"), ticket);
+  }
+  assert.equal(h.reclaim.active, null);
+  assert.ok(emptyLiveSlices > 0, "exercise logical emptiness before physical release");
+  assert.ok(emptyPublishedSlices > 0, "exercise publication before metered owner release");
+  assert.equal(disposals, 1);
+  assert.equal(geometry.index, null);
+  assert.equal(f.g.chunks.has("-3,0"), false);
+  assert.equal(f.g.sectionRegions.has(region.userData.key), false);
+  assert.equal(work.filter(w => w.kind === "reclaim-page-payload-release").length, 1);
+  gate.restore();
+  assert.ok(f.until(() => !f.world.dirtySectionRevisions.has("0,0,0")));
+  t.diagnostic(`504-byte page stays charged for ${emptyLiveSlices} empty-region slices; ` +
+    `${emptyPublishedSlices} published-empty slice(s); one metered disposal; replacement completes`);
+});
+
 test("unload during yielded retirement releases parked water and invalidates the retirement cursor", t => {
   const f = pressureFixture(t, { columns: [[0, 0], [3, 0]], cameraX: 24,
     limits: { maxCopyBytesPerSlice: 32768 },

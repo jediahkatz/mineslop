@@ -180,7 +180,10 @@ export function pruneEmptySectionRegions(renderer) {
   const pending = new Set([...(renderer.sectionJobs?.values() ?? [])]
     .map((job) => job.pagePlan?.column));
   for (const [key, region] of renderer.sectionRegions ?? []) {
-    if (region.userData.sections.size || pending.has(region)) continue;
+    // Logical detach precedes metered page disposal. Keep its accounting root
+    // and retirement identity until the final owner-release operation.
+    if (region.userData.sections.size || region.userData.pages.length ||
+        region.userData.waterRetirement || pending.has(region)) continue;
     renderer.scene.remove(region);
     renderer.sectionRegions.delete(key);
   }
