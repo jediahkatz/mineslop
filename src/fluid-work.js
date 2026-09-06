@@ -10,15 +10,8 @@ import {
 import { fluidScanCandidate } from "./fluid-rules.js";
 import { getWorldSpec, inColumnBounds, inWorldBounds } from "./world-spec.js";
 
-const CACHE_COLUMNS = 512; // World retains at most 441 resident columns.
 const contains = (region, cx, cz) =>
   cx >= region.x0 && cx <= region.x1 && cz >= region.z0 && cz <= region.z1;
-
-function remember(map, key, value) {
-  map.delete(key);
-  if (map.size >= CACHE_COLUMNS) map.delete(map.keys().next().value);
-  map.set(key, value);
-}
 
 /** Exact cells -> dirty sections -> bounded coarse recovery regions.
  *
@@ -39,8 +32,10 @@ export class FluidWork {
     this.sections = new Map();
     this.scans = new Map();
     this.regions = [];
-    this.admitted = new Map();
-    this.recovered = new Map();
+    // Completion follows resident identity, not an LRU smaller than the world.
+    // Evicted payloads are not retained, and replacement chunks start unseen.
+    this.admitted = new WeakSet();
+    this.recovered = new WeakMap();
     this._sectionIterator = null;
     this._scanIterator = null;
     this._worldIterator = null;
@@ -163,7 +158,7 @@ export class FluidWork {
   _nextGeneration() {
     if (this.generation >= MAX_FLUID_CLOCK) {
       this.generation = 1;
-      this.recovered.clear();
+      this.recovered = new WeakMap();
       for (const region of this.regions) region.generation = 1;
       for (const scan of this.scans.values()) {
         scan.generation = 0;
@@ -242,9 +237,8 @@ export class FluidWork {
   }
 
   onChunkLoaded(world, chunk) {
-    const key = fluidColumnKey(chunk.cx, chunk.cz);
-    if (this.admitted.get(key) !== chunk.incarnation) {
-      remember(this.admitted, key, chunk.incarnation);
+    if (!this.admitted.has(chunk)) {
+      this.admitted.add(chunk);
       this.requestScan(chunk);
     }
     // A frontier dependency can be a neighboring column, not the edited one.
@@ -260,7 +254,7 @@ export class FluidWork {
         if (!resident) continue;
         const work = this.regionWork(resident.cx, resident.cz);
         if (work) {
-          this.recovered.delete(fluidColumnKey(resident.cx, resident.cz));
+          this.recovered.delete(resident);
           this.requestScan(resident, work.mode, work.generation);
         }
       }
@@ -279,7 +273,7 @@ export class FluidWork {
       const chunk = next.value;
       const work = this.regionWork(chunk.cx, chunk.cz);
       if (!work) continue;
-      const seen = this.recovered.get(fluidColumnKey(chunk.cx, chunk.cz));
+      const seen = this.recovered.get(chunk);
       if (
         seen?.incarnation === chunk.incarnation &&
         seen.generation >= work.generation
@@ -367,7 +361,7 @@ export class FluidWork {
       } else {
         map.delete(key);
         if (!section && job.generation)
-          remember(this.recovered, key, {
+          this.recovered.set(chunk, {
             incarnation: chunk.incarnation,
             generation: job.generation,
           });

@@ -4,6 +4,7 @@ import { BLOCK } from "../src/blocks.js";
 import { BLOCK_STATE, FLUID } from "../src/block-state.js";
 import { FallingBlocks, FALLING_BLOCK_LIMITS as LIMITS } from "../src/falling-blocks.js";
 import { isFallingBlock } from "../src/falling-block-rules.js";
+import { MAX_RESIDENT_CHUNKS } from "../src/render-distance.js";
 import { fluidFixture, retainedPlantDrops } from "./fluid-fixture.js";
 
 function fixture(t, options = {}) {
@@ -306,4 +307,28 @@ test("a saturated queue of actor-blocked cells cannot starve an independent fall
   put(15, 3, 15, BLOCK.GRAVEL);
   steps(gravity, 300);
   assert.equal(world.get(15, 1, 15), BLOCK.GRAVEL);
+});
+
+test("all 841 resident identities own gravity scans without raising per-update work", (t) => {
+  const { world, gravity } = fixture(t, { generatorVersion: 3 });
+  gravity.onChunkLoaded(world.chunks.get("0,0"));
+  world.generate(14);
+  assert.equal(world.chunks.size, 841);
+  assert.equal(LIMITS.scanJobs, MAX_RESIDENT_CHUNKS);
+  assert.equal(gravity.diagnostics().scanJobs, 841);
+  assert.equal(world.admissionObserverErrors.length, 0);
+  gravity.update(0.1);
+  assert.equal(LIMITS.scanCellsPerUpdate, 512);
+  assert.equal(LIMITS.scanVisitsPerUpdate, 32);
+  assert.equal(LIMITS.evaluationsPerTick, 64);
+  assert.equal(LIMITS.mutationsPerUpdate, 8);
+  assert.ok(gravity.diagnostics().last.scanCells <= 512);
+  assert.ok(gravity.diagnostics().last.scanVisits <= 32);
+  const old = world.chunks.get("14,14");
+  world._removeChunk("14,14", old);
+  const replacement = world._generateSync(14, 14);
+  assert.notEqual(replacement, old);
+  assert.equal(gravity._scans.get("14,14").chunk, replacement);
+  assert.equal(gravity.diagnostics().scanJobs, 841);
+  assert.equal(world.admissionObserverErrors.length, 0);
 });

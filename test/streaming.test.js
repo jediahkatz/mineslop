@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { BLOCK } from "../src/blocks.js";
 import { BLOCK_STATE, FLUID } from "../src/block-state.js";
+import { MAX_RESIDENT_CHUNKS } from "../src/render-distance.js";
 import {
   CHUNK_SIZE,
   WORLD_HEIGHT,
@@ -74,15 +75,29 @@ function setup(t, { worker = ControlledWorker, useWorker = true } = {}) {
 }
 
 function drain(t, world) {
-  for (let step = 0; step < 1000 && world._requests.size; step++) {
+  for (let step = 0; step < 2000 && (world._requests.size || world._inFlight.size); step++) {
     t.mock.timers.tick(1);
+    assertBounds(world);
     for (const worker of ControlledWorker.instances) {
       if (worker.terminated) continue;
-      for (const request of [...worker.pending.values()]) worker.reply(request);
+      for (const request of [...worker.pending.values()]) {
+        worker.reply(request);
+        assertBounds(world);
+      }
     }
   }
   assert.equal(world._requests.size, 0, "all requested chunks must settle");
   assert.equal(world._inFlight.size, 0);
+}
+
+function assertBounds(world) {
+  assert.ok(world.chunks.size <= MAX_RESIDENT_CHUNKS);
+  assert.ok(world._requests.size <= MAX_RESIDENT_CHUNKS);
+  assert.ok(world._inFlight.size <= 2);
+  assert.ok(new Set([
+    ...world.chunks.keys(),
+    ...[...world._inFlight.values()].map(({ key }) => key),
+  ]).size <= MAX_RESIDENT_CHUNKS, "residents and physical reservations share the bound");
 }
 
 test("ensureArea loads exactly its negative-coordinate square, nearest first, without padding", async (t) => {
@@ -149,7 +164,7 @@ test("workers are lazy and overlapping area requests deduplicate with at most tw
   assert.equal(world.chunks.size, 9);
 });
 
-test("updateStreaming only queues synchronously and loads a meshing padding ring", async (t) => {
+test("updateStreaming only queues synchronously and loads both dependency rings", async (t) => {
   const { world, generated } = setup(t, { useWorker: false });
   assert.equal(world.updateStreaming({ x: 0, z: 0 }, 1), world);
   assert.equal(world.chunks.size, 0);
@@ -158,21 +173,20 @@ test("updateStreaming only queues synchronously and loads a meshing padding ring
   const ready = world.ensureArea({ x: 0, z: 0 }, 1);
   drain(t, world);
   await ready;
-  assert.equal(world.chunks.size, 25);
-  assert.equal(world.isLoaded(2 * CHUNK_SIZE, 2 * CHUNK_SIZE), true);
-  assert.equal(world.isLoaded(3 * CHUNK_SIZE, 0), false);
+  assert.equal(world.chunks.size, 49);
+  assert.equal(world.isLoaded(3 * CHUNK_SIZE, 3 * CHUNK_SIZE), true);
+  assert.equal(world.isLoaded(4 * CHUNK_SIZE, 0), false);
 });
 
 test("arriving chunks invalidate diagonal seams and eviction emits render disposal keys", async (t) => {
   const { world } = setup(t, { useWorker: false });
   let loading = world.ensureArea({ x: 0, z: 0 }, 0);
   drain(t, world);
-  await loading;
   world.set(0, 10, 0, BLOCK.BRICK);
   world.clearDirty();
-  loading = world.ensureArea({ x: CHUNK_SIZE, z: CHUNK_SIZE }, 0);
+  const diagonal = world.ensureArea({ x: CHUNK_SIZE, z: CHUNK_SIZE }, 0);
   drain(t, world);
-  await loading;
+  await Promise.all([loading, diagonal]);
   assert.deepEqual([...world.dirtyChunks].sort(), ["0,0", "1,1"]);
   world.updateStreaming({ x: 1000, z: 1000 }, 0);
   assert.equal(world.isLoaded(0, 0), false);
@@ -195,7 +209,7 @@ test("rapid travel discards obsolete queued loads and bounds active work and res
   const obsolete = [...worker.pending.values()];
   for (let step = 1; step <= 100; step++) {
     world.updateStreaming({ x: step * 1000, z: -step * 1000 }, 3);
-    assert.ok(world._requests.size <= 83);
+    assert.ok(world._requests.size <= 121);
     assert.ok(world._inFlight.size <= 2);
   }
   for (const request of obsolete) worker.reply(request);
@@ -205,8 +219,8 @@ test("rapid travel discards obsolete queued loads and bounds active work and res
     "obsolete results must not resurrect old chunks"
   );
   drain(t, world);
-  assert.equal(world.chunks.size, 81);
-  assert.equal(worker.sent.length, 83);
+  assert.equal(world.chunks.size, 121);
+  assert.equal(worker.sent.length, 123);
   for (let step = 1; step <= 8; step++) {
     world.updateStreaming({ x: 100000 + step * CHUNK_SIZE, z: -100000 }, 3);
     drain(t, world);
@@ -269,12 +283,14 @@ test("area validation clips both world edges and rejects unsafe positions or unb
 
 test("too many simultaneous pinned areas reject atomically instead of growing the queue", async (t) => {
   const { world } = setup(t);
-  const first = world.ensureArea({ x: 0, z: 0 }, 8);
+  const first = world.ensureArea({ x: 0, z: 0 }, 14);
   const cancelled = assert.rejects(first, { name: "AbortError" });
   const before = world._requests.size;
-  await assert.rejects(world.ensureArea({ x: 10000, z: 10000 }, 8), RangeError);
+  const focus = world._focus;
+  await assert.rejects(world.ensureArea({ x: 10000, z: 10000 }, 0), RangeError);
   assert.equal(world._requests.size, before);
   assert.equal(world._pins.size, before);
+  assert.equal(world._focus, focus);
   world.dispose();
   await cancelled;
 });
@@ -570,4 +586,232 @@ test("unknown jobs and old epochs cannot fulfill the current requested column", 
   worker.reply(request);
   await loading;
   assert.equal(world.get(0, 1, 0), BLOCK.STONE);
+});
+
+test("radius 12 persistently demands and retains all 841 columns including the dependency halo", async (t) => {
+  const { world } = setup(t);
+  world.onChunkAdmitted = () => assertBounds(world);
+  world.updateStreaming({ x: 0, z: 0 }, 12);
+  assert.deepEqual(world.streamingStatus(), {
+    demand: 841, loaded: 0, missing: 841, inflight: 0, error: 0,
+  });
+  assert.equal(world._requests.size, 841);
+  drain(t, world);
+  assert.deepEqual(world.streamingStatus(), {
+    demand: 841, loaded: 841, missing: 0, inflight: 0, error: 0,
+  });
+  for (const x of [-14, 14])
+    for (const z of [-14, 14]) assert.ok(world.chunks.has(`${x},${z}`));
+  const ready = world.ensureArea({ x: 0, z: 0 }, 14);
+  await ready;
+  assert.equal(world._focus.radius, 14, "dependency radius is not padded to 16");
+  assert.equal(world._pins.size, 0);
+  world.updateStreaming({ x: 0, z: 0 }, 12);
+  assert.equal(world._requests.size, 0);
+  assert.equal(ControlledWorker.instances[0].sent.length, 841);
+  assert.equal(ControlledWorker.instances[0].maxPending, 2);
+  assert.equal(world.admissionObserverErrors.length, 0);
+});
+
+test("radius shrink and a reversed full-distance focus refill demand without lost edge work", (t) => {
+  const { world } = setup(t);
+  world.updateStreaming({ x: 0, z: 0 }, 12);
+  t.mock.timers.tick(1);
+  const worker = ControlledWorker.instances[0];
+  const old = [...worker.pending.values()];
+  world.updateStreaming({ x: 10000, z: 10000 }, 12);
+  assert.equal(world._requests.size, 841);
+  for (const request of old) worker.reply(request);
+  assert.equal(world.chunks.size, 0);
+  drain(t, world);
+  assert.equal(world.streamingStatus().loaded, 841);
+  world.updateStreaming({ x: 10000, z: 10000 }, 2);
+  drain(t, world);
+  assert.equal(world.chunks.size, 81);
+  world.updateStreaming({ x: 0, z: 0 }, 12);
+  drain(t, world);
+  assert.equal(world.streamingStatus().loaded, 841);
+  assert.equal(world.chunks.size, 841);
+  assert.equal(worker.maxPending, 2);
+});
+
+test("radius 12 demand clips both world corners and still reaches every in-bounds halo column", (t) => {
+  const { world } = setup(t, { useWorker: false });
+  for (const coordinate of [WORLD_MIN, WORLD_MAX - 0.01]) {
+    world.updateStreaming({ x: coordinate, z: coordinate }, 12);
+    assert.equal(world.streamingStatus().demand, 225);
+    drain(t, world);
+    assert.equal(world.streamingStatus().loaded, 225);
+    assert.equal(world.chunks.size, 225);
+    for (const { cx, cz } of world.chunks.values()) {
+      assert.ok(cx * 16 >= WORLD_MIN && cx * 16 < WORLD_MAX);
+      assert.ok(cz * 16 >= WORLD_MIN && cz * 16 < WORLD_MAX);
+    }
+  }
+  assert.throws(() => world.updateStreaming({ x: 0, z: 0 }, 13), RangeError);
+  assert.throws(() => world.generate(15), RangeError);
+});
+
+test("explicit radius 14 can replace a full visual queue while old workers keep their reservations", async (t) => {
+  const { world } = setup(t);
+  world.updateStreaming({ x: 10000, z: 10000 }, 12);
+  t.mock.timers.tick(1);
+  const loading = world.ensureArea({ x: 0, z: 0 }, 14);
+  assert.equal(world._requests.size, 841);
+  assert.equal(world._inFlight.size, 2);
+  assert.equal(world._pins.size, 841);
+  for (let i = 0; i < 1000 && [...world._pins.keys()].some((key) => !world.chunks.has(key)); i++) {
+    t.mock.timers.tick(1);
+    for (const worker of ControlledWorker.instances)
+      for (const request of [...worker.pending.values()]) worker.reply(request);
+    assertBounds(world);
+  }
+  await loading;
+  assert.equal(world._pins.size, 0);
+  drain(t, world);
+  assert.equal(world.streamingStatus().loaded, 841);
+  assert.equal(world.chunks.size, 841);
+});
+
+test("generate(14) synchronously completes logical requests but retains two physical worker slots", async (t) => {
+  const { world, generated } = setup(t);
+  world.generator.getSpawn = () => ({ x: 0, z: 0 });
+  const loading = world.ensureArea({ x: 0, z: 0 }, 14);
+  t.mock.timers.tick(1);
+  const worker = ControlledWorker.instances[0];
+  assert.equal(world.generate(14), world);
+  assert.equal(world.chunks.size, 841);
+  assert.equal(world._requests.size, 0);
+  assert.equal(world._inFlight.size, 2);
+  await loading;
+  assert.equal(world._pins.size, 0);
+  assert.equal(generated.length, 841);
+  const original = world.chunks.get("0,0");
+  world.set(0, 1, 0, BLOCK.GLASS);
+  for (const request of [...worker.pending.values()]) worker.reply(request, BLOCK.LAVA);
+  assert.equal(world.chunks.get("0,0"), original);
+  assert.equal(world.get(0, 1, 0), BLOCK.GLASS);
+  assert.equal(world._inFlight.size, 0);
+  assert.equal(world.streamingStatus().missing, 0);
+});
+
+test("synchronous full-area overload refuses atomically without stranding prior work", async (t) => {
+  const { world } = setup(t);
+  world.generator.getSpawn = () => ({ x: 10000, z: 10000 });
+  const loading = world.ensureArea({ x: 0, z: 0 }, 0);
+  t.mock.timers.tick(1);
+  const focus = world._focus;
+  assert.throws(() => world.generate(14), /concurrent chunk loads/);
+  assert.equal(world._focus, focus);
+  assert.equal(world._pins.size, 1);
+  assert.equal(world._requests.size, 1);
+  drain(t, world);
+  await loading;
+  assert.equal(world._pins.size, 0);
+});
+
+test("streaming status is read-only and keeps failures visible until synchronous recovery", async (t) => {
+  const { world, generated } = setup(t, { useWorker: false });
+  const generate = world.generator.generateChunk;
+  world.generator.generateChunk = () => { throw new Error("fixture generation failed"); };
+  world.updateStreaming({ x: 0, z: 0 }, 0);
+  drain(t, world);
+  assert.deepEqual(world.streamingStatus(), {
+    demand: 25, loaded: 0, missing: 25, inflight: 0, error: 25,
+  });
+  world.updateStreaming({ x: 0, z: 0 }, 0);
+  for (let i = 0; i < 100; i++) world.streamingStatus();
+  assert.equal(world._requests.size, 0, "status and frame updates do not hide failed loads");
+  world.generator.generateChunk = generate;
+  world._workerDisabled = false;
+  const loading = world.ensureArea({ x: 0, z: 0 }, 0);
+  t.mock.timers.tick(1);
+  const worker = ControlledWorker.instances[0];
+  assert.equal(world.streamingStatus().error, 25, "queued retries are not recovery");
+  world._generateSync(0, 0);
+  await loading;
+  assert.equal(world._pins.size, 0);
+  assert.equal(world._requests.size, 0);
+  assert.equal(world.streamingStatus().error, 24);
+  assert.equal(world._inFlight.size, 1, "sync recovery cannot release a physical worker slot");
+  worker.onerror({ preventDefault() {} });
+  t.mock.timers.tick(1);
+  assert.equal(world._inFlight.size, 0);
+  assert.equal(generated.length, 1, "late worker failure cannot regenerate a recovered chunk");
+  assert.equal(world.streamingStatus().error, 24);
+  world.clearStreaming();
+  assert.deepEqual(world.streamingStatus(), {
+    demand: 0, loaded: 0, missing: 0, inflight: 0, error: 0,
+  });
+  assert.equal(world._streamErrors.size, 0);
+});
+
+test("clearStreaming cancels visual ownership without cancelling pins or lying about physical workers", async (t) => {
+  const { world } = setup(t);
+  world.updateStreaming({ x: 0, z: 0 }, 12);
+  const loading = world.ensureArea({ x: 0, z: 0 }, 0);
+  t.mock.timers.tick(1);
+  world.clearStreaming();
+  assert.equal(world.streamingStatus().demand, 0);
+  assert.equal(world.streamingStatus().inflight, 2);
+  assert.equal(world._pins.size, 1);
+  assert.equal(world._requests.size, 1);
+  drain(t, world);
+  await loading;
+  assert.equal(world.chunks.size, 1);
+  assert.equal(world._pins.size, 0);
+});
+
+test("an offscreen explicit pin yields one visual slot and persistent demand refills it after release", async (t) => {
+  const { world } = setup(t);
+  world.updateStreaming({ x: 0, z: 0 }, 12);
+  drain(t, world);
+  const worker = ControlledWorker.instances[0];
+  const loading = world.ensureArea({ x: 10000, z: 10000 }, 0);
+  t.mock.timers.tick(1);
+  assert.equal(world._inFlight.size, 1);
+  assertBounds(world);
+  worker.reply();
+  assert.equal(world.streamingStatus().loaded, 840);
+  assert.equal(world.isLoaded(10000, 10000), true);
+  await loading;
+  drain(t, world);
+  assert.equal(world.streamingStatus().loaded, 841);
+  assert.equal(world.isLoaded(10000, 10000), false);
+});
+
+test("streaming error storage stays bounded by current demand and resets with world epochs", (t) => {
+  const { world } = setup(t, { useWorker: false });
+  world.generator.generateChunk = () => { throw new Error("fixture failure"); };
+  for (const x of [0, 10000, -10000]) {
+    world.updateStreaming({ x, z: x }, 12);
+    drain(t, world);
+    assert.equal(world._streamErrors.size, 841);
+    assert.equal(world.streamingStatus().error, 841);
+    assert.ok(Object.isFrozen(world.streamingStatus()));
+  }
+  world.setDimension("nether");
+  assert.equal(world._streamErrors.size, 0);
+  assert.deepEqual(world.streamingStatus(), {
+    demand: 0, loaded: 0, missing: 0, inflight: 0, error: 0,
+  });
+});
+
+test("epoch reset retires detached physical timers and ignores late success or failure", async (t) => {
+  const { world } = setup(t);
+  const loading = world.ensureArea({ x: 0, z: 0 }, 0);
+  t.mock.timers.tick(1);
+  const worker = ControlledWorker.instances[0];
+  world._generateSync(0, 0);
+  await loading;
+  assert.equal(world._requests.size, 0);
+  assert.equal(world._inFlight.size, 1);
+  const fail = t.mock.method(world, "_failWorker");
+  world.setDimension("nether");
+  t.mock.timers.tick(20000);
+  assert.equal(fail.mock.callCount(), 0, "reset clears even logically completed worker timers");
+  worker.reply();
+  assert.equal(world.chunks.size, 0);
+  assert.equal(world._inFlight.size, 0);
+  assert.equal(world.streamingStatus().error, 0);
 });

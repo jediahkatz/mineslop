@@ -1,4 +1,5 @@
 import { isFallingBlock, planFallingBlock } from "./falling-block-rules.js";
+import { MAX_RESIDENT_CHUNKS } from "./render-distance.js";
 import { TransactionInvariantError } from "./transactions.js";
 import { inWorldBounds } from "./world-spec.js";
 
@@ -10,7 +11,7 @@ export const FALLING_BLOCK_LIMITS = Object.freeze({
   queuedCells: 4096,
   scanCellsPerUpdate: 512,
   scanVisitsPerUpdate: 32,
-  scanJobs: 512,
+  scanJobs: MAX_RESIDENT_CHUNKS,
 });
 const synchronous = (fn) =>
   typeof fn === "function" &&
@@ -93,8 +94,8 @@ export class FallingBlocks {
       return;
     }
     if (this._scans.size >= FALLING_BLOCK_LIMITS.scanJobs) {
-      // World has <=441 residents (442 transiently during admission). A full
-      // job table therefore necessarily contains obsolete resident identities.
+      // One pending scan per resident fits the World residency contract.
+      // Replacement admissions can leave obsolete identities in this table.
       for (const [key, job] of this._scans)
         if (!this._resident(job)) this._scans.delete(key);
     }

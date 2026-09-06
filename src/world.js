@@ -12,6 +12,11 @@ import {
   sectionKey,
 } from "./chunk-data.js";
 import { spawnStandingHeight } from "./spawn-support.js";
+import {
+  MAX_WORLD_RADIUS,
+  MAX_RESIDENT_CHUNKS,
+  streamingDistanceLayout,
+} from "./render-distance.js";
 import { TransactionCoordinator } from "./transactions.js";
 import {
   CHUNK_SIZE,
@@ -38,8 +43,8 @@ import { getWorldSpec, inColumnBounds, inWorldBounds } from "./world-spec.js";
 export { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT, WORLD_MAX, WORLD_MIN };
 export { raycast } from "./raycast.js";
 
-const MAX_RADIUS = 8;
-const MAX_CHUNKS = (2 * (MAX_RADIUS + 2) + 1) ** 2;
+const MAX_RADIUS = MAX_WORLD_RADIUS;
+const MAX_CHUNKS = MAX_RESIDENT_CHUNKS;
 const MAX_IN_FLIGHT = 2;
 const WORKER_TIMEOUT = 15000;
 const MAX_ADMISSION_OBSERVER_ERRORS = 16;
@@ -50,7 +55,7 @@ function abortError(message = "World loading was cancelled") {
   return error;
 }
 
-function area(position, radius, padding = 0) {
+function area(position, radius) {
   if (
     !position ||
     !Number.isFinite(position.x) ||
@@ -66,7 +71,7 @@ function area(position, radius, padding = 0) {
   const cx = Math.floor(position.x / CHUNK_SIZE);
   const cz = Math.floor(position.z / CHUNK_SIZE);
   const chunks = [];
-  const reach = radius + padding;
+  const reach = radius;
   for (let z = cz - reach; z <= cz + reach; z++) {
     for (let x = cx - reach; x <= cx + reach; x++) {
       if (inColumnBounds(x * CHUNK_SIZE, z * CHUNK_SIZE)) {
@@ -119,6 +124,8 @@ export class World {
     this._inFlight = new Map();
     this._pins = new Map();
     this._streamWanted = new Set();
+    this._streamErrors = new Map();
+    this._streamFocus = null;
     this._focus = null;
     this._epoch = 0;
     this._nextIncarnation = 0;
@@ -162,7 +169,17 @@ export class World {
   generate(radius = 2) {
     if (this._disposed) throw abortError("World is disposed");
     const target = area(this.generator.getSpawn(), radius);
-    this._focus = { ...target, radius: radius + 2 };
+    // Synchronous callers cannot wait for old physical worker reservations.
+    // Check before changing ownership, so a refusal leaves current work intact.
+    const reserved = new Set([
+      ...this._pins.keys(),
+      ...[...this._inFlight.values()].map((request) => request.key),
+      ...target.chunks.map(({ key }) => key),
+    ]);
+    if (reserved.size > MAX_CHUNKS)
+      throw new RangeError("Too many concurrent chunk loads");
+    this._focus = { ...target, radius: Math.min(MAX_RADIUS, radius + 2) };
+    this._streamFocus = null;
     this._streamWanted = new Set(target.chunks.map(({ key }) => key));
     this._cancelUnwanted();
     for (const { cx, cz } of target.chunks) this._generateSync(cx, cz);
@@ -177,18 +194,31 @@ export class World {
       ...this._pins.keys(),
       ...target.chunks.map((chunk) => chunk.key),
     ]);
-    const missing = target.chunks.filter(
-      ({ key }) => !this.chunks.has(key) && !this._requests.has(key)
-    );
-    if (
-      pins.size > MAX_CHUNKS ||
-      this._requests.size + missing.length > MAX_CHUNKS
-    )
+    if (pins.size > MAX_CHUNKS)
       throw new RangeError("Too many concurrent chunk loads");
     const epoch = this._epoch;
-    this._focus = { ...target, radius: radius + 2 };
+    // Explicit callers already specify their dependency radius; do not pad it.
+    this._focus = target;
     for (const { key } of target.chunks)
       this._pins.set(key, (this._pins.get(key) ?? 0) + 1);
+    // Pins outrank optional logical streaming work. Physical workers retain
+    // their reservations even when their original caller is cancelled.
+    const missing = target.chunks.filter(
+      ({ key }) => !this.chunks.has(key) && !this._requests.has(key)
+    ).length;
+    let overflow = this._requests.size + missing - MAX_CHUNKS;
+    const optional = [...this._requests.values()]
+      .filter((request) => !pins.has(request.key))
+      .sort(
+        (a, b) =>
+          Number(this._inFlight.has(a.id)) - Number(this._inFlight.has(b.id))
+      );
+    for (const request of optional) {
+      if (overflow <= 0) break;
+      overflow--;
+      this._requests.delete(request.key);
+      request.reject(abortError());
+    }
     try {
       await Promise.all(
         target.chunks.map(({ cx, cz }) => this._requestChunk(cx, cz))
@@ -203,22 +233,56 @@ export class World {
           if (count > 0) this._pins.set(key, count);
           else this._pins.delete(key);
         }
+        this._cancelUnwanted();
+        this._refillStreaming();
+        this._schedule();
       }
     }
   }
 
   updateStreaming(position, radius = 3) {
     if (this._disposed) return this;
-    const target = area(position, radius, 1);
-    this._focus = { ...target, radius: radius + 2 };
+    const layout = streamingDistanceLayout(radius);
+    const target = area(position, layout.demandRadius);
+    this._focus = this._streamFocus = target;
     this._streamWanted = new Set(target.chunks.map(({ key }) => key));
     this._cancelUnwanted();
-    for (const { cx, cz, key } of target.chunks) {
-      if (this._requests.size >= MAX_CHUNKS && !this._requests.has(key)) break;
-      this._requestChunk(cx, cz);
-    }
     this._trimCache();
+    this._refillStreaming();
     return this;
+  }
+
+  /** Bounded, read-only counts; failures remain visible until successful retry. */
+  streamingStatus() {
+    let loaded = 0;
+    let error = 0;
+    for (const key of this._streamWanted) {
+      if (this.chunks.has(key)) loaded++;
+      else if (this._streamErrors.has(key)) error++;
+    }
+    return Object.freeze({
+      demand: this._streamWanted.size,
+      loaded,
+      missing: this._streamWanted.size - loaded,
+      inflight: this._inFlight.size,
+      error,
+    });
+  }
+
+  clearStreaming() {
+    this._streamWanted.clear();
+    this._streamFocus = null;
+    this._cancelUnwanted();
+    return this;
+  }
+
+  _refillStreaming() {
+    if (this._disposed) return;
+    for (const { cx, cz, key } of this._streamFocus?.chunks ?? []) {
+      if (this._requests.size >= MAX_CHUNKS) break;
+      if (!this.chunks.has(key) && !this._streamErrors.has(key))
+        this._requestChunk(cx, cz);
+    }
   }
 
   get(x, y, z) {
@@ -510,13 +574,16 @@ export class World {
   }
 
   _admitChunk(chunk, notify = true) {
+    const key = chunkKey(chunk.cx, chunk.cz);
+    if (!this._makeRoom(key, true))
+      throw new RangeError("Too many resident chunks");
     chunk.incarnation = ++this._nextIncarnation;
     chunk.revision = 0;
     chunk.sectionRevisions = new Map();
     for (let sy = Math.floor(this.minY / 16); sy < this.maxY / 16; sy++)
       chunk.sectionRevisions.set(sy, 0);
-    const key = chunkKey(chunk.cx, chunk.cz);
     this.chunks.set(key, chunk);
+    this._streamErrors.delete(key);
     this._dirtyNeighbors(chunk.cx, chunk.cz);
     const event = Object.freeze({
       world: this,
@@ -608,22 +675,30 @@ export class World {
     const epoch = this.epoch;
     const key = chunkKey(cx, cz);
     let chunk = this.chunks.get(key);
-    if (!chunk)
+    if (!chunk) {
+      if (!this._makeRoom(key, true))
+        throw new RangeError("Too many resident chunks");
       chunk = this._storeChunk(
         normalizeGeneratedChunk(
           this.generator.generateChunk(cx, cz),
           this._job(cx, cz)
         )
       );
+    }
     if (
       this._disposed ||
       this.epoch !== epoch ||
       this.chunks.get(key) !== chunk
     )
       throw abortError();
+    this._streamErrors.delete(key);
     const request = this._requests.get(key);
-    if (request && !this._inFlight.has(request.id))
-      this._finish(request, chunk);
+    if (request) {
+      // Fulfil the logical request now, but leave its worker/timer reserved
+      // until the physical reply, timeout, or epoch reset actually retires it.
+      this._requests.delete(key);
+      request.resolve(chunk);
+    }
     return chunk;
   }
 
@@ -661,20 +736,27 @@ export class World {
 
   _nextQueued() {
     const { cx = 0, cz = 0 } = this._focus ?? {};
+    const physicalKeys = new Set(
+      [...this._inFlight.values()].map((request) => request.key)
+    );
     return [...this._requests.values()]
-      .filter((request) => !this._inFlight.has(request.id))
+      .filter((request) => !physicalKeys.has(request.key))
       .sort(
         (a, b) =>
           Number(this._pins.has(b.key)) - Number(this._pins.has(a.key)) ||
           (a.cx - cx) ** 2 +
             (a.cz - cz) ** 2 -
             ((b.cx - cx) ** 2 + (b.cz - cz) ** 2)
-      )[0];
+      )
+      .find((request) =>
+        this._makeRoom(request.key, this._pins.has(request.key))
+      );
   }
 
   _pump() {
     if (this._disposed) return;
     this._cancelUnwanted();
+    this._refillStreaming();
     if (!this._nextQueued()) return;
     const worker = this._getWorker();
     if (worker) {
@@ -771,17 +853,24 @@ export class World {
     for (const request of this._inFlight.values()) clearTimeout(request.timer);
     this._inFlight.clear();
     this._cancelUnwanted();
+    this._refillStreaming();
     this._schedule();
   }
 
   _finish(request, chunk, error) {
-    if (this._requests.get(request.key) !== request) return;
     clearTimeout(request.timer);
     this._inFlight.delete(request.id);
+    if (this._requests.get(request.key) !== request) {
+      this._refillStreaming();
+      this._schedule();
+      return;
+    }
     this._requests.delete(request.key);
     if (request.epoch !== this._epoch || this._disposed) {
       request.reject(abortError());
     } else if (error) {
+      if (this._streamWanted.has(request.key))
+        this._streamErrors.set(request.key, error);
       request.reject(error);
     } else if (
       !this._pins.has(request.key) &&
@@ -799,23 +888,59 @@ export class World {
           request.reject(abortError());
         else request.resolve(loaded);
       } catch (failure) {
+        if (this._streamWanted.has(request.key))
+          this._streamErrors.set(request.key, failure);
         request.reject(failure);
       }
     }
-    if (this._nextQueued()) this._schedule();
+    this._refillStreaming();
+    this._schedule();
   }
 
   _cancelUnwanted() {
     for (const request of this._requests.values()) {
       if (
         !this._pins.has(request.key) &&
-        !this._streamWanted.has(request.key) &&
-        !this._inFlight.has(request.id)
+        !this._streamWanted.has(request.key)
       ) {
         this._requests.delete(request.key);
         request.reject(abortError());
       }
     }
+    for (const key of this._streamErrors.keys())
+      if (!this._streamWanted.has(key)) this._streamErrors.delete(key);
+  }
+
+  _makeRoom(key, explicit = false) {
+    const reserved = new Set(
+      [...this._inFlight.values()].map((request) => request.key)
+    );
+    const occupied = new Set([...this.chunks.keys(), ...reserved, key]);
+    if (occupied.size <= MAX_CHUNKS) return true;
+    const { cx = 0, cz = 0 } = this._focus ?? {};
+    const removable = [...this.chunks.entries()]
+      .filter(
+        ([candidate]) =>
+          candidate !== key &&
+          !this._pins.has(candidate) &&
+          !reserved.has(candidate) &&
+          (explicit || !this._streamWanted.has(candidate))
+      )
+      .sort(
+        ([ak, a], [bk, b]) =>
+          Number(this._streamWanted.has(ak)) -
+            Number(this._streamWanted.has(bk)) ||
+          (b.cx - cx) ** 2 +
+            (b.cz - cz) ** 2 -
+            ((a.cx - cx) ** 2 + (a.cz - cz) ** 2)
+      );
+    if (occupied.size - removable.length > MAX_CHUNKS) return false;
+    for (const [candidate, chunk] of removable) {
+      if (occupied.size <= MAX_CHUNKS) break;
+      this._removeChunk(candidate, chunk);
+      occupied.delete(candidate);
+    }
+    return true;
   }
 
   _dirtyNeighbors(cx, cz) {
@@ -886,11 +1011,13 @@ export class World {
   }
 
   _trimCache() {
-    const { cx = 0, cz = 0, radius = MAX_RADIUS + 2 } = this._focus ?? {};
+    const { cx = 0, cz = 0, radius = MAX_RADIUS } = this._focus ?? {};
     for (const [key, chunk] of this.chunks) {
       if (
         !this._pins.has(key) &&
-        Math.max(Math.abs(chunk.cx - cx), Math.abs(chunk.cz - cz)) > radius
+        !this._streamWanted.has(key) &&
+        (this._streamFocus ||
+          Math.max(Math.abs(chunk.cx - cx), Math.abs(chunk.cz - cz)) > radius)
       )
         this._removeChunk(key, chunk);
     }
@@ -920,10 +1047,13 @@ export class World {
       clearTimeout(request.timer);
       request.reject(abortError());
     }
+    for (const request of this._inFlight.values()) clearTimeout(request.timer);
     this._requests.clear();
     this._inFlight.clear();
     this._pins.clear();
     this._streamWanted.clear();
+    this._streamErrors.clear();
+    this._streamFocus = null;
     for (const key of this.chunks.keys()) this.removedChunks.add(key);
     this.chunks.clear();
     this.dirtyChunks.clear();

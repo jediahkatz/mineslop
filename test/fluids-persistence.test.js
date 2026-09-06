@@ -499,3 +499,57 @@ test("a synchronous post-publication autosave includes conservative replay for t
   assert.ok(normalizeFluidSnapshot(saved.fluids, world));
   assert.ok(encodedBytes(saved.fluids) <= fluids.reservedBytes);
 });
+
+test("fluid admission deduplication remembers all 841 live identities and rediscovers replacements", (t) => {
+  const { world } = fluidFixture(t, {
+    generatorVersion: 3, radius: 14, base: BLOCK.STONE, connect: false,
+  });
+  const work = new FluidWork(world.dimension, world.generatorVersion, fluidLimits());
+  const requested = [];
+  t.mock.method(work, "requestScan", (chunk) => requested.push(chunk));
+  for (const chunk of world.chunks.values()) work.onChunkLoaded(world, chunk);
+  for (const chunk of world.chunks.values()) work.onChunkLoaded(world, chunk);
+  assert.equal(requested.length, 841);
+  assert.ok(work.admitted instanceof WeakSet);
+  const old = world.chunks.get("0,0");
+  world._removeChunk("0,0", old);
+  const replacement = world._generateSync(0, 0);
+  work.onChunkLoaded(world, replacement);
+  assert.equal(requested.length, 842);
+  assert.equal(requested.at(-1), replacement);
+});
+
+test("coarse fluid recovery completes once across 841 residents without completion-cache churn", (t) => {
+  const { world } = fluidFixture(t, {
+    generatorVersion: 3, radius: 14, base: BLOCK.STONE, connect: false,
+  });
+  const limits = fluidLimits({
+    maxScanCellsPerUpdate: 4096, maxRecoveryRegions: 1,
+  });
+  const work = new FluidWork(world.dimension, world.generatorVersion, limits);
+  work.markRegion(-14, -14);
+  work.markRegion(14, 14);
+  let totalCells = 0;
+  for (let step = 0; step < 6000; step++) {
+    const stats = { scanCells: 0, scanVisits: 0, recoveryVisits: 0, reads: 0 };
+    work.scan(world, stats);
+    totalCells += stats.scanCells;
+    assert.ok(stats.scanCells <= limits.maxScanCellsPerUpdate);
+    assert.ok(stats.scanVisits <= limits.maxScanVisitsPerUpdate);
+    assert.ok(stats.recoveryVisits <= limits.maxRecoveryVisitsPerUpdate);
+    assert.ok(work.scans.size <= limits.maxScanJobs);
+  }
+  assert.equal(totalCells, 841 * 96 * 256, "each resident is scanned exactly once");
+  assert.equal(work.scans.size, 0);
+  assert.ok(work.recovered instanceof WeakMap);
+  for (const chunk of world.chunks.values())
+    assert.equal(work.recovered.get(chunk).generation, work.generation);
+  const old = world.chunks.get("0,0");
+  world._removeChunk("0,0", old);
+  const replacement = world._generateSync(0, 0);
+  assert.equal(work.recovered.has(replacement), false);
+  for (let step = 0; step < 100; step++)
+    work.scan(world, { scanCells: 0, scanVisits: 0, recoveryVisits: 0, reads: 0 });
+  assert.equal(work.recovered.get(replacement).generation, work.generation);
+  assert.equal(work.scans.size, 0);
+});
