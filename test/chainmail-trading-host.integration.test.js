@@ -1,0 +1,61 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { BLOCK } from "../src/blocks.js";
+import { ITEM } from "../src/items.js";
+import { progressionStack } from "./progression-live-fixture.js";
+import { progressionTradingFixture } from "./progression-trading-fixture.js";
+
+test("live armorer refuses full inventory without payment/stock/XP loss and honors finite restock and reload", (t) => {
+  const f = progressionTradingFixture(t, { profession: "armorer" });
+  assert.equal(f.gameplay.mode, "survival");
+  assert.equal(f.openTrader().opened, true);
+  const coal = f.services.view().offers.find(o => o.id === "armorer/coal");
+  // Authored NPC and starter inputs, real ecology/World/Gameplay/Trading owners.
+  f.stock(coal, 5);
+  assert.equal(f.action({ type: "trade", offerId: coal.id, count: 5 }).ok, true);
+  const boots = f.services.view().offers.find(o => o.id === "armorer/chainmail-boots");
+  assert.ok(boots);
+  f.editInventory(owned => {
+    owned.slots.fill(progressionStack(BLOCK.STONE, 64));
+    owned.slots[0] = progressionStack(ITEM.EMERALD, 64);
+    return true;
+  });
+  const full = f.snapshot();
+  assert.equal(f.action({ type: "trade", offerId: boots.id }).ok, false);
+  assert.deepEqual(f.snapshot(), full, "no space remains after paying one emerald from a full stack");
+  const catalog = f.services.trading.get(f.npcId).offers.map(({ uses, ...offer }) => offer);
+  const exhaust = () => {
+    assert.equal(f.openTrader().opened, true);
+    f.stock(boots, boots.maxUses);
+    const plan = f.prepare({ type: "trade", offerId: boots.id, count: boots.maxUses });
+    assert.ok(plan.participants);
+    assert.equal(f.services.commit(plan).ok, true);
+    assert.equal(f.gameplay.countPlain(ITEM.EMERALD), 0);
+    assert.equal(f.gameplay.countPlain(ITEM.CHAINMAIL_BOOTS), 12);
+    assert.equal(f.services.trading.get(f.npcId).offers.find(o => o.id === boots.id).uses, 12);
+    const paid = f.snapshot();
+    assert.equal(f.services.commit(plan).ok, false);
+    assert.equal(f.action({ type: "trade", offerId: boots.id }).ok, false);
+    assert.deepEqual(f.snapshot(), paid);
+  };
+  exhaust();
+  assert.equal(f.work().ok, true);
+  assert.equal(f.services.trading.get(f.npcId).restocks, 1);
+  exhaust();
+  assert.equal(f.work(), null, "same work tick cannot replenish twice");
+  assert.equal(f.building.worldClock.advance(1), true);
+  assert.equal(f.work().ok, true);
+  assert.equal(f.services.trading.get(f.npcId).restocks, 2);
+  exhaust();
+  assert.equal(f.building.worldClock.advance(1), true);
+  assert.equal(f.work(), null, "third work event cannot exceed the daily restock limit");
+  assert.deepEqual(f.services.trading.get(f.npcId).offers.map(({ uses, ...offer }) => offer), catalog);
+  const saved = f.snapshot(), ledger = JSON.stringify(saved.progression.trading);
+  const restored = progressionTradingFixture(t, { profession: "armorer", saved });
+  assert.equal(restored.openTrader().opened, true);
+  assert.equal(JSON.stringify(restored.services.trading.serialize()), ledger);
+  const before = restored.snapshot();
+  assert.equal(restored.action({ type: "trade", offerId: boots.id }).ok, false);
+  assert.deepEqual(restored.snapshot(), before);
+  assert.equal(restored.gameplay.countPlain(ITEM.CHAINMAIL_BOOTS), 12);
+});

@@ -84,7 +84,7 @@ export function normalizeTraderRecord(value, context) {
     ![...TRADING_PROFESSIONS, "unemployed", "nitwit"].includes(profession) ||
     typeof value.locked !== "boolean" ||
     value.locked !== (value.xp > 0) ||
-    ![1, TRADE_OFFER_VERSION].includes(value.offerVersion) ||
+    ![1, 2, TRADE_OFFER_VERSION].includes(value.offerVersion) ||
     !Number.isInteger(value.restocks) || value.restocks < 0 ||
     value.restocks > MAX_DAILY_RESTOCKS ||
     (value.restocks === 0 ? value.lastRestockTime !== null :
@@ -96,8 +96,8 @@ export function normalizeTraderRecord(value, context) {
       (value.xp !== 0 || value.jobsite !== null || value.restocks !== 0))
   )
     throw new RangeError("Invalid persistent villager state");
-  // Validate the exact saved catalog, not a subset of today's roster. Legacy
-  // farmers retain all six offers and their stock; only new catalogs add carrots.
+  // Validate the exact saved catalog, not a subset of today's roster. Historical
+  // merchants retain every price and stock use; additions apply to new catalogs.
   const expected = generateTraderOffers(id, profession, context, value.offerVersion);
   const supplied = progressArray(value.offers, MAX_TRADE_OFFERS)
     .map((entry) => normalizeTradeOffer(entry, context));

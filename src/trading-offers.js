@@ -14,7 +14,7 @@ import {
   requireProgressionItems,
 } from "./progression-items.js";
 
-export const TRADE_OFFER_VERSION = 2;
+export const TRADE_OFFER_VERSION = 3;
 // Catalog additions do not reroll historical offer prices/enchantment choices.
 const TRADE_RANDOM_VERSION = 1;
 export const MAX_TRADE_OFFERS = 12;
@@ -119,7 +119,7 @@ const LEGACY_TRADE_TEMPLATES = freezeProgressData({
   ],
 });
 
-export const TRADE_TEMPLATES = freezeProgressData({
+const V2_TRADE_TEMPLATES = freezeProgressData({
   ...LEGACY_TRADE_TEMPLATES,
   farmer: [
     ...LEGACY_TRADE_TEMPLATES.farmer.slice(0, 2),
@@ -128,8 +128,33 @@ export const TRADE_TEMPLATES = freezeProgressData({
   ],
 });
 
+export const TRADE_TEMPLATES = freezeProgressData({
+  ...V2_TRADE_TEMPLATES,
+  armorer: [
+    ...V2_TRADE_TEMPLATES.armorer.slice(0, 4),
+    sell("chainmail-boots", 2, "CHAINMAIL_BOOTS", 1, [1, 1], 5),
+    sell("chainmail-leggings", 2, "CHAINMAIL_LEGGINGS", 1, [3, 3], 5),
+    ...V2_TRADE_TEMPLATES.armorer.slice(4, 5),
+    sell("chainmail-helmet", 3, "CHAINMAIL_HELMET", 1, [1, 1], 10),
+    sell("chainmail-chestplate", 3, "CHAINMAIL_CHESTPLATE", 1, [4, 4], 10),
+    ...V2_TRADE_TEMPLATES.armorer.slice(5),
+  ],
+  // Native villages supply toolsmiths, not armorers. Keep chainmail reachable
+  // through those existing residents without changing world generation.
+  toolsmith: [
+    ...V2_TRADE_TEMPLATES.toolsmith.slice(0, 4),
+    sell("chainmail-boots", 2, "CHAINMAIL_BOOTS", 1, [1, 1], 5),
+    sell("chainmail-leggings", 2, "CHAINMAIL_LEGGINGS", 1, [3, 3], 5),
+    ...V2_TRADE_TEMPLATES.toolsmith.slice(4, 5),
+    sell("chainmail-helmet", 3, "CHAINMAIL_HELMET", 1, [1, 1], 10),
+    sell("chainmail-chestplate", 3, "CHAINMAIL_CHESTPLATE", 1, [4, 4], 10),
+    ...V2_TRADE_TEMPLATES.toolsmith.slice(5),
+  ],
+});
+
 function templatesForVersion(version) {
   if (version === 1) return LEGACY_TRADE_TEMPLATES;
+  if (version === 2) return V2_TRADE_TEMPLATES;
   if (version === TRADE_OFFER_VERSION) return TRADE_TEMPLATES;
   throw new RangeError("Unsupported trade offer catalog");
 }

@@ -1,0 +1,355 @@
+{
+  "sourceCommit": "4f0f7d98322152ce8890b837be09e84b62e1c14a",
+  "provenance": "Executed unmodified source at this commit: coal x5, iron x6, helmet x2, restock at 3000, boots x3 at 4000. Authored payments; no natural acquisition claim.",
+  "archive": {
+    "version": 3,
+    "world": {
+      "version": 3,
+      "seed": "authored-progression-fixture",
+      "generatorVersion": 4,
+      "dimension": "overworld",
+      "edits": []
+    },
+    "gameplay": {
+      "version": 3,
+      "slots": [
+        {
+          "id": 314,
+          "count": 1,
+          "durability": 195
+        },
+        {
+          "id": 314,
+          "count": 1,
+          "durability": 195
+        },
+        {
+          "id": 314,
+          "count": 1,
+          "durability": 195
+        },
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "cursor": null,
+      "offhand": null,
+      "equipment": {
+        "head": null,
+        "chest": null,
+        "legs": null,
+        "feet": null
+      },
+      "craftingGrid": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "craftingSize": 2,
+      "fuelTime": 0,
+      "mode": "survival",
+      "health": 20,
+      "hunger": 20,
+      "air": 20,
+      "saturation": 5,
+      "exhaustion": 0,
+      "dead": false,
+      "deathCause": null,
+      "inventory": [
+        {
+          "id": 314,
+          "count": 3
+        }
+      ],
+      "hotbar": [
+        314,
+        314,
+        314,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "survivalHotbar": [
+        314,
+        314,
+        314,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "durability": {
+        "314": [
+          195,
+          195,
+          195
+        ]
+      },
+      "selected": 0,
+      "creativeHotbar": [
+        1,
+        2,
+        3,
+        7,
+        8,
+        9,
+        10,
+        5,
+        17
+      ],
+      "creativeSelected": 0,
+      "survivalSelected": 0,
+      "experience": {
+        "total": 48,
+        "level": 4,
+        "progress": 0.5333333333333333
+      },
+      "crafting": [],
+      "timers": {
+        "drowning": 0,
+        "lava": 0,
+        "starvation": 0,
+        "regen": 0
+      }
+    },
+    "progression": {
+      "version": 1,
+      "stations": {
+        "version": 1,
+        "seed": "authored-progression-fixture",
+        "generatorVersion": 4,
+        "player": {
+          "version": 1,
+          "seed": 2697438272
+        },
+        "randomState": 3499524996,
+        "stations": []
+      },
+      "statusEffects": {
+        "version": 1,
+        "tickRemainder": 0,
+        "effects": []
+      },
+      "trading": {
+        "version": 1,
+        "seed": "authored-progression-fixture",
+        "generatorVersion": 4,
+        "npcs": [
+          {
+            "id": "fixture:village/npc/historical-armorer",
+            "profession": "armorer",
+            "locked": true,
+            "xp": 83,
+            "offerVersion": 2,
+            "offers": [
+              {
+                "id": "armorer/coal",
+                "level": 1,
+                "inputs": [
+                  {
+                    "id": 273,
+                    "count": 15
+                  }
+                ],
+                "output": {
+                  "id": 307,
+                  "count": 1
+                },
+                "maxUses": 16,
+                "uses": 0,
+                "xp": 2,
+                "playerXp": 3
+              },
+              {
+                "id": "armorer/boots",
+                "level": 1,
+                "inputs": [
+                  {
+                    "id": 307,
+                    "count": 4
+                  }
+                ],
+                "output": {
+                  "id": 314,
+                  "count": 1,
+                  "durability": 195
+                },
+                "maxUses": 12,
+                "uses": 3,
+                "xp": 1,
+                "playerXp": 3
+              },
+              {
+                "id": "armorer/iron",
+                "level": 2,
+                "inputs": [
+                  {
+                    "id": 274,
+                    "count": 4
+                  }
+                ],
+                "output": {
+                  "id": 307,
+                  "count": 1
+                },
+                "maxUses": 16,
+                "uses": 0,
+                "xp": 10,
+                "playerXp": 3
+              },
+              {
+                "id": "armorer/helmet",
+                "level": 2,
+                "inputs": [
+                  {
+                    "id": 307,
+                    "count": 7
+                  }
+                ],
+                "output": {
+                  "id": 312,
+                  "count": 1,
+                  "durability": 165
+                },
+                "maxUses": 12,
+                "uses": 0,
+                "xp": 5,
+                "playerXp": 3
+              },
+              {
+                "id": "armorer/leggings",
+                "level": 3,
+                "inputs": [
+                  {
+                    "id": 307,
+                    "count": 8
+                  }
+                ],
+                "output": {
+                  "id": 313,
+                  "count": 1,
+                  "durability": 225
+                },
+                "maxUses": 12,
+                "uses": 0,
+                "xp": 10,
+                "playerXp": 3
+              },
+              {
+                "id": "armorer/chestplate",
+                "level": 4,
+                "inputs": [
+                  {
+                    "id": 307,
+                    "count": 14
+                  }
+                ],
+                "output": {
+                  "id": 298,
+                  "count": 1,
+                  "durability": 240
+                },
+                "maxUses": 12,
+                "uses": 0,
+                "xp": 15,
+                "playerXp": 3
+              },
+              {
+                "id": "armorer/protected-chestplate",
+                "level": 5,
+                "inputs": [
+                  {
+                    "id": 307,
+                    "count": 20
+                  }
+                ],
+                "output": {
+                  "id": 298,
+                  "count": 1,
+                  "durability": 240,
+                  "data": {
+                    "version": 1,
+                    "enchantments": {
+                      "protection": 2,
+                      "unbreaking": 2
+                    }
+                  }
+                },
+                "maxUses": 3,
+                "uses": 0,
+                "xp": 30,
+                "playerXp": 3
+              }
+            ],
+            "jobsite": {
+              "id": "fixture:village/jobsite/first",
+              "kind": "BLAST_FURNACE",
+              "dimension": "overworld",
+              "position": {
+                "x": 8,
+                "y": 64,
+                "z": 8
+              }
+            },
+            "clock": {
+              "day": 0,
+              "time": 4000
+            },
+            "restocks": 1,
+            "lastRestockTime": 3000
+          }
+        ]
+      },
+      "potionProjectiles": {
+        "version": 1,
+        "seed": "authored-progression-fixture",
+        "generatorVersion": 4,
+        "ownerId": "local-player",
+        "nextId": 1,
+        "accumulator": 0,
+        "projectiles": []
+      }
+    }
+  }
+}

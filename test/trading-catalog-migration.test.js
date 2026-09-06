@@ -5,7 +5,7 @@ import { IDBFactory } from "fake-indexeddb";
 import { ITEM } from "../src/items.js";
 import { normalizeWorldComponents } from "../src/save-preflight.js";
 import { exportWorldFile, parseWorldFile, WorldStorage } from "../src/storage.js";
-import { generateTraderOffers, TRADING_PROFESSIONS } from "../src/trading-offers.js";
+import { generateTraderOffers, TRADE_OFFER_VERSION, TRADING_PROFESSIONS } from "../src/trading-offers.js";
 import { normalizeTradingSnapshot } from "../src/trading-state.js";
 import { Trading } from "../src/trading.js";
 import { createWorldContext } from "../src/world-spec.js";
@@ -133,7 +133,7 @@ test("saved catalog validation rejects subsets, wrong versions, repricing and cr
 test("new farmer carrot cost and exhausted finite stock survive full preflight and file/IDB reload", async () => {
   const f = traderFixture("farmer");
   const offer = f.trading.offers(f.id).find(o => o.id === "farmer/planting-carrots");
-  assert.equal(f.trading.get(f.id).offerVersion, 2);
+  assert.equal(f.trading.get(f.id).offerVersion, TRADE_OFFER_VERSION);
   assert.equal(f.trading.get(f.id).offers.length, 7);
   assert.deepEqual(offer.inputs, [{ id: ITEM.EMERALD, count: 1 }]);
   assert.deepEqual(offer.output, { id: ITEM.CARROT, count: 2 });
@@ -168,7 +168,7 @@ test("new farmer carrot cost and exhausted finite stock survive full preflight a
   assert.equal(f.trading.get(f.id).offers.find(o => o.id === offer.id).uses, 4);
 });
 
-test("an actual profession change adopts v2 while a legacy same-profession assignment does not", (t) => {
+test("an actual profession change adopts the current catalog while a legacy same-profession assignment does not", (t) => {
   const saved = archived();
   const trading = new Trading({ context: createWorldContext(saved.world) });
   t.after(() => trading.dispose());
@@ -184,6 +184,6 @@ test("an actual profession change adopts v2 while a legacy same-profession assig
   }, oldOptions(7000));
   assert.ok(plan);
   assert.equal(trading.commit(plan).ok, true);
-  assert.equal(trading.get(npc.id).offerVersion, 2);
+  assert.equal(trading.get(npc.id).offerVersion, TRADE_OFFER_VERSION);
   assert.equal(trading.get(npc.id).offers.length, 7);
 });
