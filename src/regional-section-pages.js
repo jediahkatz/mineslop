@@ -21,10 +21,21 @@ export function meshSubmissionCount(mesh) {
     !mesh.material.forceSinglePass ? 2 : 1;
 }
 
-export function geometryBuffers(geometry, buffers = new Set()) {
+export function geometryBuffers(geometry, buffers = new Set(), otherBuffers) {
   if (!geometry) return buffers;
-  for (const a of [...Object.values(geometry.attributes), geometry.index]) {
-    if (a?.array) buffers.add(a.array.buffer);
+  const attributes = Object.values(geometry.attributes), index = geometry.index;
+  for (const attribute of attributes) {
+    const array = attribute?.array;
+    if (!array) continue;
+    const buffer = array.buffer;
+    buffers.add(buffer);
+    otherBuffers?.add(buffer);
+  }
+  const array = index?.array;
+  if (array) {
+    const buffer = array.buffer;
+    buffers.add(buffer);
+    otherBuffers?.add(buffer);
   }
   return buffers;
 }

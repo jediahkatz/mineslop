@@ -244,8 +244,7 @@ function regionalResources(renderer) {
   let maxCompactionBytes = 0;
   const count = (mesh) => {
     if (!renderer.sectionWater?.owner.contains(mesh)) {
-      geometryBuffers(mesh.geometry, cpu);
-      geometryBuffers(mesh.geometry, gpu);
+      geometryBuffers(mesh.geometry, cpu, gpu);
     }
     const draws = meshSubmissionCount(mesh);
     drawCalls += draws;
