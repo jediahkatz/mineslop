@@ -162,18 +162,18 @@ test("world, radius, camera and projection changes invalidate the retained prior
   assertFresh(renderer, world, 2);
 });
 
-test("live missing work precedes replacement work without dropping either ticket", (t) => {
-  const { renderer, world } = fixture(t);
+test("live missing work precedes far replacement work without dropping either ticket", (t) => {
+  const { renderer, world } = fixture(t, [[4, 0]]);
   renderer.rebuildDirty(Infinity);
-  world.put(8, 8, 8, BLOCK.STONE);
-  world.admit(1, 0);
+  world.put(72, 8, 8, BLOCK.STONE);
+  world.admit(5, 0);
   // Loading a neighbor invalidates every previously captured apron.
-  for (const sy of world.chunks.get("0,0").sectionRevisions.keys()) world.dirty(0, 0, sy);
-  const replacement = world.dirtySectionRevisions.get("0,0,0");
+  for (const sy of world.chunks.get("4,0").sectionRevisions.keys()) world.dirty(4, 0, sy);
+  const replacement = world.dirtySectionRevisions.get("4,0,0");
   const count = world.acknowledgments.length;
   renderer.rebuildDirty(1);
-  assert.equal(world.acknowledgments[count].cx, 1);
-  assert.equal(world.dirtySectionRevisions.get("0,0,0"), replacement);
+  assert.equal(world.acknowledgments[count].cx, 5);
+  assert.equal(world.dirtySectionRevisions.get("4,0,0"), replacement);
   renderer.rebuildDirty(Infinity);
   assertFresh(renderer, world, 2);
 });

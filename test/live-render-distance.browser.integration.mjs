@@ -90,6 +90,83 @@ test("live default R12, accepted UI settings, progressive native terrain and lif
   assert.equal(initial.slider, "12");
   assert.equal(initial.label, "12 chunks (192 blocks)");
 
+  await page.waitForFunction(async () => {
+    const { meshRevisionCurrent } = await import("../src/mesh-snapshot.js");
+    const g = window.distanceHost.game, p = g.player.position;
+    for (const [dx, dz] of [[3, 0], [-3, 0], [0, 3], [0, -3]]) {
+      const at = { x: Math.floor(p.x) + dx, y: Math.floor(p.y) + 1, z: Math.floor(p.z) + dz };
+      if (g.world.getCell(at.x, at.y, at.z)?.id !== 0) continue;
+      const cx = Math.floor(at.x / 16), cz = Math.floor(at.z / 16), sy = Math.floor(at.y / 16);
+      const section = g.graphics.chunks.get(`${cx},${cz}`)?.userData.sections.get(sy);
+      if (section?.bytes > 0 && !g.world.dirtySectionRevisions.has(`${cx},${cz},${sy}`) &&
+          meshRevisionCurrent(g.world, { ...section.stamp, ticket: undefined })) {
+        window.distanceHost.paidEditTarget = { ...at, cx, cz, sy };
+        return true;
+      }
+    }
+    return false;
+  }, undefined, { timeout: 15000 });
+  const paidEdit = await page.evaluate(async () => {
+    const { BLOCK } = await import("../src/blocks.js");
+    const { meshRevisionCurrent, sectionYs } = await import("../src/mesh-snapshot.js");
+    const g = window.distanceHost.game, r = g.graphics, at = window.distanceHost.paidEditTarget;
+    const columnKey = `${at.cx},${at.cz}`, key = `${columnKey},${at.sy}`;
+    const snapshot = async () => {
+      const column = r.chunks.get(columnKey), section = column.userData.sections.get(at.sy), xyz = [];
+      for (const source of section.group.children) {
+        if (!source.userData.sectionSource) continue;
+        const range = column.userData.sectionRanges.get(source), mesh = range.mesh;
+        if (mesh.parent !== column.userData.sectionRegion) throw new Error("Physical page is detached");
+        const geometry = mesh.geometry, position = geometry.attributes.position, origin = mesh.parent.position;
+        for (let i = range.start; i < range.start + range.count; i++) {
+          const vertex = geometry.index.array[i];
+          xyz.push(position.getX(vertex) + origin.x, position.getY(vertex) + origin.y, position.getZ(vertex) + origin.z);
+        }
+      }
+      const digest = await crypto.subtle.digest("SHA-256", new Float32Array(xyz));
+      return { ticket: section.stamp.ticket, indices: xyz.length / 3,
+        hash: [...new Uint8Array(digest)].map((v) => v.toString(16).padStart(2, "0")).join("") };
+    };
+    const before = await snapshot();
+    if (!g.gameplay.add(BLOCK.STONE, 2) || !g.gameplay.assignSlot(0, BLOCK.STONE))
+      throw new Error("Could not prepare the isolated paid-placement fixture");
+    g.gameplay.select(0);
+    const stack = g.gameplay.getHandStack("main"), beforeCount = stack.count;
+    const cost = g.gameplay.prepareHandCost("main", {
+      stack, handRevision: g.gameplay.getHandRevision("main"), count: 1, notify: false,
+    });
+    const mutation = g.world.prepareMutation([{ x: at.x, y: at.y, z: at.z,
+      before: g.world.getCell(at.x, at.y, at.z), after: { id: BLOCK.STONE, state: 0, fluid: 0 } }]);
+    if (!cost || !mutation || !g.world.coordinator.commit([mutation, cost]).ok)
+      throw new Error("Paid placement was refused");
+    const ticket = g.world.dirtySectionRevisions.get(key), started = performance.now();
+    let calls = 0;
+    const rebuild = r.rebuildDirty;
+    r.rebuildDirty = function (...args) { calls++; return rebuild.apply(this, args); };
+    const fresh = () => {
+      const section = r.chunks.get(columnKey)?.userData.sections.get(at.sy);
+      return !g.world.dirtySectionRevisions.has(key) && section?.stamp.ticket === ticket &&
+        meshRevisionCurrent(g.world, { ...section.stamp, ticket: undefined });
+    };
+    try {
+      while (!fresh() && calls < 120 && performance.now() - started < 15000)
+        await new Promise(requestAnimationFrame);
+      if (!fresh()) throw new Error(`Paid near edit remained stale after ${calls} real frame calls`);
+    } finally { r.rebuildDirty = rebuild; }
+    const elapsedMs = performance.now() - started, after = await snapshot();
+    const installed = [...r.chunks.values()].reduce((sum, column) => sum + column.userData.sections.size, 0);
+    return { at, ticket, beforeCount, afterCount: g.gameplay.getHandStack("main").count,
+      block: g.world.get(at.x, at.y, at.z), calls, elapsedMs, before, after, installed,
+      required: (2 * r.renderRadius + 1) ** 2 * sectionYs(g.world).length, streaming: g.world.streamingStatus(),
+      sliceBudgetMs: r.meshStats.limits.maxSliceMs, softwareGPU: r.softwareRendering };
+  });
+  assert.equal(paidEdit.afterCount, paidEdit.beforeCount - 1);
+  assert.equal(paidEdit.after.ticket, paidEdit.ticket);
+  assert.notEqual(paidEdit.after.hash, paidEdit.before.hash);
+  assert.ok(paidEdit.after.indices > 0);
+  assert.ok(paidEdit.installed < paidEdit.required, "paid edit publishes before full-detail coverage");
+  assert.equal(paidEdit.sliceBudgetMs, 8);
+
   // Observe bounded real streaming/meshing. Incomplete detail is recorded, never
   // substituted by distant terrain. This is functionality, not an FPS claim.
   await page.waitForFunction(() => {
@@ -190,7 +267,7 @@ test("live default R12, accepted UI settings, progressive native terrain and lif
   assert.equal(final.saved, "12");
   for (const [key, value] of Object.entries(originals)) assert.equal(final.bytes[key], value);
   assert.deepEqual(errors, []);
-  const report = { initial, progress, rejection, lifecycle, final, errors,
+  const report = { initial, paidEdit, progress, rejection, lifecycle, final, errors,
     limitations: "Software GPU when reported; partial detail, not full R12 readiness or performance qualification." };
   if (process.env.MINESLOP_DISTANCE_REPORT)
     await writeFile(process.env.MINESLOP_DISTANCE_REPORT, `${JSON.stringify(report, null, 2)}\n`);

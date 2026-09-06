@@ -71,6 +71,8 @@ function state(renderer) {
   renderer.sectionJobs ??= new Map();
   renderer.sectionRejections ??= new Map();
   renderer.sectionRejectionDetails ??= new Map();
+  if (renderer.sectionAdmissionFairness?.world !== renderer.world)
+    renderer.sectionAdmissionFairness = { world: renderer.world, urgentNext: true };
   renderer.meshResourceRevision ??= 0;
   renderer.meshStats ??= {
     staleJobs: 0,
@@ -162,6 +164,7 @@ export function clearSectionJobs(renderer) {
   renderer.sectionRejections?.clear();
   renderer.sectionRejectionDetails?.clear();
   renderer.sectionQueueLayout = null;
+  renderer.sectionAdmissionFairness = null;
   pruneEmptySectionRegions(renderer);
   disposeIdlePalette(renderer);
 }
@@ -412,7 +415,13 @@ function queue(renderer) {
       buckets.get(priority).push(slot);
     }
     const ordered = [...buckets.keys()].sort((a, b) => a - b).flatMap((key) => buckets.get(key));
-    layout = renderer.sectionQueueLayout = { world, key: viewKey, slots: ordered, columns };
+    // At most 27 geometric slots, not cached eligibility. Player's 5-block
+    // interaction reach + 4-block third-person camera + adjacent placement +
+    // 2-block mesh apron (and 0.025 bob) fit within one 16-block section.
+    const urgentSlots = ordered.filter((slot) =>
+      Math.abs(slot.cx - xs) <= 1 && Math.abs(slot.cz - zs) <= 1 &&
+      Math.abs(slot.sy - ys) <= 1);
+    layout = renderer.sectionQueueLayout = { world, key: viewKey, slots: ordered, urgentSlots, columns };
   }
   return layout.slots;
 }
@@ -458,9 +467,17 @@ function nextSection(renderer, limits) {
   // A view/layout change or column cancellation discards it with the lattice.
   if (layout.candidate && eligible(layout.candidate)) return layout.candidate;
   layout.candidate = null;
+  if (renderer.sectionAdmissionFairness?.urgentNext) {
+    for (const item of layout.urgentSlots) {
+      if (!eligible(item) || item.missing) continue;
+      item.urgentAdmission = true;
+      return layout.candidate = item;
+    }
+  }
   let replacement;
   for (const item of layout.slots) {
     if (!eligible(item)) continue;
+    item.urgentAdmission = false;
     if (item.missing) return layout.candidate = item;
     replacement ??= item;
   }
@@ -691,6 +708,7 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
       const next = nextSection(renderer, limits);
       if (!next) break;
       if (maximum !== Infinity && performance.now() - started >= limits.maxSliceMs) break;
+      const fairness = renderer.sectionAdmissionFairness;
       const empty = regional(renderer) &&
         emptySectionJob(renderer.world, next.cx, next.cz, next.sy, sectionLimits);
       let jobLimits = sectionLimits;
@@ -737,6 +755,12 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
       };
       renderer.sectionJobs.set(next.key, job);
       job.queueItem = next;
+      // Only admitted jobs spend the turn. Deadline yields and refusals do not.
+      // Keep this outside the view lattice: head motion/unload must not erase
+      // the normal turn owed after an urgent replacement. Existing jobs and
+      // the single retained candidate still take precedence over either lane.
+      if (fairness && renderer.sectionAdmissionFairness === fairness)
+        fairness.urgentNext = !(next.urgentAdmission && !next.missing);
       if (renderer.sectionQueueLayout) renderer.sectionQueueLayout.candidate = null;
       job.admissionKey = admissionKey;
       if (regional(renderer)) recordRegionalPeak(renderer, detailMeshResources(renderer));
