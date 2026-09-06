@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live render-distance host regression</title>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="ui"></div>
+    <script type="module">
+      import { VoxelGame } from "../src/game.js";
+      import { GameRenderer } from "../src/renderer.js";
+      const probe = window.distanceHost = {
+        game: null, ready: false, error: null, bootstrap: [], maxCompletions: 0,
+        unbounded: false, draws: 0, stagedCanvasesDetached: true,
+      };
+      const prepareGraphics = VoxelGame.prototype.prepareGraphics;
+      VoxelGame.prototype.prepareGraphics = function (...args) {
+        const graphics = prepareGraphics.apply(this, args);
+        probe.stagedCanvasesDetached &&= !graphics.renderer.domElement.isConnected;
+        return graphics;
+      };
+      if (new URLSearchParams(location.search).has("rejectStartup")) {
+        const override = GameRenderer.prototype.setRenderDistanceOverride;
+        GameRenderer.prototype.setRenderDistanceOverride = function (radius) {
+          const gl = this.renderer.getContext(), read = gl.getParameter;
+          gl.getParameter = () => 0;
+          try { return override.call(this, radius); }
+          finally { gl.getParameter = read; }
+        };
+      }
+      const prepare = VoxelGame.prototype.prepareWorld;
+      VoxelGame.prototype.prepareWorld = async function (...args) {
+        const stage = await prepare.apply(this, args);
+        if (probe.bootstrap.length < 16)
+          probe.bootstrap.push({ chunks: stage.world.chunks.size,
+            generatorVersion: stage.world.generatorVersion });
+        return stage;
+      };
+      const rebuild = GameRenderer.prototype.rebuildDirty;
+      GameRenderer.prototype.rebuildDirty = function (limit = 2) {
+        probe.unbounded ||= !Number.isFinite(limit);
+        probe.maxCompletions = Math.max(probe.maxCompletions, limit);
+        return rebuild.call(this, limit);
+      };
+      const render = GameRenderer.prototype.render;
+      GameRenderer.prototype.render = function (...args) {
+        const result = render.apply(this, args);
+        probe.draws++;
+        return result;
+      };
+      const start = VoxelGame.prototype.start;
+      VoxelGame.prototype.start = async function (...args) {
+        probe.game = this;
+        try {
+          const result = await start.apply(this, args);
+          probe.ready = true;
+          return result;
+        } catch (error) {
+          probe.error = String(error.stack ?? error);
+          throw error;
+        }
+      };
+      // The production entry still owns construction, settings, storage and RAF.
+      await import("../src/main.js");
+    </script>
+  </body>
+</html>

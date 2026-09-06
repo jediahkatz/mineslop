@@ -9,6 +9,7 @@ import { validBodyPosition } from "./geometry-world.js";
 import { World } from "./world.js";
 import { findSafeLanding } from "./world-interactions.js";
 import { createWorldContext, isDimension } from "./world-spec.js";
+import { COLLISION_LOAD_RADIUS } from "./world-bootstrap.js";
 
 export const RESPAWN_LOAD_RADIUS = 1;
 const liquidOrAir = new Set([BLOCK.AIR, BLOCK.WATER, BLOCK.LAVA]);
@@ -109,7 +110,7 @@ export async function stageTravelDestination(game, destination, {
         landing = { ...at, fromBed: false, missingBed: !!spawn.spawn };
       }
     } else {
-      await ensure(destination, game.graphics.renderRadius + 1);
+      await ensure(destination, COLLISION_LOAD_RADIUS);
       landing = findSafeLanding(preview, destination, {
         allowFlying: mode === "creative", allowPlatform: false,
         // Reject wet/shape-invalid candidates inside the search, not after its
@@ -127,7 +128,7 @@ export async function stageTravelDestination(game, destination, {
     return {
       world: preview, dimension, position: { ...landing, dimension },
       changes, current,
-      radius: respawn ? RESPAWN_LOAD_RADIUS : game.graphics.renderRadius + 1,
+      radius: respawn ? RESPAWN_LOAD_RADIUS : COLLISION_LOAD_RADIUS,
       dispose: () => preview.dispose(),
     };
   } catch (error) {

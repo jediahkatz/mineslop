@@ -54,10 +54,26 @@ test("successful staging owns only a ready candidate and never builds a landing 
   assert.deepEqual(staged.pose.position, world.getSpawn());
   assert.equal(staged.pose.flying, false);
   assert.equal(staged.pose.pitch, -0.12);
-  assert.deepEqual(calls.loaded, [{ position: world.getSpawn(), radius: 3 }]);
+  assert.deepEqual(calls.loaded, [{ position: world.getSpawn(), radius: 2 }]);
   assert.deepEqual(progress, [0.2, 0.65]);
   assert.equal(calls.disposed, 0, "the successful caller owns the candidate");
   assert.equal(calls.writes, 0);
+});
+
+test("collision bootstrap is fixed across quality and preserves the saved generator", async () => {
+  for (const quality of ["low", "medium", "high"]) {
+    const { world, calls } = candidate();
+    let options;
+    await stageWorld({
+      seed: world.seed, quality,
+      saved: { world: { generatorVersion: 3 }, player: world.getSpawn() },
+    }, {
+      worldFactory: (_seed, value) => { options = value; return world; },
+    });
+    assert.equal(options.generatorVersion, 3);
+    assert.deepEqual(calls.loaded.map((call) => call.radius), [2]);
+    assert.equal(calls.writes, 0);
+  }
 });
 
 test("valid saved high-flight poses restore exactly without a landing search", async () => {

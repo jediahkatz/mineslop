@@ -221,11 +221,11 @@ for (const version of [3, 4]) {
     }
   });
 
-  test(`v${version} native detached travel respects the shared explicit world bounds`, async (t) => {
+  test(`v${version} native detached travel separates collision bootstrap from visual distance`, async (t) => {
     const f = buildingFixture(t, { generatorVersion: version });
     f.player.world = f.world;
     f.put(8, 20, 8, BLOCK.STONE);
-    f.game.graphics.renderRadius = 6;
+    f.game.graphics.renderRadius = 12;
     const before = f.snapshot(), calls = [];
     const stage = await stageTravelDestination(f.game, { x: 8, y: 21, z: 8, dimension: "overworld" }, {
       worldFactory(source, dimension) {
@@ -236,14 +236,15 @@ for (const version of [3, 4]) {
       },
     });
     t.after(() => stage.dispose());
-    assert.deepEqual(calls, [7]);
-    assert.equal(stage.radius, 7);
-    assert.equal(stage.world.chunks.size, 225);
+    assert.deepEqual(calls, [2]);
+    assert.equal(stage.radius, 2);
+    assert.equal(stage.world.chunks.size, 25);
     assert.equal(stage.current(), true);
     assert.deepEqual(f.snapshot(), before);
-    stage.world.updateStreaming(stage.position, 6);
-    assert.equal(stage.world._focus.radius, 8);
-    assert.ok(stage.world.chunks.size <= 289);
+    stage.world.updateStreaming(stage.position, 12);
+    assert.equal(stage.world._focus.radius, 14);
+    assert.equal(stage.world.streamingStatus().demand, 841);
+    assert.equal(stage.world.chunks.size, 25, "visual demand never synchronously generates terrain");
     await assert.rejects(stage.world.ensureArea(stage.position, MAX_WORLD_RADIUS + 1),
       /radius 0–14/);
   });

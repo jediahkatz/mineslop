@@ -64,6 +64,9 @@ import {
 import { Wildlife } from "./wildlife.js";
 import { raycast } from "./world.js";
 import { createWorldContext } from "./world-spec.js";
+import {
+  loadRenderDistance, normalizeRenderDistance, saveRenderDistance,
+} from "./render-distance-preferences.js";
 
 const LEGACY_KEY = "voxelcraft-world-v1";
 
@@ -78,6 +81,7 @@ export class VoxelGame {
     this.soundEnabled = true;
     this.controlPreferences = loadControlPreferences();
     this.viewPreferences = loadViewPreferences();
+    this.renderDistance = loadRenderDistance();
     this.paused = true;
     this.building = false;
     this.overlayOpen = false;
@@ -129,6 +133,7 @@ export class VoxelGame {
         this.quality = value;
         this.graphics?.setQuality(value);
       },
+      onRenderDistanceChange: (radius) => this.setRenderDistance(radius),
       onSoundChange: (enabled) => {
         this.setSoundEnabled(enabled);
         if (enabled) audioOperation(this.audioEngine, "unlock");
@@ -173,6 +178,7 @@ export class VoxelGame {
     });
     this.ui.update({
       controlPreferences: this.controlPreferences,
+      renderDistance: this.renderDistance,
       fullbrightInspection: this.viewPreferences.fullbrightInspection,
       guiScale: this.viewPreferences.guiScale,
       showFps: this.viewPreferences.showFps,
@@ -621,8 +627,10 @@ export class VoxelGame {
 
   async installPreparedWorld(staged, saved, validate, publish) {
     await new Promise((resolve) => requestAnimationFrame(resolve));
+    let graphics;
     try {
       validate?.();
+      graphics = this.prepareGraphics(staged.world, staged.quality);
     } catch (error) {
       staged.dispose?.();
       this.building = false;
@@ -631,8 +639,13 @@ export class VoxelGame {
       this.refreshHud();
       throw error;
     }
-    if (publish) await publish(() => this.activatePreparedWorld(staged, saved));
-    else this.activatePreparedWorld(staged, saved);
+    try {
+      if (publish) await publish(() => this.activatePreparedWorld(staged, saved, graphics));
+      else this.activatePreparedWorld(staged, saved, graphics);
+    } finally {
+      // A failed CAS/validation never transfers the staged renderer to Game.
+      if (this.graphics !== graphics) graphics.dispose();
+    }
     this.building = false;
     // Publication is final. A UI observer cannot turn a committed replacement
     // into a reported failure or attempt to restore a retired world.
@@ -651,7 +664,7 @@ export class VoxelGame {
 
   // Must remain synchronous: replacement activation runs inside storage's CAS
   // transaction, after all terrain admission and animation-frame waits.
-  activatePreparedWorld(staged, saved) {
+  activatePreparedWorld(staged, saved, graphics) {
     // Required terrain and a collision-checked pose exist before live teardown.
     this.unbindWorldEvents?.();
     this.unbindWorldEvents = null;
@@ -704,11 +717,8 @@ export class VoxelGame {
     this.quality = staged.quality;
     this.setSoundEnabled(saved?.soundEnabled ?? this.soundEnabled);
     this.world = staged.world;
-    this.graphics = new GameRenderer(this.container, this.world);
-    this.graphics.setQuality(this.quality);
-    this.graphics.setFullbrightInspection(
-      this.viewPreferences.fullbrightInspection
-    );
+    this.graphics = graphics;
+    this.container.appendChild(graphics.renderer.domElement);
     this.player = new Player(
       this.graphics.camera,
       this.world,
@@ -824,7 +834,8 @@ export class VoxelGame {
       this.player.update(0.001, {
         recoverFromVoid: this.gameplay.mode === "creative",
       });
-    this.graphics.rebuildDirty(Infinity);
+    this.world.updateStreaming(this.player.position, this.graphics.renderRadius);
+    this.graphics.rebuildDirty(2);
     this.graphics.setBiome?.(
       this.world.getBiome(
         this.player.position.x,
@@ -836,6 +847,49 @@ export class VoxelGame {
     this.graphics.update(0, this.elapsed, this.player.position);
     this.renderWeather();
     this.graphics.render();
+  }
+
+  prepareGraphics(world, quality) {
+    const graphics = new GameRenderer(this.container, world);
+    try {
+      // Use the existing regional limits for both classic and expanded saves.
+      // Tail sealing and water fusion remain disabled.
+      graphics.meshLimits = { regionalPages: true };
+      graphics.setQuality(quality);
+      graphics.setRenderDistanceOverride(normalizeRenderDistance(this.renderDistance));
+      graphics.setFullbrightInspection(this.viewPreferences.fullbrightInspection);
+      // Storage publication may await a CAS. Do not present the candidate
+      // canvas over the still-live source world while that transaction waits.
+      graphics.renderer.domElement.remove();
+      return graphics;
+    } catch (error) {
+      graphics.dispose();
+      throw error;
+    }
+  }
+
+  setRenderDistance(radius) {
+    if (this.building || this.failed || this.transitionGate.busy || !this.graphics) {
+      this.ui.toast("Render distance cannot change while the world is loading or changing. Try again when it is ready.");
+      return false;
+    }
+    // Do not normalize an invalid request into a different accepted value.
+    if (!Number.isInteger(radius) || normalizeRenderDistance(radius) !== radius) {
+      this.ui.toast("Render distance must be a whole number from 2 to 12.");
+      return false;
+    }
+    try {
+      this.graphics.setRenderDistanceOverride(radius);
+    } catch (error) {
+      this.ui.toast(`Render distance unchanged: ${error.message}`);
+      return false;
+    }
+    this.renderDistance = radius;
+    this.ui.update({ renderDistance: radius });
+    if (!saveRenderDistance(radius))
+      this.ui.toast("Render distance changed for this session, but this browser could not save the setting.");
+    this.world.updateStreaming(this.player.position, radius);
+    return true;
   }
 
   createWildlife(saved, { safeSpawn = false } = {}) {
@@ -1503,6 +1557,8 @@ export class VoxelGame {
     this.gameplayState = gameplayState;
     this.ui.update({
       fps: this.fps,
+      renderDistance: this.renderDistance,
+      terrainStreaming: this.world.streamingStatus(),
       position: this.player.position,
       blockName: this.target ? BLOCKS[this.target.id]?.name : "",
       targetName: this.meleeTarget?.name ?? "",
@@ -1750,7 +1806,7 @@ export class VoxelGame {
     // Resolve every physical owner and late dismount before testing swept
     // falling-cell occupancy. Keep one mesh budget, after these World edits.
     this.gravityServices?.frame(dt, { simulating: this.simulating });
-    this.graphics.rebuildDirty(this.quality === "high" ? 2 : 1);
+    this.graphics.rebuildDirty(2);
     // Snapshot daylight and cut LOD only after final poses, mutations and mesh
     // admission: an earlier snapshot can overlap new detail or hide fallback
     // for a row culled by a late dismount.

@@ -329,7 +329,7 @@ test("late exploration load failure in real initialize releases every staged hos
   assert.equal(f.calls.archives.length, 0);
 });
 
-test("initialize retires exploration before Settlement, Gameplay and World at the renderer boundary", async (t) => {
+test("initialize retires exploration before Settlement, Gameplay and World after renderer admission", async (t) => {
   const f = authoredExplorationHost(t);
   authorStageTerrain(t);
   immediateAnimationFrames(t, f.shell);
@@ -355,11 +355,14 @@ test("initialize retires exploration before Settlement, Gameplay and World at th
     candidate = await prepare.apply(this, args);
     return candidate;
   });
-  const boundary = new Error("intentional Node-only renderer boundary");
-  // Stop BEFORE any WebGL is constructed; no successful renderer is fabricated.
-  f.shell.document.createElementNS = () => {
-    throw boundary;
-  };
+  const boundary = new Error("intentional Node-only canvas publication boundary");
+  // GPU admission now precedes teardown. This ownership-only fixture stops at
+  // canvas publication; the browser suite verifies real GPU admission.
+  f.game.container = { appendChild() { throw boundary; } };
+  t.mock.method(f.game, "prepareGraphics", () => ({
+    renderer: { domElement: {} },
+    dispose() {},
+  }));
   const saved = authoredArchive();
   try {
     await assert.rejects(
@@ -381,7 +384,6 @@ test("initialize retires exploration before Settlement, Gameplay and World at th
     assert.equal(f.game.explorationServices, null);
     assert.equal(f.game.exploration, null);
   } finally {
-    delete f.shell.document.createElementNS;
     disposeExplorationStage(candidate);
   }
 });

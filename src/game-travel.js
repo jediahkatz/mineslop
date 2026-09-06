@@ -6,6 +6,7 @@ import {
   installTravelLanding, installTravelPortal, stageTravelDestination,
 } from "./game-travel-stage.js";
 import { TransactionInvariantError } from "./transactions.js";
+import { COLLISION_LOAD_RADIUS } from "./world-bootstrap.js";
 
 export { RESPAWN_LOAD_RADIUS } from "./game-travel-stage.js";
 const point = ({ x, y, z }) => ({ x, y, z });
@@ -329,7 +330,8 @@ export class GameTravel {
       game.portalCooldown = 4;
       game.building = false;
       observe(() => game.player.update(0, { recoverFromVoid: false }));
-      observe(() => game.graphics.rebuildDirty(Infinity));
+      observe(() => world.updateStreaming(game.player.position, game.graphics.renderRadius));
+      observe(() => game.graphics.rebuildDirty(2));
       observe(() => game.ui.ready());
       observe(() => game.ui.showMenu("pause"));
       observe(() => game.refreshHud());
@@ -379,7 +381,7 @@ export class GameTravel {
           world.setDimension(previous.dimension);
           if (needsRestore) {
             const epoch = world.epoch;
-            await world.ensureArea(previous.position, game.graphics.renderRadius + 1);
+            await world.ensureArea(previous.position, COLLISION_LOAD_RADIUS);
             if (!ownersCurrent() || world.epoch !== epoch || world.dimension !== previous.dimension)
               throw new Error("Source owners changed during recovery");
           }

@@ -2,9 +2,10 @@ import { restorePlayerSave } from "./player-save.js";
 import { GENERATOR_VERSION } from "./terrain.js";
 import { World } from "./world.js";
 import { findSafeLanding } from "./world-interactions.js";
+import { COLLISION_LOAD_RADIUS } from "./world-bootstrap.js";
 
 const createWorld = (seed, options) => new World(seed, options);
-const radiusFor = Object.freeze({ low: 2, medium: 3, high: 4 });
+const qualities = new Set(["low", "medium", "high"]);
 
 function poseTarget() {
   return {
@@ -39,7 +40,7 @@ export async function stageWorld(
 ) {
   if (!["survival", "creative"].includes(mode))
     throw new RangeError("Invalid candidate game mode");
-  if (!Object.hasOwn(radiusFor, quality))
+  if (!qualities.has(quality))
     throw new RangeError("Invalid candidate graphics quality");
   let world;
   try {
@@ -51,8 +52,8 @@ export async function stageWorld(
       throw new Error("The saved terrain edits are invalid");
     const source = saved?.player ?? world.getSpawn();
     const origin = { x: source.x, y: source.y, z: source.z };
-    onProgress(0.2, "Growing nearby biomes");
-    await world.ensureArea(origin, radiusFor[quality] + 1);
+    onProgress(0.2, "Preparing safe nearby terrain");
+    await world.ensureArea(origin, COLLISION_LOAD_RADIUS);
 
     const candidate = poseTarget();
     const restored = Boolean(
@@ -78,7 +79,7 @@ export async function stageWorld(
           "No unobstructed player footprint in the candidate world"
         );
     }
-    onProgress(0.65, "Lighting the landscape");
+    onProgress(0.65, "Safe landing ready · visual terrain will stream");
     return {
       world,
       mode,

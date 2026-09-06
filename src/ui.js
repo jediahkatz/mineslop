@@ -14,6 +14,7 @@ import { createFpsSettings } from "./ui/fps-settings.js";
 import { createGuiSettings } from "./ui/gui-settings.js";
 import { createHUD } from "./ui/hud.js";
 import { createInspectionSettings } from "./ui/inspection-settings.js";
+import { createRenderDistanceSettings } from "./ui/render-distance-settings.js";
 import { createInventory } from "./ui/inventory.js";
 import { createMenuNavigation } from "./ui/menu-navigation.js";
 import {
@@ -35,6 +36,7 @@ export function createUI({
   onSave,
   onTimeChange,
   onQualityChange,
+  onRenderDistanceChange,
   onSoundChange,
   onControlPreferencesChange,
   onFullbrightInspectionChange,
@@ -120,6 +122,12 @@ export function createUI({
     listen,
     onChange: onFullbrightInspectionChange
       ? (enabled) => void runAction(onFullbrightInspectionChange, enabled)
+      : undefined,
+  });
+  const renderDistanceSettings = createRenderDistanceSettings(root, {
+    listen,
+    onChange: onRenderDistanceChange
+      ? (radius) => void runAction(onRenderDistanceChange, radius)
       : undefined,
   });
   const fpsSettings = createFpsSettings(root, {
@@ -484,6 +492,8 @@ export function createUI({
     seed,
     generatorVersion,
     quality,
+    renderDistance,
+    terrainStreaming,
     soundEnabled,
     controlPreferences,
     fullbrightInspection,
@@ -583,6 +593,13 @@ export function createUI({
         generatorVersion < 1 ||
         generatorVersion >= GENERATOR_VERSION;
     if (quality !== undefined) $("#quality-setting").value = quality;
+    if (renderDistance !== undefined) renderDistanceSettings.update(renderDistance);
+    if (terrainStreaming !== undefined) {
+      const { loaded, demand, error } = terrainStreaming;
+      setText($("#terrain-streaming-status"), demand
+        ? `Terrain inputs: ${loaded}/${demand}${error ? ` · ${error} failed to load` : ""}. Geometry and lighting build progressively.`
+        : "Preparing nearby terrain. Geometry and lighting build progressively.");
+    }
     if (soundEnabled !== undefined)
       $("#sound-setting").checked = Boolean(soundEnabled);
     if (controlPreferences !== undefined)
