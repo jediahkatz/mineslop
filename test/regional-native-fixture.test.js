@@ -4,7 +4,8 @@ import { sectionYs, snapshotSection, getColumnLighting } from "../src/mesh-snaps
 import { buildChunkGeometry } from "../src/chunk-mesh.js";
 import { BLOCK } from "../src/blocks.js";
 import { disposeBatches } from "../src/mesh-palette.js";
-import { nativeGeometryFixture, requiredGeometryState, nativeDistribution } from "./regional-native-fixture.js";
+import { nativeGeometryFixture, requiredGeometryState, nativeDistribution,
+  moveNativeGeometryEast } from "./regional-native-fixture.js";
 import { shapeAtlas } from "./shape-fixture.js";
 
 function triangles(geometry, palette, base = 0) {
@@ -28,10 +29,21 @@ function triangles(geometry, palette, base = 0) {
 }
 
 for (const [version, dimension, minY, maxY, count] of [
-  [3, "overworld", 0, 96, 6], [7, "end", 0, 256, 16], [7, "overworld", -64, 320, 24],
+  [3, "overworld", 0, 96, 6], [7, "end", 0, 256, 16],
+  [7, "nether", 0, 256, 16], [7, "overworld", -64, 320, 24],
 ]) test(`real native v${version} ${dimension} keeps its own height and section coverage`, () => {
-  const fixture = nativeGeometryFixture({ version, dimension, radius: 0 });
+  const fixture = nativeGeometryFixture({ version, dimension, radius: 0, legacyAdapter: false });
   try {
+    assert.equal(fixture.dependencyRadius, 2);
+    assert.equal(fixture.inputColumns, 25);
+    assert.equal(fixture.world.chunks.size, 25);
+    assert.equal(fixture.legacyRoutingAdapter, false);
+    const packet = fixture.generator.generateChunk(0, 0);
+    const chunk = fixture.world.chunks.get("0,0");
+    // Transport normalization widens historical IDs; it must not change cells.
+    assert.deepEqual(chunk.blocks, Uint16Array.from(packet.blocks));
+    assert.deepEqual(chunk.biomes, packet.biomes);
+    assert.deepEqual([...chunk.sections.values()], packet.sections ?? []);
     assert.equal(fixture.world.spec.minY, minY);
     assert.equal(fixture.world.spec.maxY, maxY);
     assert.equal(sectionYs(fixture.world).length, count);
@@ -47,9 +59,47 @@ for (const [version, dimension, minY, maxY, count] of [
     if (version === 3) assert.equal(fixture.nativeRoute, false);
     fixture.renderer.rebuildDirty(Infinity);
     assert.deepEqual(requiredGeometryState(fixture), {
-      required: 1, requiredSections: count, covered: 1, fresh: 1, sections: count, dirtySections: 0,
+      required: 1, requiredSections: count, covered: 1, fresh: 1,
+      freshSections: count, sections: count, dirtySections: 0,
     });
     assert.ok(fixture.renderer.sectionRegions.size > 0);
+  } finally { fixture.dispose(); }
+});
+
+test("travel retains the exact R+2 native input square and all-section oracle", () => {
+  const progress = [];
+  const fixture = nativeGeometryFixture({ version: 3, radius: 1, legacyAdapter: false,
+    onGenerationProgress: (state) => progress.push(state) });
+  try {
+    assert.equal(fixture.dependencyRadius, 3);
+    assert.equal(fixture.inputColumns, 49);
+    assert.equal(progress[0].generatedColumns, 0);
+    assert.equal(progress.at(-1).generatedColumns, 49);
+    fixture.renderer.rebuildDirty(Infinity);
+    assert.equal(requiredGeometryState(fixture).freshSections, 54);
+    const retained = fixture.world.chunks.get("0,0");
+    moveNativeGeometryEast(fixture);
+    assert.equal(fixture.world.chunks.size, 49);
+    assert.equal(fixture.world.chunks.get("0,0"), retained);
+    for (let z = -3; z <= 3; z++) {
+      assert.equal(fixture.world.chunks.has(`-3,${z}`), false);
+      for (let x = -2; x <= 4; x++) assert.ok(fixture.world.chunks.has(`${x},${z}`));
+    }
+    fixture.renderer.rebuildDirty(Infinity);
+    assert.equal(requiredGeometryState(fixture).fresh, 9);
+    assert.equal(requiredGeometryState(fixture).freshSections, 54);
+    fixture.world.dirty(1, 0, 5);
+    assert.equal(requiredGeometryState(fixture).fresh, 8);
+    assert.equal(requiredGeometryState(fixture).freshSections, 53,
+      "even the empty top section needs a current acknowledged stamp");
+    fixture.renderer.rebuildDirty(Infinity);
+    const section = fixture.renderer.chunks.get("1,0").userData.sections.get(5);
+    const stamp = section.stamp;
+    section.stamp = { ...stamp, epoch: stamp.epoch + 1 };
+    assert.equal(requiredGeometryState(fixture).freshSections, 53,
+      "installed but stale sections must not count");
+    section.stamp = stamp;
+    assert.equal(requiredGeometryState(fixture).freshSections, 54);
   } finally { fixture.dispose(); }
 });
 

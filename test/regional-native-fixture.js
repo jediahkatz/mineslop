@@ -9,8 +9,11 @@ import { authoredColumns, shapeRenderer, disposeShapeRenderer } from "./shape-fi
 /** Native packets in a minimal CPU host; never change generation or dimensions. */
 export function nativeGeometryFixture({
   seed = "cedar-valley", version = 7, dimension = "overworld", radius = 1,
-  cx = 0, cz = 0, locate, legacyAdapter = true,
+  cx = 0, cz = 0, locate, legacyAdapter = true, onGenerationProgress,
 } = {}) {
+  // Keep the complete dependency square, including the outer maintenance ring.
+  // This is input residency, never additional detail coverage or a LOD tier.
+  const dependencyRadius = radius + 2;
   const generator = createGenerator(seed, dimension, version);
   const destination = locate ? generator.locateBiome(locate, { x: cx * 16, z: cz * 16 }) : null;
   if (locate && (!destination || destination.dimension !== dimension))
@@ -29,8 +32,15 @@ export function nativeGeometryFixture({
     }));
   };
   const started = performance.now();
-  for (let z = cz - radius - 1; z <= cz + radius + 1; z++)
-    for (let x = cx - radius - 1; x <= cx + radius + 1; x++) admit(x, z);
+  const inputColumns = (dependencyRadius * 2 + 1) ** 2;
+  for (let z = cz - dependencyRadius; z <= cz + dependencyRadius; z++)
+    for (let x = cx - dependencyRadius; x <= cx + dependencyRadius; x++) {
+      onGenerationProgress?.({ generatedColumns: world.chunks.size, inputColumns,
+        dependencyRadius, cx, cz });
+      admit(x, z);
+    }
+  onGenerationProgress?.({ generatedColumns: world.chunks.size, inputColumns,
+    dependencyRadius, cx, cz });
   const generationMs = performance.now() - started;
   const renderer = shapeRenderer(world);
   renderer.camera.position.set(cx * 16 + 8, Math.min(100, world.spec.maxY - 8), cz * 16 + 8);
@@ -50,7 +60,8 @@ export function nativeGeometryFixture({
     return rebuildSectionMeshes(this, maximum);
   };
   const fixture = { world, renderer, generator, admit, generationMs, destination,
-    seed, version, dimension, radius, cx, cz, nativeRoute, legacyRoutingAdapter };
+    seed, version, dimension, radius, dependencyRadius, inputColumns,
+    cx, cz, nativeRoute, legacyRoutingAdapter };
   fixture.dispose = () => { clearSectionJobs(renderer); disposeShapeRenderer(renderer); };
   return fixture;
 }
@@ -58,7 +69,7 @@ export function nativeGeometryFixture({
 export function requiredGeometryState(fixture) {
   const { world, renderer, radius, cx, cz } = fixture;
   const coverage = renderer.detailCoverage(), ys = sectionYs(world);
-  let covered = 0, fresh = 0, dirtySections = 0, sections = 0;
+  let covered = 0, fresh = 0, freshSections = 0, dirtySections = 0, sections = 0;
   for (let z = cz - radius; z <= cz + radius; z++)
     for (let x = cx - radius; x <= cx + radius; x++) {
       const key = `${x},${z}`, column = renderer.chunks.get(key);
@@ -71,13 +82,26 @@ export function requiredGeometryState(fixture) {
         dirtySections += Number(dirty);
         // Installed tickets have been acknowledged; compare the captured
         // sources/incarnations/revisions against a now-absent pending ticket.
-        current &&= !!section && !dirty &&
+        const sectionFresh = !!section && !dirty &&
           meshRevisionCurrent(world, { ...section.stamp, ticket: undefined });
+        freshSections += Number(sectionFresh);
+        current &&= sectionFresh;
       }
       fresh += Number(current);
     }
   return { required: (radius * 2 + 1) ** 2, requiredSections: ys.length * (radius * 2 + 1) ** 2,
-    covered, fresh, sections, dirtySections };
+    covered, fresh, freshSections, sections, dirtySections };
+}
+
+export function moveNativeGeometryEast(fixture, beforeAdmit) {
+  fixture.cx++;
+  const { cx, cz, dependencyRadius } = fixture;
+  for (let z = cz - dependencyRadius; z <= cz + dependencyRadius; z++) {
+    beforeAdmit?.();
+    fixture.admit(cx + dependencyRadius, z);
+    unloadNativeColumn(fixture, cx - dependencyRadius - 1, z);
+  }
+  fixture.renderer.camera.position.x += 16;
 }
 
 export function markNativeNeighbors(fixture, cx, cz, sy) {
