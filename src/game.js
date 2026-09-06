@@ -25,6 +25,7 @@ import { GameFluidServices } from "./game-fluid-services.js";
 import { GameGravityServices } from "./game-gravity-services.js";
 import { GameWeatherServices, normalizeWeatherArchive } from "./game-weather-services.js";
 import { GameMobActions, GameMobHarvestActions } from "./game-mob-actions.js";
+import { GameIngredientMobActions } from "./game-ingredient-mob-actions.js";
 import { GameMobIntegration } from "./game-mob-integration.js";
 import { GameInventoryActions } from "./game-inventory-actions.js";
 import { stageProgressionServices } from "./game-progression-integration.js";
@@ -1346,11 +1347,19 @@ export class VoxelGame {
       this.miningProgress = 0;
       if (!pressed || this.elapsed - this.lastAction < MELEE_COOLDOWN_SECONDS)
         return;
+      const previousAction = this.lastAction;
       this.lastAction = this.elapsed;
       // A bow is charged/released with use; hitting with it is an ordinary melee hit.
       this.mobActions ??= new GameMobActions(this);
+      this.ingredientMobActions ??= new GameIngredientMobActions(this);
       const entity = this.meleeTarget.entity;
-      if (this.mobActions.owns(entity)) {
+      if (this.ingredientMobActions.owns(entity)) {
+        const result = this.ingredientMobActions.melee(entity);
+        if (!result?.ok) {
+          this.lastAction = previousAction;
+          return;
+        }
+      } else if (this.mobActions.owns(entity)) {
         this.mobActions.melee(entity);
       } else {
         const amount = this.gameplay.selectedItem?.tool === "bow" ? 1 : this.gameplay.attack();
@@ -1406,6 +1415,8 @@ export class VoxelGame {
 
   hitMob(entity, amount) {
     this.mobActions ??= new GameMobActions(this);
+    this.ingredientMobActions ??= new GameIngredientMobActions(this);
+    if (this.ingredientMobActions.owns(entity)) return this.ingredientMobActions.hit(entity, amount);
     if (this.mobActions.owns(entity)) return this.mobActions.hit(entity, amount);
     this.wildlife.endSpawnProtection?.();
     const result = this.wildlife.damage(entity, amount, this.player.forward);

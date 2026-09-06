@@ -4,6 +4,7 @@ import { FLUID, isSourceWater, normalizeCell } from "./block-state.js";
 import { isBuildingBlock } from "./building-placement.js";
 import { placeFluidBlock } from "./game-fluid-block-actions.js";
 import { GameMobActions } from "./game-mob-actions.js";
+import { GameIngredientMobActions } from "./game-ingredient-mob-actions.js";
 import { EQUIPMENT_SLOTS } from "./inventory-domain.js";
 import { canShieldBlock, ItemUse, itemUseKind } from "./item-use.js";
 import { stackIdentity } from "./item-stack-data.js";
@@ -527,7 +528,9 @@ export class GameUseActions {
       ...cost,
       validate: () => current() && cost.validate(),
     };
-    const actions = (game.mobActions ??= new GameMobActions(game));
+    const ingredientActions = (game.ingredientMobActions ??= new GameIngredientMobActions(game));
+    const actions = hit && ingredientActions.owns(hit.entity) ? ingredientActions
+      : (game.mobActions ??= new GameMobActions(game));
     const owned = hit && actions.owns(hit.entity);
     const amount = Math.max(1, Math.round((item.damage ?? 6) * strength));
     const result = owned

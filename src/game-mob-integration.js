@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { ExperienceOrbs } from "./experience-orbs.js";
 import { GameEcologyMarkers } from "./game-ecology-markers.js";
 import { GameEcologyServices } from "./game-ecology-services.js";
+import { GameIngredientMobActions } from "./game-ingredient-mob-actions.js";
 import { normalizeGameMobArchive, snapshotGameMobs } from "./game-mob-state.js";
 import { normalizeVehicleServicesSnapshot } from "./game-vehicle-state.js";
 import { normalizeDifficulty } from "./mob-difficulty.js";
@@ -149,6 +150,10 @@ export class GameMobIntegration {
       onDrop: (id, count, at) => {
         if (this._current()) this._game.dropItems([{ id, count }], at ?? this._game.player.position);
       },
+      onIngredientDamage: (mob, amount, direction, retaliate) => this._current()
+        ? (this._game.ingredientMobActions ??= new GameIngredientMobActions(this._game))
+          .environment(mob, amount, direction, retaliate)
+        : { hit: false, killed: false, damage: 0, reason: "inactive-ingredient-owner" },
       onExplode: (at, radius) => { if (this._current()) this._game.explode(at, radius, false); },
       onToast: (text) => { if (this._current()) this._game.ui.toast(text); },
     });

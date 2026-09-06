@@ -6,7 +6,8 @@ import {
 } from "./horse-save.js";
 import { finitePosition } from "./mob-navigation.js";
 import { isMobId, normalizeMobHeading, validMobPosition } from "./mob-save.js";
-import { MAX_ECOLOGY_RESIDENTS, MAX_MOBS, MOB_SPECIES, isHostileSpecies } from "./mob-species.js";
+import { MAX_ECOLOGY_RESIDENTS, MAX_KILLED_MOBS, MAX_MOBS, MOB_SPECIES, isHostileSpecies } from "./mob-species.js";
+import { isIngredientMob } from "./ingredient-mob-loot.js";
 
 const point = ({ x, y, z }) => ({ x, y, z });
 const samePoint = (a, b) => a?.x === b?.x && a?.y === b?.y && a?.z === b?.z;
@@ -84,7 +85,7 @@ function captureActor(mob) {
  * Entries contain data and read guards, never another owner's publisher.
  */
 export function prepareResidentEdit(snapshot, domain, options) {
-  if (!snapshot.current() || !["horse", "ecology", "legacy", "source"].includes(domain) ||
+  if (!snapshot.current() || !["horse", "ecology", "legacy", "source", "ingredient"].includes(domain) ||
     !horseDataRecord(options, editKeys, [])) return null;
   const { wildlife, entities, byId, retained, killed } = snapshot;
   const { spawn, remove, damage, mob = remove ?? damage?.mob, heal = 0, motion,
@@ -103,6 +104,15 @@ export function prepareResidentEdit(snapshot, domain, options) {
       value > (key === "fuse" ? 1.65 : mob.spec?.cooldown)))) return null;
   if (domain === "legacy" && (!mob || mob.kind === "horse" || mob.spec?.ecology ||
     spawn || remove || heal || motion || retain || !damage || nextId !== snapshot.nextId)) return null;
+  // Only the narrow ingredient adapter may prepare these legacy deaths.
+  // Generic legacy contributions remain nonlethal and borrower domains unchanged.
+  if (domain === "ingredient" && (!isIngredientMob(mob) || mob.spec?.ecology ||
+    retained.has(mob.id) || wildlife.horseServices?.identityReserved(mob.id) ||
+    wildlife.ecologyServices?.ecology.identityReserved(mob.id) ||
+    spawn || heal || motion || retain || (!remove && !damage) ||
+    nextId !== snapshot.nextId || killed.has(mob.id))) return null;
+  const tombstones = domain === "ingredient" ? [...killed] : null;
+  if (tombstones && tombstones.length > MAX_KILLED_MOBS) return null;
   const key = domain === "horse" || (domain === "source" && mob.kind === "horse")
     ? "horseServices" : domain === "ecology" || (domain === "source" && mob.spec?.ecology)
       ? "ecologyServices" : null;
@@ -124,6 +134,7 @@ export function prepareResidentEdit(snapshot, domain, options) {
   const values = {}, edit = { id, mob, spawn, remove, dormant, retain, nextId, validate, notify,
     removeIndex: remove ? entities.indexOf(remove) : -1,
     retainAdded: !!(retain && !wasRetained), values };
+  edit.tombstone = domain === "ingredient" && !!remove;
   if (remove) Object.assign(values, { health: 0, dead: true });
   if (heal) {
     if (mob.health + heal > mob.spec.health) return null;
@@ -134,7 +145,7 @@ export function prepareResidentEdit(snapshot, domain, options) {
       typeof damage.retaliate !== "boolean" ||
       (damage.knockback !== undefined && !finiteHorizontal(damage.knockback)) ||
       (damage.threat !== undefined && !finiteHorizontal(damage.threat)) ||
-      (damage.velocityY !== undefined && (domain !== "legacy" || damage.velocityY !== 2.4))) return null;
+      (damage.velocityY !== undefined && (!["legacy", "ingredient"].includes(domain) || damage.velocityY !== 2.4))) return null;
     Object.assign(values, { health: mob.health - damage.amount, hitFlash: 0.24 });
     if (damage.threat !== undefined) values.threat = { ...damage.threat };
     if (damage.knockback !== undefined) edit.knockback = { ...damage.knockback };
@@ -142,7 +153,7 @@ export function prepareResidentEdit(snapshot, domain, options) {
     if (damage.retaliate) {
       if (mob.spec.temperament === "passive" || (domain === "legacy" && mob.tamed)) values.fleeTime = 5;
       else values.angry = 20;
-      if (domain === "legacy" && isHostileSpecies(mob.spec)) {
+      if (["legacy", "ingredient"].includes(domain) && isHostileSpecies(mob.spec)) {
         edit.defend = { target: id, until: wildlife.clock + 8 };
       }
     }
@@ -167,6 +178,8 @@ export function prepareResidentEdit(snapshot, domain, options) {
   const clock = wildlife.clock, defendTarget = wildlife.defendTarget, defendUntil = wildlife.defendUntil;
   edit.current = () => (!key || (wildlife[key] === host && host.active &&
     host.coordinator === snapshot.coordinator)) &&
+    (!tombstones || (killed.size === tombstones.length &&
+      [...killed].every((id, i) => id === tombstones[i]))) &&
     (!mob || (actor.current() && byId.get(id) === mob && entities.includes(mob) &&
       retained.has(id) === wasRetained)) &&
     (domain !== "source" || key !== "ecologyServices" ||
@@ -227,6 +240,11 @@ export function installResidentEdits(snapshot, edits, removals, nextId) {
     edit.dormant.delete(edit.id);
     byId.delete(edit.id);
     if (edit.remove.kind === "horse") retained.delete(edit.id);
+    if (edit.tombstone) {
+      snapshot.killed.add(edit.id);
+      if (snapshot.killed.size > MAX_KILLED_MOBS)
+        snapshot.killed.delete(snapshot.killed.values().next().value);
+    }
   }
   for (const edit of edits) {
     if (edit.spawn) {

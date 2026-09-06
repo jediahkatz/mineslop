@@ -17,6 +17,7 @@ import { createHorseView, HORSE_ACTIVE_DISTANCE } from "./horse-definitions.js";
 import { horseEnvironment } from "./horse-collision.js";
 import { horseDataRecord, normalizeHorseSnapshot } from "./horse-save.js";
 import { ITEM } from "./items.js";
+import { isIngredientMob } from "./ingredient-mob-loot.js";
 import { createMobState, mobEye, stepMob } from "./mob-ai.js";
 import {
   animateMob,
@@ -97,6 +98,7 @@ export class Wildlife {
     {
       onDamage = noop,
       onDrop = noop,
+      onIngredientDamage = null,
       onExplode = noop,
       onToast = noop,
       autoSpawn = true,
@@ -113,6 +115,7 @@ export class Wildlife {
     this.dimension = dimensionOf(world);
     this.onDamage = onDamage;
     this.onDrop = onDrop;
+    this.onIngredientDamage = onIngredientDamage;
     this.onExplode = onExplode;
     this.onToast = onToast;
     this.autoSpawn = autoSpawn;
@@ -899,6 +902,12 @@ export class Wildlife {
       return { hit: false, killed: false, damage: 0, reason: "prepared-ecology-hit-required" };
     if (this.retainsHorse(entity))
       return { hit: false, killed: false, damage: 0, reason: "prepared-horse-hit-required" };
+    // Isolated AI-only contexts may still apply nonlethal behavior damage.
+    // A death requires the retained reward adapter; never a legacy loot callback.
+    if (isIngredientMob(entity) && (this.onIngredientDamage || amount >= entity.health))
+      return this.onIngredientDamage
+        ? this.onIngredientDamage(entity, amount, direction, retaliate)
+        : { hit: false, killed: false, damage: 0, reason: "prepared-ingredient-hit-required" };
     amount = Math.min(1000, amount);
     const dealt = Math.min(entity.health, amount);
     entity.health -= dealt;
@@ -953,6 +962,7 @@ export class Wildlife {
     if (!isMobId(id) || this.byId.get(id)?.spec.ecology || this.retainsHorse(id) ||
       this.horseServices?.identityReserved(id) ||
       this.ecologyServices?.ecology.identityReserved(id)) return false;
+    if (!this.killed.has(id)) this._ecologyRevision++;
     this.killed.add(id);
     if (this.killed.size > MAX_KILLED_MOBS)
       this.killed.delete(this.killed.values().next().value);
