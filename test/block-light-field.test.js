@@ -75,7 +75,9 @@ test("opaque closure, partial occluders, glass, fluid attenuation and reopening"
 });
 
 test("missing source columns, admission, replacement and negative coordinates", (t) => {
-  const world = lightWorld({ columns: [[-1, -1]] }), field = lightField(t);
+  const world = lightWorld({ columns: [[-1, -1]], exactColumns: true }), field = lightField(t);
+  for (let x = -3; x <= 1; x++) for (let z = -3; z <= 1; z++)
+    if (!world.chunks.has(`${x},${z}`) && (x !== 0 || z !== -1)) world.admit(x, z);
   const observer = point(-8, 8, -8), receiver = point(-1, 8, -8);
   settleLight(field, world, observer);
   assert.deepEqual(field.sample(receiver), [0, 0, 0]);
@@ -101,8 +103,9 @@ for (const version of [3, 4, 6])
       const report = settleLight(field, world, point(8, world.spec.minY + 2));
       for (const y of [world.spec.minY + 1, world.spec.maxY - 2])
         assert.ok(field.sample(point(9, y))[0] > 0.5);
-      assert.equal(report.resources.atlasBytes, (world.spec.maxY - world.spec.minY) * 400 * 4);
-      assert.ok(report.resources.topologySections <= (world.spec.maxY - world.spec.minY) / 16);
+      assert.equal(report.resources.atlasBytes, 0, "GPU banks have no CPU mirror");
+      assert.equal(report.resources.validityBytes, (world.spec.maxY - world.spec.minY) / 16 * 2);
+      assert.ok(report.resources.topologySections <= 9 * (world.spec.maxY - world.spec.minY) / 16);
       assert.ok(report.maxima.visits <= 32768);
     });
 

@@ -11,7 +11,18 @@ export const LIGHT_BLOCKED = 16;
 export const LIGHT_WATER = 32;
 const emission = new Uint32Array(65536);
 const knownEmission = new Uint8Array(65536);
-export const BLOCK_LIGHT_PALETTE_BYTES = emission.byteLength + knownEmission.byteLength;
+const topologyPalette = new Uint32Array(256);
+const topologyCodes = new Map();
+export const BLOCK_LIGHT_PALETTE_BYTES = emission.byteLength + knownEmission.byteLength + topologyPalette.byteLength;
+
+function topologyIndex(code) {
+  if (topologyCodes.has(code)) return topologyCodes.get(code);
+  const index = topologyCodes.size;
+  if (index === 256) throw new RangeError("Exact block-light topology exceeds R8 capacity");
+  topologyCodes.set(code, index);
+  topologyPalette[index] = code;
+  return index;
+}
 
 function lightCode(id) {
   if (knownEmission[id]) return emission[id];
@@ -64,16 +75,21 @@ export class BlockLightTopologyJob {
       code = (code | (blocked ? LIGHT_BLOCKED : 0) | (isWaterFluid(fluid) ? LIGHT_WATER : 0)) >>> 0;
       if (i === 0) this.uniform = code;
       else if (this.uniform !== code && !this.values) {
-        this.values = new Uint32Array(4096);
-        this.values.fill(this.uniform, 0, i);
+        this.values = new Uint8Array(4096);
+        this.values.fill(topologyIndex(this.uniform), 0, i);
         this.uniform = null;
       }
-      if (this.values) this.values[i] = code;
+      if (this.values) this.values[i] = topologyIndex(code);
     }
     if (this.cursor !== 4096) return null;
     if (this.signature !== field.revisions.signature(field.world, this.x, this.z, this.y, 1))
       return { stale: true };
+    let complete = true;
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dx = -1; dx <= 1; dx++)
+        complete &&= field.revisions.token(field.world, this.x + dx, this.z + dz, this.y) !== "0";
     return { x: this.x, z: this.z, y: this.y, emitters: this.emitters,
-      uniform: this.uniform, values: this.uniform === null ? this.values : null };
+      uniform: this.uniform, values: this.uniform === null ? this.values : null, palette: topologyPalette, complete,
+      signature: this.signature, layout: field.revisions.layoutVersion };
   }
 }

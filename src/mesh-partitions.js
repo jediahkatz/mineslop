@@ -27,14 +27,16 @@ class PartitionedMeshData {
     maxBytes = MESH_PART_LIMITS.maxBytes,
     maxTotalBytes = Infinity,
     maxDrawCalls = Infinity,
+    typedScratch = false,
   } = {}) {
     Object.assign(this, {
       maxVertices,
       maxBytes,
       maxTotalBytes,
       maxDrawCalls,
+      typedScratch,
     });
-    this.batches = createMeshData().batches;
+    this.batches = createMeshData(Infinity, typedScratch).batches;
     this.emitters = [];
     this.vertices = 0;
     this.parts = [];
@@ -84,7 +86,7 @@ class PartitionedMeshData {
     this.parts.push(part);
     this.bytes += this.partBytes;
     this.draws += this.partDraws;
-    this.batches = createMeshData().batches;
+    this.batches = createMeshData(Infinity, this.typedScratch).batches;
     this.partVertices = 0;
     this.partBytes = 0;
     this.partDraws = 0;

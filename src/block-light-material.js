@@ -1,10 +1,12 @@
 import * as THREE from "three";
 import { BLOCK_LIGHT_GAIN } from "./block-light-field.js";
+import { BLOCK_PAGE_LAYOUT } from "./light-page-layout.js";
+import { pageDeclarations, pageUniforms, updatePageUniforms } from "./light-page-material.js";
 
 export const BLOCK_LIGHT_DECLARATIONS = `
 uniform float uBlockLightEnabled, uBlockLightGain;
-uniform highp sampler2DArray uBlockLightAtlas;
-uniform sampler2D uBlockLightValid;
+${pageDeclarations("BlockLight", BLOCK_PAGE_LAYOUT)}
+uniform sampler2D uBlockLightPalette;
 uniform vec3 uBlockLightField;
 uniform vec2 uBlockLightOrigin;
 vec4 blockLightPage(vec2 cell, float y, vec2 column) {
@@ -13,15 +15,11 @@ vec4 blockLightPage(vec2 cell, float y, vec2 column) {
   vec2 local = cell - column * 16.0 + 2.0;
   if (any(lessThan(local, vec2(0.0))) || any(greaterThanEqual(local, vec2(20.0)))) return vec4(0.0);
   float slot = mod(column.y, uBlockLightField.z) * uBlockLightField.z + mod(column.x, uBlockLightField.z);
-  vec2 validUV = (vec2(slot, floor(y / 16.0)) + 0.5)
-    / vec2(uBlockLightField.z * uBlockLightField.z, uBlockLightField.y / 16.0);
-  float ready = texture2D(uBlockLightValid, validUV).r;
-  if (ready < 0.25) return vec4(0.0);
-  if (ready < 0.99) return vec4(0.0, 0.0, 0.0, 1.0);
-  float index = y * 400.0 + local.y * 20.0 + local.x;
-  vec2 uv = (vec2(mod(index, 80.0), floor(index / 80.0)) + 0.5)
-    / vec2(80.0, uBlockLightField.y * 5.0);
-  return vec4(texture(uBlockLightAtlas, vec3(uv, slot)).rgb, 1.0);
+  uint handle = texelFetch(uBlockLightPages, ivec2(int(slot), int(floor(y / 16.0))), 0).r;
+  if (handle == 0u) return vec4(0.0);
+  float index = mod(y, 16.0) * 400.0 + local.y * 20.0 + local.x;
+  float code = BlockLightValue(handle, index);
+  return vec4(texture2D(uBlockLightPalette, vec2((code + 0.5) / 256.0, 0.5)).rgb, 1.0);
 }
 vec3 blockLightAt(vec3 point) {
   #ifdef MINESLOP_EXTERIOR_DAYLIGHT
@@ -50,8 +48,8 @@ export function blockLightUniforms(field) {
   return {
     uBlockLightEnabled: { value: 0 },
     uBlockLightGain: { value: BLOCK_LIGHT_GAIN },
-    uBlockLightAtlas: { value: field.texture },
-    uBlockLightValid: { value: field.validTexture },
+    ...pageUniforms("BlockLight", field.store),
+    uBlockLightPalette: { value: field.paletteTexture },
     uBlockLightField: { value: new THREE.Vector3() },
     uBlockLightOrigin: { value: new THREE.Vector2() },
   };
@@ -59,8 +57,8 @@ export function blockLightUniforms(field) {
 
 export function updateBlockLightUniforms(field, uniforms, fullbright) {
   uniforms.uBlockLightEnabled.value = Number(!!field.world && !field.disposed && !fullbright);
-  uniforms.uBlockLightAtlas.value = field.texture;
-  uniforms.uBlockLightValid.value = field.validTexture;
+  updatePageUniforms("BlockLight", field.store, uniforms);
+  uniforms.uBlockLightPalette.value = field.paletteTexture;
   uniforms.uBlockLightField.value.set(field.spec?.minY ?? 0, field.height, field.tiles);
   uniforms.uBlockLightOrigin.value.set((field.cx ?? 0) - field.radius, (field.cz ?? 0) - field.radius);
 }

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { BLOCK } from "./blocks.js";
 import { MESH_BATCHES, blockBatch, selectEmitters } from "./mesh-palette.js";
+import { MeshScratch } from "./mesh-scratch.js";
 
 export const FACES = Object.freeze(
   [
@@ -87,18 +88,18 @@ export class MeshBudgetError extends Error {
   }
 }
 
-export function createMeshData(maxVertices = Infinity) {
+export function createMeshData(maxVertices = Infinity, typedScratch = false) {
   return {
     batches: Object.fromEntries(
       MESH_BATCHES.map((name) => [
         name,
         {
-          positions: [],
-          normals: [],
+          positions: typedScratch ? new MeshScratch() : [],
+          normals: typedScratch ? new MeshScratch() : [],
           axisNormals: true,
-          uvs: [],
-          colors: [],
-          indices: [],
+          uvs: typedScratch ? new MeshScratch() : [],
+          colors: typedScratch ? new MeshScratch() : [],
+          indices: typedScratch ? new MeshScratch(Uint32Array) : [],
           emitters: [],
         },
       ])
@@ -182,6 +183,9 @@ export function appendPlant(context, x, y, z, id, atlas, tint) {
 
 function makeGeometry(data) {
   if (!data.positions.length) return null;
+  const integralPositions = data.positions.every(
+    (value) => Number.isInteger(value) && value >= -32700 && value <= 32700);
+  const vertices = data.positions.length / 3;
   const geometry = new THREE.BufferGeometry();
   for (const [name, key, size] of [
     ["position", "positions", 3],
@@ -191,11 +195,16 @@ function makeGeometry(data) {
   ])
     geometry.setAttribute(
       name,
-      new THREE.Float32BufferAttribute(data[key], size)
+      data[key] instanceof MeshScratch
+        ? new THREE.BufferAttribute(data[key].seal(), size)
+        : new THREE.Float32BufferAttribute(data[key], size)
     );
-  geometry.setIndex(data.indices);
+  geometry.setIndex(data.indices instanceof MeshScratch
+    ? new THREE.BufferAttribute(data.indices.seal(vertices > 65535 ? Uint32Array : Uint16Array), 1)
+    : data.indices);
   geometry.userData.emitters = data.emitters;
   geometry.userData.axisNormals = data.axisNormals;
+  geometry.userData.integralPositions = integralPositions;
   geometry.computeBoundingSphere();
   return geometry;
 }

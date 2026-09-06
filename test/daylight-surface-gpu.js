@@ -7,6 +7,8 @@ import { sampleDaylightAt } from "../src/daylight-material.js";
 import { localLightStyle } from "../src/local-lighting.js";
 import { buildChunkGeometry, GameRenderer } from "../src/renderer.js";
 import { ENTRANCE_SURFACES, surfaceAirPoint, surfaceTunnel } from "./daylight-surface-fixture.js";
+import { daylightTargetsReady } from "./light-renderer-fixture.js";
+import { intersectPhysicalLightMeshes, physicalHitColor, physicalLightGeometryFingerprint } from "./lighting-physical-geometry.js";
 
 const SIZE = 65; // Odd size: the center pixel's ray passes through the exact probe point.
 const READBACK_ZOOM = 16; // Magnify only the point sampler, never the lighting observer.
@@ -26,7 +28,7 @@ export function runSurfaceLightingProbe({ fullDepth = true } = {}) {
   const pixel = new Uint8Array(4);
   let readbacks = 0, maxDrawCalls = 0, frame = 0;
   let lastWork = {}, renderMs = 0;
-  const geometry = [];
+  let geometryFingerprint;
   const worldSignature = () => JSON.stringify({
     version: fixture.world.generatorVersion,
     epoch: fixture.world.epoch,
@@ -59,8 +61,7 @@ export function runSurfaceLightingProbe({ fullDepth = true } = {}) {
     for (const key of fixture.world.chunks.keys()) meshColumn(key);
     fixture.world.dirtyChunks.clear();
     g.scene.updateMatrixWorld(true);
-    for (const group of g.chunks.values())
-      group.traverse((mesh) => { if (mesh.isMesh) geometry.push(mesh.geometry.uuid); });
+    geometryFingerprint = physicalLightGeometryFingerprint(g);
     const gl = g.renderer.getContext();
     const debug = gl.getExtension("WEBGL_debug_renderer_info");
     const settings = {
@@ -70,6 +71,7 @@ export function runSurfaceLightingProbe({ fullDepth = true } = {}) {
       width: gl.drawingBufferWidth, height: gl.drawingBufferHeight, maxReadbacks: MAX_READBACKS,
       renderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
       softwareRendering: g.softwareRendering, readbackZoom: READBACK_ZOOM, fullDepth, deepX,
+      renderRadius: g.renderRadius, fieldHeight: fixture.world.spec.maxY - fixture.world.spec.minY,
     };
     const signatureBefore = worldSignature();
     const observer = (x, cold = false) => {
@@ -81,13 +83,16 @@ export function runSurfaceLightingProbe({ fullDepth = true } = {}) {
       let frames = 0;
       do {
         g.update(0, ++frame, { x, y: 8, z: 2.5 });
+        g.render(); // One production lighting publication budget per CPU update.
         frames++;
         for (const [key, value] of Object.entries(g.skyColumns.stats)) {
           totals[key] = (totals[key] ?? 0) + value;
           peak[key] = Math.max(peak[key] ?? 0, value);
         }
-        if (frames > 81) throw new Error("Surface lighting failed to settle within the fixed tile budget");
-      } while (g.skyColumns.surfaceLight?.pending > 0);
+        if (frames > 4096) throw new Error("Surface lighting failed to settle within bounded resumable slices");
+      } while (g.skyColumns.surfaceLight.pending || g.skyColumns.requests.size ||
+        g.skyColumns.surfaceLight.store.queue.size || g.skyColumns.skyUploads.size ||
+        !daylightTargetsReady(g.skyColumns, ENTRANCE_SURFACES.map(surfaceAirPoint)));
       lastWork = { frames, updateMs: performance.now() - started, totals, peak };
       // The longer route crosses the renderer's hidden retention ring. Restore
       // its authored resident meshes just as the normal dirty queue would.
@@ -110,22 +115,15 @@ export function runSurfaceLightingProbe({ fullDepth = true } = {}) {
       view.updateMatrixWorld(true);
       g.scene.updateMatrixWorld(true);
       ray.setFromCamera(new THREE.Vector2(0, 0), view);
-      const meshes = [];
-      for (const group of g.chunks.values())
-        if (group.visible) group.traverse((mesh) => { if (mesh.isMesh) meshes.push(mesh); });
-      const hit = ray.intersectObjects(meshes, false)[0];
+      const hit = intersectPhysicalLightMeshes(g, ray, view)[0];
       const target = new THREE.Vector3(surface.point.x, surface.point.y, surface.point.z);
       if (!hit || hit.point.distanceTo(target) > 0.0001)
         throw new Error(`Probe ${surface.name} does not hit its fixed terrain face at observer x=${view.position.x}`);
-      const position = hit.object.geometry.attributes.position;
-      const color = hit.object.geometry.attributes.color;
-      const ids = [hit.face.a, hit.face.b, hit.face.c];
-      const triangle = ids.map((id) => new THREE.Vector3().fromBufferAttribute(position, id));
-      const bary = THREE.Triangle.getBarycoord(hit.object.worldToLocal(hit.point.clone()), ...triangle, new THREE.Vector3());
-      const weights = bary.toArray();
-      const vertexColor = [0, 1, 2].map((channel) =>
-        ids.reduce((sum, id, index) => sum + color.array[id * 3 + channel] * weights[index], 0));
+      const vertexColor = physicalHitColor(hit);
       const started = performance.now();
+      // Camera-specific readbacks must not bypass the host's invalidation
+      // barrier. Repeated readbacks do not grant another upload budget.
+      if (g.lightingNeedsFlush) g.render();
       g.renderer.render(g.scene, view);
       gl.readPixels((SIZE - 1) / 2, (SIZE - 1) / 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
       renderMs += performance.now() - started;
@@ -153,6 +151,7 @@ export function runSurfaceLightingProbe({ fullDepth = true } = {}) {
         ...g.skyColumns.stats, rays: g.skyAccess.rays, bytes: g.skyColumns.data.byteLength,
         cache: g.skyColumns.cache.size, ...lastWork,
         surface: g.skyColumns.surfaceLight?.resources(),
+        requiredTargetsReady: daylightTargetsReady(g.skyColumns, ENTRANCE_SURFACES.map(surfaceAirPoint)),
       },
     });
     const station = (x, cold = false) => {
@@ -267,7 +266,8 @@ export function runSurfaceLightingProbe({ fullDepth = true } = {}) {
     g.setFullbrightInspection(false);
     return {
       settings, outside, walking, coldDeep, returned, deepAccess, lanes, closed, reopened,
-      signatureBefore, signatureAfterPhotometry, restoredSettings, geometry,
+      signatureBefore, signatureAfterPhotometry, restoredSettings,
+      geometry: geometryFingerprint.geometries, geometryFingerprint,
       exterior, originalExterior, closedFirstFrame, sealedRoom, roomFullbright,
       torchFixture: { kind: "canonical torch PointLight only; not gameplay placement", ...style },
       readbacks, maxDrawCalls, renderMs, programs: g.renderer.info.programs.length,

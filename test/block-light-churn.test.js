@@ -7,16 +7,18 @@ import { BLOCK } from "../src/blocks.js";
 import { GameRenderer } from "../src/renderer.js";
 import { churnWorld } from "./block-light-churn-fixture.js";
 import { settleLight } from "./block-light-fixture.js";
+import { lightRenderer } from "./light-renderer-fixture.js";
 
 function setup(t, dimension = "overworld") {
   t.mock.method(performance, "now", () => 0);
-  const fixture = churnWorld(4, true, dimension), field = new BlockLightField();
+  const fixture = churnWorld(4, true, dimension, 4), field = new BlockLightField();
+  const gpu = lightRenderer();
   const renderer = { world: fixture.world, blockLight: field };
   fixture.observe((world, event) => GameRenderer.prototype.onWorldMutation.call(renderer, world, event));
   t.after(() => { field.dispose(); fixture.dispose(); });
   const tick = (x = fixture.position.x) => {
     field.update(fixture.world, { ...fixture.position, x }, 1);
-    field.texture.clearLayerUpdates();
+    field.store.flush(gpu);
     return fixture.points.map((p) => field.sample(p));
   };
   const settle = () => settleLight(field, fixture.world, fixture.position, 1);
@@ -69,7 +71,9 @@ test("returning across cache boundaries uses the still-valid neighboring apron",
   for (const x of [15.99, 16.01, 31.99, 32.01, 33, 31.99, 16.01, 15.99, 8])
     assert.deepEqual(tick(x), expected, `observer x=${x}`);
   assert.ok(field.revisions.semantic.size <= field.revisions.tokens.size);
-  field.valid[field.index(0, 0, 0)] = 127;
+  const at = field.index(0, 0, 0);
+  field.store.publish(field.store.claim(at, "certified-zero-control"), null);
+  field.store.flush(lightRenderer());
   assert.deepEqual(field.sample(fixture.points[2]), [0, 0, 0], "verified dark must not borrow a lit neighbor");
 });
 

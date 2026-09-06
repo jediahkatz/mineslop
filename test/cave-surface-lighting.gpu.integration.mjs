@@ -92,11 +92,21 @@ test("authored cave fixed-surface and darkness-floor WebGL regressions", { timeo
       assert.ok(station.work.rays <= CAVE_DAYLIGHT_LIMITS.sources + CAVE_DAYLIGHT_LIMITS.directions + 1);
       assert.ok(station.work.cache <= SKY_COLUMN_LIMITS.cachedChunks);
       assert.ok(station.work.cellReads <= result.settings.residentColumns * 16 * 16 * SKY_COLUMN_LIMITS.height);
-      assert.equal(station.work.bytes, 144 * 144 * 4);
+      const tiles = result.settings.renderRadius * 2 + 1;
+      const sections = result.settings.fieldHeight / 16;
+      assert.equal(station.work.bytes, ((tiles + 2) * 16) ** 2 * 4);
       assert.ok(station.work.peak.surfaceBuilds <= SURFACE_DAYLIGHT_LIMITS.chunkBuilds);
-      assert.ok(station.work.peak.surfaceCellReads <= SURFACE_DAYLIGHT_LIMITS.chunkBuilds * 9 * 256 * SKY_COLUMN_LIMITS.height);
-      assert.ok(station.work.surface.cachedChunks <= SURFACE_DAYLIGHT_LIMITS.cachedChunks);
-      assert.equal(station.work.surface.atlasBytes, 81 * 256 * SKY_COLUMN_LIMITS.height);
+      assert.ok(station.work.peak.surfaceCellReads <= 8192);
+      assert.ok(station.work.surface.cachedChunks <= tiles ** 2);
+      assert.equal(station.work.surface.atlasBytes, 0);
+      assert.equal(station.work.surface.cpuBankBytes, 0);
+      assert.equal(station.work.surface.requiredPages, tiles ** 2 * sections);
+      assert.equal(station.work.surface.tableBytes, (tiles + 2) ** 2 * (sections + 1) * 2);
+      assert.ok(station.work.surface.canonicalBytes <= tiles ** 2 * sections * 5184);
+      assert.ok(station.work.surface.capacity >= station.work.surface.requiredPages);
+      assert.equal(station.work.requiredTargetsReady, true,
+        "measured receivers require certified loaded source/shape halos; this sparse fixture does not qualify the full field");
+      assert.equal(station.work.surface.pendingUploads, 0);
       assert.equal(station.work.surface.pending, 0);
       for (let i = 0; i < station.natural.length; i++)
         for (let channel = 0; channel < 4; channel++)

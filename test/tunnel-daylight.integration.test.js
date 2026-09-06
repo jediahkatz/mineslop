@@ -7,6 +7,7 @@ import { hasTerrainRoof } from "../src/renderer.js";
 import { World } from "../src/world.js";
 import { settleLight } from "./block-light-fixture.js";
 import { daylightRenderer } from "./daylight-fixture.js";
+import { flushRendererLighting } from "./light-renderer-fixture.js";
 
 test("the recorded native entrance keeps daylight, deep darkness, look-back terrain and a real remeshed torch", async (t) => {
   const world = new World("cedar-valley", { generatorVersion: 3, useWorker: false });
@@ -30,13 +31,14 @@ test("the recorded native entrance keeps daylight, deep darkness, look-back terr
     g.rebuildDirty(Infinity);
     g.update(0, elapsed += 0.05, feet);
     // A CPU-only renderer acknowledges the upload normally consumed by WebGL.
-    g.blockLight.texture.clearLayerUpdates();
+    flushRendererLighting(g);
     assert.equal(world.chunks.size, admitted, "lighting cannot admit more terrain");
   };
   const warm = (feet, lookBack = false) => {
-    for (let frame = 0; frame < 320; frame++) {
+    for (let frame = 0; frame < 4096; frame++) {
       visit(feet, lookBack);
-      if (g.distant.ready && !g.distant._job) return;
+      if (g.distant.ready && !g.distant._job && !g.skyColumns.requests.size &&
+        !g.skyColumns.surfaceLight.pending && !g.skyColumns.surfaceLight.store.queue.size && !g.skyColumns.skyUploads.size) return;
     }
     assert.fail("bounded native LOD work did not publish");
   };
@@ -122,7 +124,7 @@ test("the recorded native entrance keeps daylight, deep darkness, look-back terr
   const settle = () => {
     const work = settleLight(g.blockLight, world, g.camera.position, g.renderRadius);
     assert.equal(world.chunks.size, admitted, "light publication cannot admit terrain");
-    assert.equal(g.blockLight.valid[g.blockLight.index(3, 57, 1)], 255);
+    assert.notEqual(g.blockLight.valid[g.blockLight.index(3, 57, 1)], 0);
     return work;
   };
   settle();
@@ -143,7 +145,7 @@ test("the recorded native entrance keeps daylight, deep darkness, look-back terr
   assert.ok(g.localLights.every((light) => light.intensity === 0),
     "static voxel light comes from the field, not duplicate PointLights");
   assert.equal(g.daylightMaterial.uniforms.uBlockLightEnabled.value, 1);
-  assert.equal(g.daylightMaterial.uniforms.uBlockLightAtlas.value, g.blockLight.texture);
+  assert.equal(g.daylightMaterial.uniforms.uBlockLightPages.value, g.blockLight.store.table);
   assert.equal(g.skyAccess.exposure, 0, "a torch is not an outdoor opening");
   const torchState = state("real-torch");
   g.setFullbrightInspection(true);

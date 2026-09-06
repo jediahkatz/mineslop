@@ -4,6 +4,9 @@ import { SURFACE_DAYLIGHT_LIMITS } from "./surface-daylight.js";
 import { BlockLightField } from "./block-light-field.js";
 import { BLOCK_LIGHT_DECLARATIONS, blockLightUniforms, updateBlockLightUniforms } from "./block-light-material.js";
 import { visualStrength } from "./player-visual-effects.js";
+import { SURFACE_PAGE_LAYOUT, lightUploadBudget } from "./light-page-layout.js";
+import { pageDeclarations, pageUniforms, updatePageUniforms } from "./light-page-material.js";
+import { checkedLightTransfer } from "./light-transfer.js";
 
 const sceneDaylight = new WeakMap();
 const installations = new WeakMap();
@@ -31,25 +34,41 @@ export function sampleDaylightAt(columns, point) {
   const z = Math.floor(point.z) - columns.origin.y;
   if (x < 0 || z < 0 || x >= columns.size || z >= columns.size)
     return { direct: 0, ambient: 0 };
-  const top = columns.data[z * columns.size + x];
-  if (top === UNKNOWN_SKY_HEIGHT) return { direct: 0, ambient: 0 };
-  const direct = Number(point.y >= top);
+  const cx = Math.floor(point.x / 16), cz = Math.floor(point.z / 16);
+  const key = `${cx},${cz}`;
+  const entry = columns.cache.get(key);
+  const top = entry && !columns.requests.has(key) && columns.skyUploaded[columns.skySlot(cx, cz)] === `${key}:${entry.serial}` ?
+    entry.heights[((Math.floor(point.z) % 16 + 16) % 16) * 16 + (Math.floor(point.x) % 16 + 16) % 16] :
+    UNKNOWN_SKY_HEIGHT;
+  const direct = Number(top !== UNKNOWN_SKY_HEIGHT && point.y >= top);
   // Camera access is deliberately not a surface-light input.
   return { direct, ambient: Math.max(direct, columns.surfaceLight.sample(point)) };
 }
 
-const DECLARATIONS = `
+export const DAYLIGHT_DECLARATIONS = `
 varying vec3 vDaylightPosition;
 uniform float uDaylightEnabled;
 uniform float uDaylightFogEnabled;
 uniform float uPlayerVision;
 uniform sampler2D uSkyCeilings;
-uniform highp sampler2DArray uSurfaceDaylight;
+${pageDeclarations("SurfaceLight", SURFACE_PAGE_LAYOUT)}
 uniform vec3 uSurfaceField;
+uniform vec2 uSurfaceOrigin;
 uniform vec3 uSkyField;
 uniform vec3 uDaylightKey, uDaylightSky, uDaylightGround;
 uniform vec3 uCaveSky, uCaveGround;
 uniform vec3 uCaveFog;
+
+vec2 surfacePage(vec2 cell, float y, vec2 column) {
+  if (any(lessThan(column, uSurfaceOrigin)) ||
+    any(greaterThanEqual(column, uSurfaceOrigin + uSurfaceField.z))) return vec2(0.0);
+  vec2 local = cell - column * 16.0 + 1.0;
+  if (any(lessThan(local, vec2(0.0))) || any(greaterThanEqual(local, vec2(18.0)))) return vec2(0.0);
+  float slot = mod(column.y, uSurfaceField.z) * uSurfaceField.z + mod(column.x, uSurfaceField.z);
+  uint handle = texelFetch(uSurfaceLightPages, ivec2(int(slot), int(floor(y / 16.0))), 0).r;
+  if (handle == 0u) return vec2(0.0);
+  return vec2(SurfaceLightValue(handle, mod(y, 16.0) * 324.0 + local.y * 18.0 + local.x), 1.0);
+}
 
 vec2 daylightMask(vec3 point) {
   #ifdef MINESLOP_EXTERIOR_DAYLIGHT
@@ -58,19 +77,24 @@ vec2 daylightMask(vec3 point) {
     vec2 cell = floor(point.xz) - uSkyField.xy;
     if (any(lessThan(cell, vec2(0.0))) || any(greaterThanEqual(cell, vec2(uSkyField.z))))
       return vec2(0.0);
-    float ceiling = texture2D(uSkyCeilings, (cell + 0.5) / uSkyField.z).r;
-    if (ceiling >= ${UNKNOWN_SKY_HEIGHT.toFixed(1)}) return vec2(0.0);
-    float directSky = step(ceiling, point.y);
+    float skyTiles = uSurfaceField.z + 2.0;
+    vec2 skyColumn = mod(floor(point.xz / 16.0), skyTiles);
+    int skySlot = int(skyColumn.y * skyTiles + skyColumn.x);
+    uint skyReady = texelFetch(uSurfaceLightPages, ivec2(skySlot, int(uSurfaceField.y / 16.0)), 0).r;
+    vec2 skyPixel = mod(floor(point.xz), uSkyField.z);
+    float ceiling = texture2D(uSkyCeilings, (skyPixel + 0.5) / uSkyField.z).r;
+    float directSky = skyReady == 1u ? step(ceiling, point.y) : 0.0;
     float fill = directSky;
     float y = floor(point.y) - uSurfaceField.x;
     if (directSky < 0.5 && y >= 0.0 && y < uSurfaceField.y) {
-      vec2 chunk = floor(point.xz / 16.0);
-      vec2 local = mod(floor(point.xz), 16.0);
-      float slot = mod(chunk.y, uSurfaceField.z) * uSurfaceField.z + mod(chunk.x, uSurfaceField.z);
-      float index = y * 256.0 + local.y * 16.0 + local.x;
-      vec2 uv = (vec2(mod(index, ${SURFACE_DAYLIGHT_LIMITS.atlasWidth.toFixed(1)}), floor(index / ${SURFACE_DAYLIGHT_LIMITS.atlasWidth.toFixed(1)})) + 0.5)
-        / vec2(${SURFACE_DAYLIGHT_LIMITS.atlasWidth.toFixed(1)}, uSurfaceField.y * 4.0);
-      float distance = ${SURFACE_DAYLIGHT_LIMITS.radius.toFixed(1)} - texture(uSurfaceDaylight, vec3(uv, slot)).r * 255.0;
+      vec2 chunk = floor(point.xz / 16.0), pixel = floor(point.xz), local = mod(pixel, 16.0);
+      vec2 value = surfacePage(pixel, y, chunk);
+      vec2 neighbor = chunk + vec2(local.x < 1.0 ? -1.0 : 1.0, local.y < 1.0 ? -1.0 : 1.0);
+      bvec2 edge = bvec2(local.x < 1.0 || local.x >= 15.0, local.y < 1.0 || local.y >= 15.0);
+      if (value.y < 0.5 && edge.x) value = surfacePage(pixel, y, vec2(neighbor.x, chunk.y));
+      if (value.y < 0.5 && edge.y) value = surfacePage(pixel, y, vec2(chunk.x, neighbor.y));
+      if (value.y < 0.5 && edge.x && edge.y) value = surfacePage(pixel, y, neighbor);
+      float distance = ${SURFACE_DAYLIGHT_LIMITS.radius.toFixed(1)} - value.x;
       fill = 1.0 - smoothstep(0.0, ${SURFACE_DAYLIGHT_LIMITS.radius.toFixed(1)}, distance);
     }
     return vec2(directSky, fill);
@@ -98,8 +122,9 @@ export class DaylightMaterial {
       uDaylightFogEnabled: { value: 0 },
       uPlayerVision: { value: 0 },
       uSkyCeilings: { value: columns.texture },
-      uSurfaceDaylight: { value: columns.surfaceLight.texture },
+      ...pageUniforms("SurfaceLight", columns.surfaceLight.store),
       uSurfaceField: { value: new THREE.Vector3() },
+      uSurfaceOrigin: { value: new THREE.Vector2() },
       uSkyField: { value: new THREE.Vector3() },
       uDaylightKey: { value: new THREE.Color() },
       uDaylightSky: { value: new THREE.Color() },
@@ -166,7 +191,7 @@ export class DaylightMaterial {
         gl_FragColor.rgb = mix( gl_FragColor.rgb, localFog, fogFactor );`
       );
       shader.fragmentShader =
-        `${exterior ? "#define MINESLOP_EXTERIOR_DAYLIGHT\n" : ""}${DECLARATIONS}\n${BLOCK_LIGHT_DECLARATIONS}\n${shader.fragmentShader}`
+        `${exterior ? "#define MINESLOP_EXTERIOR_DAYLIGHT\n" : ""}${DAYLIGHT_DECLARATIONS}\n${BLOCK_LIGHT_DECLARATIONS}\n${shader.fragmentShader}`
           .replace(
             "#include <lights_fragment_begin>",
             `vec3 daylightNormal = transformNormalByInverseViewMatrix(normal, viewMatrix);
@@ -178,7 +203,7 @@ export class DaylightMaterial {
           )
           .replace("#include <fog_fragment>", fog);
     };
-    material.customProgramCacheKey = () => `${cacheKey()}:daylight-2:${Number(exterior)}:surface-atlas-1:block-light-2:player-vision-1:${this.binding}`;
+    material.customProgramCacheKey = () => `${cacheKey()}:daylight-3:${Number(exterior)}:surface-pages-1:block-light-pages-1:player-vision-1:${this.binding}`;
     material.needsUpdate = true;
   }
 
@@ -189,6 +214,71 @@ export class DaylightMaterial {
     this.blockLight.dispose();
     if (this.scene && sceneDaylight.get(this.scene) === this)
       sceneDaylight.delete(this.scene);
+  }
+
+  /** Call once after CPU lighting updates and before ANY scene/hand draw.
+   * Invalidation barriers run first even when page publication is exhausted.
+   */
+  flush(renderer) {
+    this.flushFailed = true;
+    if (this.disposed || renderer.getContext().isContextLost()) throw new Error("Lighting draw barrier unavailable");
+    const budget = lightUploadBudget();
+    if (this.uploadedPalette !== this.blockLight.paletteTexture) {
+      const palette = this.blockLight.paletteTexture;
+      // Palette is the only fixed full upload; count it before any pages.
+      palette.source.dataReady = true;
+      palette.needsUpdate = true;
+      budget.bytes -= 1024; budget.copies--; budget.uploadedBytes += 1024;
+      try {
+        checkedLightTransfer(renderer, "palette", () => renderer.initTexture(palette));
+      } catch (error) {
+        // Three may have recorded the texture version even when GL rejected
+        // allocation. Discard that GPU object so initTexture really retries.
+        palette.dispose();
+        throw error;
+      }
+      this.uploadedPalette = palette;
+      this.uniforms.uBlockLightPalette.value = palette;
+    }
+    const surface = this.columns.surfaceLight.store, block = this.blockLight.store;
+    block.flushInvalidations(renderer, budget);
+    surface.flushInvalidations(renderer, budget);
+    this.columns.flush(renderer, budget);
+    const stores = this.flushTurn ? [surface, block] : [block, surface];
+    this.flushTurn = !this.flushTurn;
+    for (const store of stores) store.flush(renderer, budget);
+    updatePageUniforms("BlockLight", block, this.uniforms);
+    updatePageUniforms("SurfaceLight", surface, this.uniforms);
+    this.uniforms.uSkyCeilings.value = this.columns.texture;
+    this.uploadStats = budget;
+    this.flushFailed = false;
+    return budget;
+  }
+
+  // Call on BOTH loss and restoration. Loss releases Three's old dispose
+  // listeners while GL deletion is a no-op; waiting until restoration would
+  // delete handles from the previous context and cause INVALID_OPERATION.
+  restoreGPU() {
+    this.uploadedPalette = null;
+    this.blockLight.restoreGPU();
+    this.columns.restoreGPU();
+  }
+
+  resources() {
+    const block = this.blockLight.resources(), surface = this.columns.surfaceLight.resources();
+    const sky = this.columns.resources(), overworld = this.columns.world?.dimension === "overworld";
+    const pendingPalette = Number(!this.disposed && this.uploadedPalette !== this.blockLight.paletteTexture);
+    const pendingBarrier = Number(!this.disposed && !!this.flushFailed);
+    const pendingRequired = block.pendingRequired + (overworld ? surface.pendingRequired + sky.pendingRequired : 0)
+      + pendingPalette + pendingBarrier;
+    return { block, surface, sky, lightingSamplers: 10, upload: this.uploadStats ?? null,
+      pendingPalette, pendingBarrier, pendingRequired, ready: !this.disposed && pendingRequired === 0 };
+  }
+
+  observeMutation(world, event) {
+    if (this.disposed) return;
+    this.blockLight.observeMutation(world, event);
+    this.columns.observeMutation(world, event);
   }
 
   update(atmosphere) {
@@ -210,8 +300,10 @@ export class DaylightMaterial {
     u.uCaveFog.value.copy(atmosphere.dimensionHorizon);
     u.uSkyCeilings.value = this.columns.texture;
     u.uSkyField.value.set(this.columns.origin.x, this.columns.origin.y, this.columns.size);
-    u.uSurfaceDaylight.value = this.columns.surfaceLight.texture;
+    updatePageUniforms("SurfaceLight", this.columns.surfaceLight.store, u);
     u.uSurfaceField.value.set(this.columns.spec.minY, this.columns.surfaceLight.height, this.columns.surfaceLight.tiles);
+    u.uSurfaceOrigin.value.set((this.columns.cx ?? 0) - this.columns.layout.radius,
+      (this.columns.cz ?? 0) - this.columns.layout.radius);
     const lighting = atmosphere.outdoorLighting;
     u.uDaylightKey.value.copy(atmosphere.sunlight.color).multiplyScalar(lighting.keyIntensity);
     u.uDaylightSky.value.copy(atmosphere.hemi.color).multiplyScalar(lighting.hemisphereIntensity);

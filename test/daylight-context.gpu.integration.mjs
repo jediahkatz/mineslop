@@ -8,7 +8,7 @@ import { chromeExecutable } from "./realtime/config.mjs";
 import { installWebGLCallTrace } from "./webgl-call-trace.js";
 
 const base = new URL(process.env.VOXELCRAFT_TEST_URL ?? "http://127.0.0.1:5173/mineslop/");
-test("retained entrance atlas layers restore alongside partial lost-context topology work", { timeout: 120000 }, async (t) => {
+test("retained entrance pages restore alongside partial lost-context topology work", { timeout: 120000 }, async (t) => {
   const browser = await chromium.launch({
     executablePath: await chromeExecutable(process.env.CHROME_BIN),
     headless: true, args: ["--disable-dev-shm-usage", "--enable-unsafe-swiftshader"],
@@ -28,6 +28,8 @@ test("retained entrance atlas layers restore alongside partial lost-context topo
     const { GameRenderer } = await import("../src/renderer.js");
     const { sampleDaylightAt } = await import("../src/daylight-material.js");
     const { surfaceTunnel, ENTRANCE_SURFACES, surfaceAirPoint } = await import("./daylight-surface-fixture.js");
+    const { daylightTargetsReady } = await import("./light-renderer-fixture.js");
+    const { intersectPhysicalLightMeshes } = await import("./lighting-physical-geometry.js");
     const f = surfaceTunnel(true), g = new GameRenderer(document.querySelector("#surface-probe"), f.world);
     const surface = ENTRANCE_SURFACES[0], point = surfaceAirPoint(surface), SIZE = 65;
     try {
@@ -46,25 +48,34 @@ test("retained entrance atlas layers restore alongside partial lost-context topo
       const tick = () => {
         g.rebuildDirty(Infinity);
         g.update(0, 0, f.position(4.5));
+        g.render();
       };
-      for (let i = 0; i < 42; i++) {
-        tick();
-        if (!g.skyColumns.surfaceLight.pending) break;
-      }
       const gl = g.renderer.getContext(), light = g.skyColumns.surfaceLight;
-      const data = light.data;
-      const slot = light.slot(0, 0);
-      const at = (Math.floor(point.y) - g.skyColumns.spec.minY) * 256 + Math.floor(point.z) * 16 + Math.floor(point.x);
-      const index = slot * light.layerSize + at;
+      const settle = () => {
+        for (let i = 0; i < 4096; i++) {
+          tick();
+          if (!light.pending && !g.skyColumns.requests.size &&
+            !light.store.queue.size && !g.skyColumns.skyUploads.size &&
+            daylightTargetsReady(g.skyColumns, [point])) return;
+        }
+        throw new Error("Resumable daylight and explicit GPU publication did not settle");
+      };
+      settle();
+      const y = Math.floor(point.y) - g.skyColumns.spec.minY;
+      const index = light.index(Math.floor(point.x / 16), Math.floor(point.z / 16), Math.floor(y / 16));
+      const mod = (n) => (n % 16 + 16) % 16;
+      const cell = (y % 16) * 324 + (mod(Math.floor(point.z)) + 1) * 18 + mod(Math.floor(point.x)) + 1;
+      const data = light.store.pages.get(index).values;
+      const cpu = () => {
+        const page = light.store.pages.get(index);
+        return page.constant ?? page.values[cell];
+      };
       const capture = () => {
         g.camera.updateMatrixWorld(true);
         g.scene.updateMatrixWorld(true);
         const ray = new THREE.Raycaster();
         ray.setFromCamera(new THREE.Vector2(), g.camera);
-        const meshes = [];
-        for (const group of g.chunks.values())
-          if (group.visible) group.traverse((mesh) => { if (mesh.isMesh) meshes.push(mesh); });
-        const hit = ray.intersectObjects(meshes, false)[0];
+        const hit = intersectPhysicalLightMeshes(g, ray)[0];
         if (!hit || hit.point.distanceTo(new THREE.Vector3(surface.point.x, surface.point.y, surface.point.z)) > 0.0001)
           throw new Error("Readback must hit the same roofed entrance texel");
         g.render();
@@ -72,14 +83,18 @@ test("retained entrance atlas layers restore alongside partial lost-context topo
         gl.readPixels(32, 32, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
         const fb = gl.createFramebuffer(), previous = gl.getParameter(gl.FRAMEBUFFER_BINDING);
         gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+        const handle = light.store.mapping[index];
+        if (handle < 258) throw new Error("The mixed roofed entrance control must have a published physical page");
+        const address = light.store.address(handle - 258);
         gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
-          g.renderer.properties.get(light.texture).__webglTexture, 0, slot);
+          g.renderer.properties.get(light.store.banks[address.bank]).__webglTexture, 0, address.layer);
         if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE)
-          throw new Error("Retained atlas layer is not framebuffer readable");
-        gl.readPixels(at % 64, Math.floor(at / 64), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, gpu);
+          throw new Error("Retained physical page is not framebuffer readable");
+        gl.readPixels(address.x + cell % 72, address.y + Math.floor(cell / 72),
+          1, 1, gl.RGBA, gl.UNSIGNED_BYTE, gpu);
         gl.bindFramebuffer(gl.FRAMEBUFFER, previous);
         gl.deleteFramebuffer(fb);
-        return { rgba: [...rgba], gpu: gpu[0], cpu: data[index], mask: sampleDaylightAt(g.skyColumns, point),
+        return { rgba: [...rgba], gpu: gpu[0], cpu: cpu(), mask: sampleDaylightAt(g.skyColumns, point),
           uv: hit.uv.toArray(), point: hit.point.toArray(), pending: light.pending,
           work: { ...g.skyColumns.stats }, memory: { ...g.renderer.info.memory } };
       };
@@ -94,24 +109,27 @@ test("retained entrance atlas layers restore alongside partial lost-context topo
       // at y=7 is light-irrelevant and should no longer invalidate surface light.
       f.world.put(70, 9, 2, BLOCK.DIRT);
       tick();
-      const whileLost = { layers: [...light.texture.layerUpdates], cpu: data[index],
+      const whileLost = { handle: light.store.mapping[index], cpu: cpu(),
         pending: light.pending, work: { ...g.skyColumns.stats } };
       const worldAfterEdit = [...f.world.chunks].map(([key, chunk]) => [key, chunk.revision, chunk.incarnation]);
       const restored = new Promise((resolve) => canvas.addEventListener("webglcontextrestored", resolve, { once: true }));
       extension.restoreContext();
       await restored;
+      const unavailableAfterRestore = light.store.mapping[index] === 0;
+      // Restoration is fail-closed until the shared, budgeted flush publishes
+      // retained bytes and then their handles; it is not an implicit full upload.
+      settle();
       const first = capture();
-      for (let i = 0; i < 42; i++) {
-        tick();
-        g.render();
-        if (!light.pending) break;
-      }
+      settle();
       const warm = capture();
-      for (let layer = 0; layer < light.tiles ** 2; layer++) light.texture.addLayerUpdate(layer);
-      light.texture.needsUpdate = true;
-      const fullUploadControl = capture();
-      return { before, whileLost, first, warm, fullUploadControl,
-        atlasBytes: data.byteLength, layers: light.tiles ** 2, sameCpuBuffer: data === light.data,
+      // Independent complete-republication control, using the public paged
+      // recovery path rather than forbidden whole-array-layer uploads.
+      g.daylightMaterial.restoreGPU();
+      settle();
+      const republishedControl = capture();
+      return { before, whileLost, first, warm, republishedControl, unavailableAfterRestore,
+        resources: light.resources(), sections: light.height / 16,
+        sameCpuBuffer: data === light.store.pages.get(index).values,
         worldAfterEdit, worldAfterRestore: [...f.world.chunks].map(([key, chunk]) => [key, chunk.revision, chunk.incarnation]),
         quality: g.quality, radius: g.renderRadius, fullbright: g.fullbrightInspection,
         epoch: window.__glCallTrace.reports[0].epoch,
@@ -135,12 +153,20 @@ test("retained entrance atlas layers restore alongside partial lost-context topo
   assert.deepEqual(result.worldAfterRestore, result.worldAfterEdit);
   assert.equal(result.quality, "medium");
   assert.equal(result.fullbright, false);
-  assert.equal(result.layers, (result.radius * 2 + 1) ** 2);
-  assert.equal(result.atlasBytes, result.layers * 256 * 384);
-  assert.ok(result.whileLost.work.surfaceBuilds > 0 && result.whileLost.work.surfaceBuilds <= 2);
-  for (const frame of [result.first, result.warm, result.fullUploadControl]) {
+  assert.equal(result.resources.requiredPages, (result.radius * 2 + 1) ** 2 * result.sections);
+  assert.equal(result.resources.cpuBankBytes, 0);
+  assert.ok(result.resources.canonicalBytes <= result.resources.requiredPages * 5184);
+  assert.equal(result.whileLost.handle, 0);
+  assert.equal(result.unavailableAfterRestore, true);
+  assert.equal(result.whileLost.cpu, result.before.cpu);
+  assert.ok(result.whileLost.work.surfaceCellReads > 0 || result.whileLost.work.cellReads > 0,
+    "The unsafe edit must advance resumable topology/ceiling work while the context is lost");
+  assert.ok(result.whileLost.work.surfaceBuilds <= 2);
+  assert.ok(result.whileLost.work.surfaceCellReads <= 8192);
+  assert.ok(result.whileLost.work.cellReads <= 8192);
+  for (const frame of [result.first, result.warm, result.republishedControl]) {
     assert.equal(frame.cpu, result.before.cpu);
-    assert.equal(frame.gpu, result.before.gpu, "Restoration must upload retained, non-dirty atlas layers");
+    assert.equal(frame.gpu, result.before.gpu, "Restoration must upload retained, non-dirty pages");
     assert.deepEqual(frame.uv, result.before.uv);
     assert.deepEqual(frame.rgba, result.before.rgba, "The same roofed entrance texel must keep its color");
   }

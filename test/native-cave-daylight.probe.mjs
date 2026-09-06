@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { flushColumns, lightRenderer } from "./light-renderer-fixture.js";
 const root = resolve(process.env.MINESLOP_CAVE_SOURCE ?? new URL("..", import.meta.url).pathname);
 const load = (name) => import(pathToFileURL(resolve(root, "src", name)));
 const [{ World }, { SkyColumns }, { CaveDaylight }, { sampleDaylightAt }, { raycast }] =
@@ -15,10 +16,10 @@ const feature = world.generator.getCaveEntrances(0, 8)[0];
 const points = feature.path.map((point) => ({ x: point.x + 0.5, y: point.low + 1.62, z: point.z + 0.5 }));
 assert.equal(points.length, 71);
 const bounds = {
-  minX: Math.min(...points.map((p) => Math.floor(p.x / 16))) - 4,
-  maxX: Math.max(...points.map((p) => Math.floor(p.x / 16))) + 4,
-  minZ: Math.min(...points.map((p) => Math.floor(p.z / 16))) - 4,
-  maxZ: Math.max(...points.map((p) => Math.floor(p.z / 16))) + 4,
+  minX: Math.min(...points.map((p) => Math.floor(p.x / 16))) - 5,
+  maxX: Math.max(...points.map((p) => Math.floor(p.x / 16))) + 5,
+  minZ: Math.min(...points.map((p) => Math.floor(p.z / 16))) - 5,
+  maxZ: Math.max(...points.map((p) => Math.floor(p.z / 16))) + 5,
 };
 // Establish the normal retention focus before admitting the remainder of the
 // route; otherwise native World correctly evicts far-away setup columns.
@@ -39,8 +40,9 @@ for (const chunk of world.chunks.values())
   for (const id of chunk.blocks) if (id === 104) berries++;
 const session = () => {
   const columns = new SkyColumns(), daylight = new CaveDaylight(columns);
+  const renderer = lightRenderer();
   return {
-    columns, daylight,
+    columns, daylight, renderer,
     sample(point, forward = { x: 0, y: -0.18, z: -1 }) {
       const totals = {}, peak = {}, fieldTicksMs = [];
       let frames = 0;
@@ -49,13 +51,19 @@ const session = () => {
         const tickStarted = performance.now();
         columns.begin(world);
         columns.updateField(point, 3);
+        // CPU-only publication model: exercise byte/call budgets without
+        // claiming GPU timing or pixel evidence for this native path probe.
+        if (columns.surfaceLight?.store) flushColumns(columns, renderer);
         fieldTicksMs.push(performance.now() - tickStarted);
         for (const [name, value] of Object.entries(columns.stats)) {
           totals[name] = (totals[name] ?? 0) + value;
           peak[name] = Math.max(peak[name] ?? 0, value);
         }
-        assert.ok(++frames <= 41);
-      } while (columns.surfaceLight?.pending);
+        assert.ok(++frames <= 4096, "native field must converge within bounded resumable slices");
+      } while (columns.surfaceLight?.pending ||
+        (columns.surfaceLight?.store && (columns.requests.size || columns.skyUploads.size ||
+          columns.surfaceLight.store.queue.size || columns.resources().pendingRequired ||
+          columns.surfaceLight.resources().pendingRequired)));
       const access = daylight.sample(world, point, forward);
       return { position: point, access, frames, totals, peak, fieldTicksMs, ms: performance.now() - started };
     },
@@ -100,7 +108,18 @@ const cutoff = [
   take({ x: 60.52663703399782, y: 27.62, z: 948.9421586994134 }, { x: 0, y: 0.25, z: 1 }),
   take({ x: 60.66933543041449, y: 17.62, z: 916.5649731605562 }, { x: 0, y: 0.25, z: 1 }),
 ];
-const fieldVersion = run.columns.surfaceLight?.texture.version;
+const surfaceSignature = () => {
+  const store = run.columns.surfaceLight?.store;
+  if (!store) return run.columns.surfaceLight?.texture.version;
+  const hash = createHash("sha256");
+  hash.update(new Uint8Array(store.mapping.buffer, store.mapping.byteOffset, store.mapping.byteLength));
+  for (const [index, page] of [...store.pages].sort(([a], [b]) => a - b)) {
+    hash.update(`${index}:${page.constant}:${page.values?.length ?? 0}:`);
+    if (page.values) hash.update(page.values);
+  }
+  return hash.digest("hex");
+};
+const fieldVersion = surfaceSignature(), publicationCalls = run.renderer.calls.length;
 const turns = [];
 for (let i = 0; i < 64; i++) {
   const state = take(points.at(-1), { x: Math.sin(i), y: Math.sin(i * 0.3) * 0.4, z: Math.cos(i) });
@@ -108,7 +127,8 @@ for (let i = 0; i < 64; i++) {
     assert.equal(state.totals.surfaceBuilds, 0);
     assert.equal(state.totals.surfaceCellReads, 0);
     assert.equal(state.totals.surfaceUploadBytes, 0);
-    assert.equal(run.columns.surfaceLight.texture.version, fieldVersion);
+    assert.equal(surfaceSignature(), fieldVersion);
+    assert.equal(run.renderer.calls.length, publicationCalls, "fixed-position turns must not republish unchanged pages");
   }
   turns.push(state.ms);
 }

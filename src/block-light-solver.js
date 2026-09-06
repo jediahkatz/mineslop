@@ -3,6 +3,8 @@ import { LIGHT_BLOCKED, LIGHT_WATER } from "./block-light-topology.js";
 const SIDE = 48, PLANE = SIDE * SIDE, COUNT = SIDE * PLANE;
 export const BLOCK_LIGHT_TILE_SIDE = 20; // Two-cell render/shape apron.
 export const BLOCK_LIGHT_PAGE_CELLS = 20 * 20 * 16;
+const topologyCode = (source, i) => source.uniform ??
+  (source.palette ? source.palette[source.values[i]] : source.values[i]);
 
 // One reusable, fixed-capacity wavefront. Strongest level wins; equal-level
 // colors use a deterministic packed-color tie break, independent of traversal.
@@ -40,7 +42,7 @@ export class BlockLightSolver {
     if ((this.queued[i] & 254) === this.tag) return;
     const x = i % SIDE, z = Math.floor(i / SIDE) % SIDE, y = Math.floor(i / PLANE);
     const source = this.sources[Math.floor(y / 16) * 9 + Math.floor(z / 16) * 3 + Math.floor(x / 16)];
-    const code = source ? (source.uniform ?? source.values[(y % 16) * 256 + (z % 16) * 16 + x % 16]) : LIGHT_BLOCKED;
+    const code = source ? topologyCode(source, (y % 16) * 256 + (z % 16) * 16 + x % 16) : LIGHT_BLOCKED;
     stats.lazyReads = (stats.lazyReads ?? 0) + 1;
     this.cost[i] = code & LIGHT_BLOCKED ? 255 : code & LIGHT_WATER ? 2 : 1;
     this.light[i] = 0;
@@ -92,7 +94,7 @@ export class BlockLightSolver {
           this.cursor = (section + 1) * 4096;
           this.denseSeed = false;
         } else {
-          const code = source.uniform ?? source.values[at];
+          const code = topologyCode(source, at);
           this.cursor++;
           if (code & 15) {
             const x = (section % 3) * 16 + at % 16;

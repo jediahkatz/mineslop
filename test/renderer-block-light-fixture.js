@@ -52,6 +52,10 @@ export function attachRendererLight(t, graphics) {
 }
 
 export function settleRendererLight(graphics) {
+  // Authored test admission, not lighting-side streaming. A generate(0)
+  // fixture lacks the source/shape halo and must now remain uncertified.
+  // Re-admit it after dimension/quality changes before testing lit receivers.
+  graphics.world.generate(graphics.renderRadius + 2);
   const report = settleLight(graphics.blockLight, graphics.world, graphics.camera.position, graphics.renderRadius);
   assert.equal(graphics.blockLight.radius, graphics.renderRadius);
   if (graphics.daylightMaterial) graphics.daylightMaterial.update(graphics.atmosphere);

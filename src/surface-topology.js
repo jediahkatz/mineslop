@@ -25,6 +25,8 @@ export class SurfaceTopology {
     this.limits = limits;
     this.cache = new Map();
     this.waiting = new Map();
+    this.attempts = new Map();
+    this.turn = 0;
     this.serial = 0;
   }
 
@@ -33,6 +35,7 @@ export class SurfaceTopology {
     while (this.cache.size > topologyChunks)
       this.cache.delete(this.cache.keys().next().value);
     this.waiting.clear();
+    this.job = null;
   }
 
   update(cx, cz, radius, stamps, age, tileWaiting) {
@@ -61,43 +64,44 @@ export class SurfaceTopology {
         const [id, , incarnation] = center.split(":");
         const first = this.waiting.get(key) ?? age;
         waiting.set(key, first);
-        pending.push({ x, z, key, stamp, identity: `${id}:${incarnation}`, age: first,
+        pending.push({ x, z, key, stamp, complete: dependencies.every((d) => d !== "0" && d !== undefined),
+          identity: `${id}:${incarnation}`, age: first,
           distance: (x - cx) ** 2 + (z - cz) ** 2 });
       }
     const budget = Math.max(0, this.limits.topologyBuilds - stats.surfaceTopologyBuilds);
-    const selected = new Set();
-    if (pending.length && budget > 0) {
-      const jobs = new Map(pending.map((job) => [job.key, job])), tiles = [];
-      for (let z = cz - radius; z <= cz + radius; z++)
-        for (let x = cx - radius; x <= cx + radius; x++) {
-          const key = `${x},${z}`;
-          if (stamps.get(key) !== "0")
-            tiles.push({ x, z, age: tileWaiting.get(key) ?? age, distance: (x - cx) ** 2 + (z - cz) ** 2 });
-        }
-      prioritizeDaylight(tiles, stats);
-      // Verify complete input groups for the oldest tiles first. Two groups
-      // need at most 18 sources, so continuous changes cannot strand a tile
-      // behind independently rotating, only partially verified source halos.
-      for (const tile of tiles) {
-        const needed = [];
-        for (let dz = -1; dz <= 1; dz++)
-          for (let dx = -1; dx <= 1; dx++) {
-            const job = jobs.get(`${tile.x + dx},${tile.z + dz}`);
-            stats.surfaceDependencyChecks++;
-            if (job && !selected.has(job)) needed.push(job);
-          }
-        if (selected.size + needed.length <= budget)
-          needed.forEach((job) => selected.add(job));
-        if (selected.size === budget) break;
+    // Whole input groups no longer complete synchronously. Least-recently
+    // attempted work prevents one repeatedly invalidated near column from
+    // starving an older, stable receiver's dependencies.
+    pending.sort((a, b) => {
+      stats.surfaceQueueComparisons++;
+      return (this.attempts.get(a.key) ?? 0) - (this.attempts.get(b.key) ?? 0) ||
+        a.age - b.age || a.distance - b.distance || a.z - b.z || a.x - b.x;
+    });
+    const selected = pending.slice(0, budget);
+    const work = this.columns.topologyWork;
+    if (this.job && !pending.some((p) => p.key === this.job.target.key && p.stamp === this.job.target.stamp))
+      this.job = null;
+    // A partial verifier owns its input until completion or dependency change.
+    // Do not restart it just because another receiver became nearer.
+    const ordered = [...selected].filter((p) => p.key !== this.job?.target.key);
+    if (this.job) ordered.unshift(this.job.target);
+    for (const job of ordered) {
+      if (stats.surfaceTopologyBuilds >= this.limits.topologyBuilds) break;
+      if (this.job && this.job.target.key !== job.key) break;
+      if (!this.job) {
+        this.attempts.set(job.key, ++this.turn);
+        const sky = this.columns.chunk(job.x, job.z);
+        if (!sky) continue;
+        this.job = { target: job, iterator: this.build(job, sky) };
       }
-      prioritizeDaylight(pending, stats);
-      for (const job of pending) {
-        if (selected.size === budget) break;
-        selected.add(job);
+      let result;
+      while (work.take()) {
+        result = this.job.iterator.next();
+        if (result.done) break;
       }
-    }
-    for (const job of selected) {
-      const entry = this.build(job);
+      if (!result?.done) break;
+      const entry = result.value;
+      this.job = null;
       entries.set(job.key, entry);
       waiting.delete(job.key);
       if (entry) {
@@ -108,18 +112,20 @@ export class SurfaceTopology {
       }
     }
     this.waiting = waiting;
+    const active = new Set([...entries.keys(), ...pending.map((p) => p.key)]);
+    for (const key of this.attempts.keys()) if (!active.has(key)) this.attempts.delete(key);
     return entries;
   }
 
-  build({ x: cx, z: cz, key, stamp, identity }) {
-    const { world, spec, stats } = this.columns;
-    stats.surfaceTopologyBuilds++;
-    const sky = this.columns.chunk(cx, cz);
-    if (!sky) return null;
-    const chunk = world.chunks.get(key);
+  *build({ x: cx, z: cz, key, stamp, identity, complete }, sky) {
+    const { world, spec } = this.columns;
+    let stats = this.columns.stats;
     const depth = Math.ceil(Math.min(spec.maxY, Math.max(spec.minY, ...sky.heights))) - spec.minY;
     const blocked = new Uint32Array(Math.ceil(depth * LAYER / 32));
     for (let i = 0; i < depth * LAYER; i++) {
+      yield;
+      stats = this.columns.stats;
+      const chunk = world.chunks.get(key);
       const id = chunk.blocks[i];
       stats.surfaceCellReads++;
       if (id === BLOCK.AIR) continue;
@@ -135,17 +141,21 @@ export class SurfaceTopology {
       if (occludes) blocked[i >>> 5] |= 1 << (i & 31);
     }
     const old = this.cache.get(key);
-    const equal = (a, b) => {
+    const columns = this.columns;
+    const equal = function* (a, b) {
       if (!a || a.length !== b.length) return false;
       for (let i = 0; i < a.length; i++) {
+        yield;
+        stats = columns.stats;
         stats.surfaceTopologyComparisons++;
         if (a[i] !== b[i]) return false;
       }
       return true;
     };
-    if (old?.identity === identity && equal(old.blocked, blocked) && equal(old.heights, sky.heights))
-      return { ...old, stamp };
-    return { stamp, identity, blocked, heights: sky.heights, depth, serial: ++this.serial };
+    stats.surfaceTopologyBuilds++;
+    if (old?.identity === identity && (yield* equal(old.blocked, blocked)) && (yield* equal(old.heights, sky.heights)))
+      return { ...old, stamp, complete };
+    return { stamp, identity, complete, blocked, heights: sky.heights, depth, serial: ++this.serial };
   }
 
   resources() {
@@ -158,5 +168,7 @@ export class SurfaceTopology {
   clear() {
     this.cache.clear();
     this.waiting.clear();
+    this.attempts.clear();
+    this.job = null;
   }
 }

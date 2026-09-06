@@ -7,6 +7,9 @@ import { createMobModel } from "../src/mob-models.js";
 import { createMobGelResources, createMobSkinResources, paintMobAtlasFace } from "../src/mob-skin-atlas.js";
 import { GameRenderer } from "../src/renderer.js";
 import { daylightTunnel } from "./daylight-fixture.js";
+import { completeLightingHalo } from "./daylight-surface-fixture.js";
+import { daylightTargetsReady } from "./light-renderer-fixture.js";
+import { intersectPhysicalLightMeshes } from "./lighting-physical-geometry.js";
 
 const SIZE = 65;
 const ANCHOR = new THREE.Vector3(16, 0, 16);
@@ -14,6 +17,7 @@ const luma = (rgba) => rgba[0] * 0.2126 + rgba[1] * 0.7152 + rgba[2] * 0.0722;
 
 export function runMobDaylightProbe(container) {
   const fixture = daylightTunnel();
+  completeLightingHalo(fixture.world);
   const before = [...fixture.world.chunks].map(([key, chunk]) => [key, chunk.blocks.slice()]);
   const resources = createMobSkinResources(72 * 6);
   const groups = [], targets = [];
@@ -94,8 +98,12 @@ export function runMobDaylightProbe(container) {
     do {
       g.rebuildDirty(Infinity);
       g.update(0, ++frame, { x, y: 8, z: 2.5 });
-      if (++ticks > 81) throw new Error("Daylight field did not settle");
-    } while (g.skyColumns.surfaceLight.pending);
+      g.render();
+      if (++ticks > 4096) throw new Error("Daylight field did not settle within bounded resumable slices");
+    } while (g.skyColumns.surfaceLight.pending || g.skyColumns.requests.size ||
+      g.skyColumns.surfaceLight.store.queue.size || g.skyColumns.skyUploads.size ||
+      !daylightTargetsReady(g.skyColumns, targets.map((target) =>
+        target.point.clone().addScaledVector(target.normal, 0.02))));
     return { x, exposure: g.skyAccess.exposure, known: g.skyAccess.known,
       pending: g.skyColumns.surfaceLight.pending, fog: [g.scene.fog.near, g.scene.fog.far] };
   };
@@ -110,9 +118,10 @@ export function runMobDaylightProbe(container) {
     camera.updateMatrixWorld(true);
     g.scene.updateMatrixWorld(true);
     ray.setFromCamera(new THREE.Vector2(), camera);
-    const hits = ray.intersectObject(target.group, true), hit = hits[0];
+    const hits = intersectPhysicalLightMeshes(g, ray, camera, [target.group]), hit = hits[0];
     if (!hit || hit.point.distanceTo(target.point) > 0.0001)
       throw new Error(`Readback misses the fixed ${target.name} face`);
+    if (g.lightingNeedsFlush) g.render();
     g.renderer.render(g.scene, camera);
     const gl = g.renderer.getContext();
     gl.readPixels(32, 32, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
@@ -170,6 +179,7 @@ export function runMobDaylightProbe(container) {
     g.dispose();
     const closed = daylightTunnel();
     closed.close();
+    completeLightingHalo(closed.world);
     g = renderer(closed.world);
     groups.forEach((group) => g.scene.add(group));
     const reboundObserver = observer(32.5);

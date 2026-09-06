@@ -6,7 +6,16 @@ import { sectionYs } from "./mesh-snapshot.js";
 import { createSectionMeshJob, SECTION_MESH_LIMITS } from "./section-mesh.js";
 import { CHUNK_SIZE } from "./terrain.js";
 import { MeshBudgetError } from "./mesh-geometry.js";
-import { SectionPagePlan, sectionGeometryCovered, sectionSourceGroup } from "./section-pages.js";
+import { SectionPagePlan, sectionGeometryCovered, sectionMeshVisible, sectionSourceGroup } from "./section-pages.js";
+import { GeometryColorPalette, GeometryPaletteError } from "./geometry-color-palette.js";
+import { regionalPaletteMaterials, disposeRegionalPaletteMaterials } from "./geometry-palette-material.js";
+import { hasRegionalDeadRanges, stepSectionCompaction } from "./section-compaction.js";
+import { emptySectionJob } from "./empty-section-job.js";
+import { SectionWaterFusion } from "./section-water-fusion.js";
+import {
+  bufferBytes, geometryBuffers, meshSubmissionCount, publishRegionalPages, pruneEmptySectionRegions,
+  regionalPagePlan, releaseRegionalColumn, sectionRegion,
+} from "./regional-section-pages.js";
 
 export const DETAIL_MESH_LIMITS = Object.freeze({
   maxJobs: 2,
@@ -18,14 +27,46 @@ export const DETAIL_MESH_LIMITS = Object.freeze({
   maxCopyBytesPerSlice: 1024 * 1024,
 });
 
+// Opt-in while the parent measures native acceptance and finalizes policy.
+// This is a representation switch, not a larger ceiling on the old layout.
+export const REGIONAL_MESH_LIMITS = Object.freeze({
+  maxJobs: 1, maxGpuBytes: 256 * 1024 * 1024,
+  maxCpuBytes: 256 * 1024 * 1024, maxStagingBytes: 16 * 1024 * 1024,
+  maxJobBytes: 2 * 1024 * 1024,
+  paletteCapacity: 16384,
+  // Zero means automatic: reserve the largest installed/replacement page,
+  // not an arbitrary fixed chunk of otherwise usable canonical capacity.
+  compactionHeadroomBytes: 0,
+});
+
+const regional = (renderer) => renderer.meshLimits?.regionalPages === true;
+
 export function usesSectionMeshing(world) {
   const { minY, maxY } = geometryWorldSpec(world);
   return minY !== 0 || maxY > 96;
 }
 
+/** Must run before selecting legacy versus section meshing: legacy-height
+ * worlds can leave the section scheduler entirely when regional packing ends. */
+export function reconcileSectionPackingMode(renderer) {
+  const packingMode = regional(renderer) ? "regional" : "column";
+  if ((renderer.sectionPackingMode ?? "column") !== packingMode) {
+    clearSectionJobs(renderer);
+    for (const key of renderer.chunks.keys()) renderer.removeChunk(key);
+    renderer.sectionWater?.dispose();
+    renderer.sectionWater = null;
+    // Removed columns may have acknowledged every dirty ticket. Force visible
+    // columns back into the legacy queue even when the camera did not move.
+    renderer.viewCenter = null;
+  }
+  renderer.sectionPackingMode = packingMode;
+}
+
 function state(renderer) {
+  reconcileSectionPackingMode(renderer);
   renderer.sectionJobs ??= new Map();
   renderer.sectionRejections ??= new Map();
+  renderer.sectionRejectionDetails ??= new Map();
   renderer.meshResourceRevision ??= 0;
   renderer.meshStats ??= {
     staleJobs: 0,
@@ -33,10 +74,62 @@ function state(renderer) {
     lastSliceCells: 0,
     lastSliceMs: 0,
   };
-  return { ...DETAIL_MESH_LIMITS, ...renderer.meshLimits };
+  const limits = { ...DETAIL_MESH_LIMITS,
+    ...(regional(renderer) ? REGIONAL_MESH_LIMITS : {}), ...renderer.meshLimits };
+  if (regional(renderer) && !renderer.geometryPalette) {
+    const allocation = GeometryColorPalette.allocation(limits.paletteCapacity);
+    if (allocation.cpuBytes + allocation.gpuBytes <= limits.maxCpuBytes &&
+        allocation.gpuBytes <= limits.maxGpuBytes && allocation.gpuBytes <= limits.maxStagingBytes)
+      renderer.geometryPalette = new GeometryColorPalette(limits.paletteCapacity);
+  }
+  if (regional(renderer) && renderer.waterFusionEnabled === true) {
+    // Enabling fusion does not expand the existing frame or capacity ceilings.
+    for (const [key, cap] of Object.entries({ ...DETAIL_MESH_LIMITS, ...REGIONAL_MESH_LIMITS }))
+      if (typeof cap === "number" && key in limits && !["compactionHeadroomBytes"].includes(key))
+        limits[key] = Math.min(limits[key], cap);
+    renderer.sectionWater ??= new SectionWaterFusion(renderer, limits);
+    renderer.sectionWater.configure(limits);
+  }
+  return limits;
+}
+
+function disposeIdlePalette(renderer) {
+  if (renderer.sectionRegions?.size || renderer.sectionJobs?.size || renderer.sectionCompaction) return;
+  if (!renderer.geometryPalette) return;
+  disposeRegionalPaletteMaterials(renderer);
+  renderer.geometryPalette.dispose();
+  renderer.geometryPalette = null;
+}
+
+function recordRegionalPeak(renderer, stats, replacementGpuBytes = 0) {
+  const peak = renderer.meshStats;
+  peak.peakCombinedCpuBytes = Math.max(peak.peakCombinedCpuBytes ?? 0, stats.combinedCpuBytes);
+  peak.peakStagingBytes = Math.max(peak.peakStagingBytes ?? 0, stats.stagingBytes);
+  peak.peakReservedGpuBytes = Math.max(peak.peakReservedGpuBytes ?? 0, stats.gpuBytes + replacementGpuBytes);
 }
 
 export function cancelSectionColumn(renderer, key) {
+  const column = renderer.chunks.get(key);
+  for (const section of column?.userData.sections?.values() ?? [])
+    renderer.sectionWater?.release(section.group);
+  for (const group of column?.userData.waterRetiringGroups ?? [])
+    renderer.sectionWater?.release(group);
+  const region = column?.userData.sectionRegion;
+  const wasRegional = !!region;
+  releaseRegionalColumn(renderer, key);
+  if (wasRegional) {
+    // The regional owner retires GPU allocations. Logical sources only borrow
+    // their arrays; drop those views without disposing physical geometry twice.
+    column.traverse((mesh) => {
+      if (!mesh.userData.sectionSource) return;
+      region.userData.sectionRanges.delete(mesh);
+      mesh.geometry.attributes = {};
+      mesh.geometry.index = null;
+      delete mesh.geometry.userData.colorPalette;
+      delete mesh.userData.canonicalRange;
+    });
+    delete column.userData.sectionRanges;
+  }
   renderer.sectionQueueLayout = null;
   for (const [section, job] of renderer.sectionJobs ?? []) {
     if (!section.startsWith(`${key},`)) continue;
@@ -44,18 +137,28 @@ export function cancelSectionColumn(renderer, key) {
     renderer.sectionJobs.delete(section);
   }
   for (const section of renderer.sectionRejections?.keys() ?? [])
-    if (section.startsWith(`${key},`))
+    if (section.startsWith(`${key},`)) {
       renderer.sectionRejections.delete(section);
+      renderer.sectionRejectionDetails?.delete(section);
+    }
+  disposeIdlePalette(renderer);
 }
 
 export function clearSectionJobs(renderer) {
+  renderer.sectionCompaction?.plan.dispose();
+  renderer.sectionCompaction = null;
+  if (renderer.meshStats) renderer.meshStats.compactionBlocked = null;
   for (const job of renderer.sectionJobs?.values() ?? []) job.dispose();
   renderer.sectionJobs?.clear();
   renderer.sectionRejections?.clear();
+  renderer.sectionRejectionDetails?.clear();
   renderer.sectionQueueLayout = null;
+  pruneEmptySectionRegions(renderer);
+  disposeIdlePalette(renderer);
 }
 
 export function detailMeshResources(renderer, cached = false) {
+  if (regional(renderer)) return regionalResources(renderer);
   let gpuBytes = 0,
     sourceBytes = 0,
     drawCalls = 0,
@@ -72,8 +175,7 @@ export function detailMeshResources(renderer, cached = false) {
       drawCalls += totals.drawCalls;
       if (group.visible)
         for (const mesh of [...group.userData.pages, ...group.userData.transparentMeshes])
-          if (mesh.visible && mesh.parent?.visible && mesh.material.visible !== false &&
-              mesh.geometry.drawRange.count > 0) visibleDrawCalls++;
+          if (sectionMeshVisible(mesh, renderer.camera, renderer.scene)) visibleDrawCalls++;
       continue;
     }
     group.traverse((mesh) => {
@@ -89,9 +191,7 @@ export function detailMeshResources(renderer, cached = false) {
       group.traverseVisible((mesh) => {
         if (
           mesh.isMesh &&
-          !mesh.userData.sectionSource &&
-          mesh.material.visible !== false &&
-          mesh.geometry.drawRange.count > 0
+          sectionMeshVisible(mesh, renderer.camera, renderer.scene)
         )
           visibleDrawCalls++;
       });
@@ -126,13 +226,121 @@ export function detailMeshResources(renderer, cached = false) {
   };
 }
 
+function regionalResources(renderer) {
+  const cpu = new Set(), gpu = new Set(), staging = new Set();
+  const readyBuffers = new Set(), pendingBuffers = new Set();
+  let drawCalls = 0, visibleDrawCalls = 0, shadowDrawCalls = 0, sections = 0, emitters = 0;
+  let retainedDeadBytes = 0;
+  let maxPageBytes = 0;
+  let maxCompactionBytes = 0;
+  const count = (mesh) => {
+    if (!renderer.sectionWater?.owner.contains(mesh)) {
+      geometryBuffers(mesh.geometry, cpu);
+      geometryBuffers(mesh.geometry, gpu);
+    }
+    const draws = meshSubmissionCount(mesh);
+    drawCalls += draws;
+    if (sectionMeshVisible(mesh, renderer.camera, renderer.scene)) visibleDrawCalls += draws;
+    if (mesh.castShadow) shadowDrawCalls++;
+  };
+  for (const region of renderer.sectionRegions?.values() ?? [])
+    for (const page of region.userData.pageDescriptors) {
+      const mesh = page.mesh;
+      count(mesh);
+      retainedDeadBytes += page.retainedDeadBytes ?? 0;
+      maxPageBytes = Math.max(maxPageBytes, page.bytes);
+      maxCompactionBytes = Math.max(maxCompactionBytes, page.compactionBytes ?? page.bytes);
+    }
+  for (const column of renderer.chunks.values()) {
+    sections += column.userData.sections?.size ?? 0;
+    emitters += column.userData.emitters?.length ?? 0;
+    // Logical opaque views alias the region allocations by construction.
+    // Walking all 15,000 section groups per admission would add quadratic
+    // warm-up work; enumerate physical owners and column transparency only.
+    for (const mesh of column.userData.transparentMeshes ?? [])
+      count(mesh);
+  }
+  let stagingPageBytes = 0, reservedPageBytes = 0, snapshotBytes = 0, unsealed = 0;
+  let jobReservations = 0, readySnapshotBytes = 0, pendingSnapshotBytes = 0;
+  for (const job of renderer.sectionJobs?.values() ?? []) {
+    snapshotBytes += job.snapshotBytes;
+    if (job.done) readySnapshotBytes += job.snapshotBytes;
+    else pendingSnapshotBytes += job.snapshotBytes;
+    for (const part of job.result?.parts ?? job.mesher?.context.parts ?? [])
+      for (const geometry of Object.values(part))
+        geometryBuffers(geometry, job.done ? readyBuffers : pendingBuffers);
+    unsealed += job.mesher?.context.partVertices ?? 0;
+    // Regional jobs use 4 KiB typed blocks. Twice the result ceiling plus
+    // 256 KiB covers scratch/sealing overlap and all partial blocks/metadata.
+    if (!job.done) jobReservations += job.limits.maxTotalBytes * 2 + 256 * 1024 + job.snapshotBytes;
+    stagingPageBytes += job.pagePlan?.allocatedBytes ?? 0;
+    reservedPageBytes += job.pagePlan?.stagingBytes ?? 0;
+  }
+  const water = renderer.sectionWater?.resources(cpu, readyBuffers);
+  for (const buffer of cpu) {
+    readyBuffers.delete(buffer);
+    pendingBuffers.delete(buffer);
+  }
+  for (const buffer of pendingBuffers) {
+    staging.add(buffer);
+    readyBuffers.delete(buffer);
+  }
+  for (const buffer of readyBuffers) staging.add(buffer);
+  stagingPageBytes += renderer.sectionCompaction?.plan.allocatedBytes ?? 0;
+  reservedPageBytes += renderer.sectionCompaction?.plan.stagingBytes ?? 0;
+  const stagingSourceBytes = bufferBytes(staging);
+  const palette = renderer.geometryPalette?.resources();
+  const canonicalBytes = bufferBytes(cpu) + (palette?.cpuBytes ?? 0);
+  const mayWritePalette = [...(renderer.sectionJobs?.values() ?? [])]
+    .some((job) => !job.done || job.bytes > 0);
+  const paletteUploadStagingBytes = Math.max(palette?.pendingUploadBytes ?? 0,
+    mayWritePalette ? palette?.gpuBytes ?? 0 : 0);
+  // Pending scratch reservations cannot cover independently owned ready
+  // results. Count backing identities once, including shared/subarray views.
+  const stagingBytes = bufferBytes(readyBuffers) + readySnapshotBytes +
+    Math.max(bufferBytes(pendingBuffers) + pendingSnapshotBytes, jobReservations) +
+    reservedPageBytes + paletteUploadStagingBytes + (water?.unallocatedCpu ?? 0);
+  return {
+    gpuBytes: (water?.externalGpu ?? bufferBytes(gpu)) + (palette?.gpuBytes ?? 0) + (water?.liveGpu ?? 0),
+    sourceBytes: 0, canonicalBytes,
+    waterStagingGpuBytes: water?.stagingGpu ?? 0,
+    waterAllocatedGpuBytes: water?.allocatedGpu ?? 0,
+    palette, paletteUploadStagingBytes,
+    maxPageBytes, maxCompactionBytes,
+    reservedCompactionHeadroomBytes: Math.max(renderer.meshLimits?.compactionHeadroomBytes ?? 0, maxCompactionBytes),
+    retainedCpuBytes: canonicalBytes, retainedDeadBytes, combinedCpuBytes: canonicalBytes + stagingBytes,
+    stagingBytes, stagingSourceBytes, stagingUnsealedVertices: unsealed,
+    stagingPageBytes, reservedPageBytes, snapshotBytes,
+    drawCalls, visibleDrawCalls, shadowDrawCalls,
+    activeCompactions: Number(!!renderer.sectionCompaction),
+    // Upper bound for one color pass plus one shadow camera. Actual multi-light
+    // renderer submissions must still be read from renderer.info.render.calls.
+    colorAndOneShadowDrawCalls: drawCalls + shadowDrawCalls,
+    sections, emitters, activeJobs: renderer.sectionJobs?.size ?? 0,
+    materials: Object.keys(renderer.materials ?? {}).length,
+  };
+}
+
+// Reuse only within this synchronous decision. Every removal changes physical
+// ownership and may cancel staging, so refresh before testing the next fit.
+function evictHiddenRegionalRetention(renderer, fits, stats = detailMeshResources(renderer)) {
+  if (fits(stats)) return stats;
+  for (const [key, column] of renderer.chunks) {
+    if (column.visible) continue;
+    renderer.removeChunk(key);
+    stats = detailMeshResources(renderer);
+    if (fits(stats)) break;
+  }
+  return stats;
+}
+
 /** An empty completed section is coverage; a missing section never is. */
-export function sectionColumnCovered(group) {
+export function sectionColumnCovered(group, camera) {
   const sections = group.userData.sections;
   if (!sections || !group.userData.meshed) return false;
   for (const sy of group.userData.requiredSections) {
     const section = sections.get(sy);
-    if (!sectionGeometryCovered(group, section)) return false;
+    if (!sectionGeometryCovered(group, section, camera)) return false;
   }
   return true;
 }
@@ -160,7 +368,10 @@ function queue(renderer, limits) {
     renderer.renderRadius, required.join(","),
     columns.map(({ key }) => key).join(";"),
     camera.projectionMatrix.elements.join(","),
-    camera.matrixWorld.elements.join(","),
+    // Priority only, never coverage/culling. Reuse the section lattice through
+    // sub-section translations and small head motion.
+    xs, ys, zs,
+    ...[camera.rotation.x, camera.rotation.y, camera.rotation.z].map((v) => Math.round(v / 0.15)),
   ].join("/");
   let layout = renderer.sectionQueueLayout;
   if (!layout || layout.world !== world || layout.key !== viewKey) {
@@ -182,16 +393,23 @@ function queue(renderer, limits) {
         });
       }
     }
-    slots.sort((a, b) =>
-      Number(b.inView) - Number(a.inView) ||
-      a.viewDistance - b.viewDistance ||
-      a.distance - b.distance ||
-      a.heightDistance - b.heightDistance);
-    layout = renderer.sectionQueueLayout = { world, key: viewKey, slots, columns };
+    // Bucket by section-sized distance bands. This keeps every out-of-frustum
+    // section in the queue without an O(sections log sections) matrix-motion
+    // sort. Only the small list of occupied bands is sorted.
+    const buckets = new Map();
+    for (const slot of slots) {
+      const priority = (slot.inView ? 0 : 1000000) + Math.floor(slot.viewDistance / 16);
+      if (!buckets.has(priority)) buckets.set(priority, []);
+      buckets.get(priority).push(slot);
+    }
+    const ordered = [...buckets.keys()].sort((a, b) => a - b).flatMap((key) => buckets.get(key));
+    layout = renderer.sectionQueueLayout = { world, key: viewKey, slots: ordered, columns };
   }
   const missing = [], replacements = [];
   const budgetKey = [
     limits.maxGpuBytes, limits.maxDrawCalls,
+    limits.maxCpuBytes, limits.maxStagingBytes, limits.maxJobBytes,
+    limits.paletteCapacity, renderer.geometryPalette?.freeCount,
     renderer.sectionMeshLimits?.maxVertices, renderer.sectionMeshLimits?.maxBytes,
     renderer.sectionMeshLimits?.maxTotalBytes, renderer.sectionMeshLimits?.maxDrawCalls,
   ].join(":");
@@ -220,7 +438,13 @@ function queue(renderer, limits) {
   return missing.concat(replacements);
 }
 
-function install(renderer, job, result) {
+function install(renderer, job, result, deadline = Infinity) {
+  if (renderer.sectionWater)
+    return renderer.sectionWater.attachments.commit(job, () => installTransaction(renderer, job, result), deadline);
+  return installTransaction(renderer, job, result);
+}
+
+function installTransaction(renderer, job, result) {
   const { cx, cz, sy } = job.stamp;
   const key = `${cx},${cz}`;
   const plan = job.pagePlan;
@@ -233,8 +457,9 @@ function install(renderer, job, result) {
   if (job.world !== renderer.world || !job.current()) return false;
   const source = renderer.world.chunks.get(key);
   let column = renderer.chunks.get(key);
-  if (column !== plan.column ||
-      (column?.userData.pageRevision ?? 0) !== plan.revision) return false;
+  const owner = regional(renderer) ? sectionRegion(renderer, cx, cz) : column;
+  if (owner !== plan.column ||
+      (owner?.userData.pageRevision ?? 0) !== plan.revision) return false;
   if (column && column.userData.incarnation !== source.incarnation) {
     renderer.removeChunk(key);
     column = null;
@@ -257,17 +482,21 @@ function install(renderer, job, result) {
   const old = column.userData.sections.get(sy);
   const oldPages = column.userData.pages ?? [];
   // Every destination and range is complete before any old ownership changes.
-  for (const page of plan.pages) column.add(page.mesh);
-  column.userData.pages = plan.pages.map((page) => page.mesh);
-  column.userData.pageDescriptors = plan.pages;
-  column.userData.transparentMeshes = plan.transparentMeshes;
-  column.userData.sectionRanges = plan.ranges;
-  column.userData.pageRevision = plan.revision + 1;
-  column.userData.meshResources = {
-    gpuBytes: plan.bytes + plan.transparentBytes,
-    sourceBytes: (column.userData.meshResources?.sourceBytes ?? 0) + job.sourceDelta,
-    drawCalls: plan.draws,
-  };
+  if (regional(renderer)) {
+    if (!publishRegionalPages(renderer, column, sy, plan, job.waterCommit)) return false;
+  } else {
+    for (const page of plan.pages) column.add(page.mesh);
+    column.userData.pages = plan.pages.map((page) => page.mesh);
+    column.userData.pageDescriptors = plan.pages;
+    column.userData.transparentMeshes = plan.transparentMeshes;
+    column.userData.sectionRanges = plan.ranges;
+    column.userData.pageRevision = plan.revision + 1;
+    column.userData.meshResources = {
+      gpuBytes: plan.bytes + plan.transparentBytes,
+      sourceBytes: (column.userData.meshResources?.sourceBytes ?? 0) + job.sourceDelta,
+      drawCalls: plan.draws,
+    };
+  }
   plan.transferred = true;
   column.add(sectionGroup);
   column.userData.sections.set(sy, {
@@ -277,20 +506,29 @@ function install(renderer, job, result) {
     stamp: job.stamp,
     emitters,
   });
+  renderer.sectionWater?.install(sectionGroup);
+  if (regional(renderer))
+    column.userData.transparentMeshes = [...column.userData.sections.values()]
+      .flatMap((section) => section.group.children).filter((mesh) => !mesh.userData.sectionSource);
   if (old) {
-    old.group.traverse((mesh) => mesh.geometry?.dispose());
-    column.remove(old.group);
+    const retire = () => {
+      renderer.sectionWater?.release(old.group);
+      old.group.traverse((mesh) => mesh.geometry?.dispose());
+      column.remove(old.group);
+    };
+    if (job.waterCommit) job.waterCommit.deferRetire(retire); else retire();
     if (old.bytes > job.bytes || old.draws > job.draws)
       renderer.meshResourceRevision++;
   }
   for (const mesh of oldPages) {
+    if (regional(renderer)) break;
     if (column.userData.pages.includes(mesh)) continue;
     column.remove(mesh);
     mesh.geometry.dispose();
   }
   // Opaque-to-transparent edits can free CPU source capacity while increasing
   // GPU bytes and draws. Refusals must retry when either admission pool shrinks.
-  if (job.sourceDelta < 0 ||
+  if ((regional(renderer) && job.bytes > 0) || job.sourceDelta < 0 ||
       plan.bytes + plan.transparentBytes < job.oldColumnBytes ||
       plan.draws < job.oldColumnDraws)
     renderer.meshResourceRevision++;
@@ -324,13 +562,17 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
     if (!source || column.userData.incarnation !== source.incarnation)
       renderer.removeChunk(key);
   }
+  for (const region of renderer.sectionRegions?.values() ?? [])
+    region.visible = [...region.userData.sections.values()].some(({ group }) => group.parent?.visible);
   const sectionLimits = {
     ...SECTION_MESH_LIMITS,
     ...renderer.sectionMeshLimits,
+    ...(regional(renderer) ? { typedScratch: true } : {}),
     // Bound staged parts by the whole renderer ceilings too. Final admission
     // accounts for other live sections and the buffers this result replaces.
     maxTotalBytes: Math.min(
       limits.maxGpuBytes,
+      limits.maxJobBytes ?? Infinity,
       renderer.sectionMeshLimits?.maxTotalBytes ?? Infinity
     ),
     maxDrawCalls: Math.min(
@@ -339,12 +581,15 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
     ),
   };
   const maximum =
-    maxSections === Infinity
+    maxSections === Infinity && !renderer.sectionWater
       ? Infinity
       : Math.max(0, Number.isFinite(maxSections) ? Math.floor(maxSections) : 2);
   const started = performance.now();
   renderer.meshStats.lastSliceCells = 0;
   renderer.meshStats.lastSliceCopyBytes = 0;
+  renderer.meshStats.waterWork = [];
+  if (renderer.sectionWater) renderer.sectionWater.frame = null;
+  const admissionKey = [limits.maxCpuBytes, limits.maxGpuBytes, limits.maxStagingBytes].join(":");
   for (const [key, job] of renderer.sectionJobs) {
     const distance = Math.max(
       Math.abs(
@@ -359,13 +604,34 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
       job.world !== renderer.world ||
       !job.current() ||
       distance > renderer.renderRadius ||
+      (regional(renderer) && job.admissionKey !== admissionKey) ||
       ["maxVertices", "maxBytes", "maxTotalBytes", "maxDrawCalls"].some(
-        (name) => job.limits[name] !== sectionLimits[name]
+        (name) => name === "maxTotalBytes" && regional(renderer)
+          ? job.limits[name] > sectionLimits[name] : job.limits[name] !== sectionLimits[name]
       )
     ) {
       job.dispose();
       renderer.sectionJobs.delete(key);
       renderer.meshStats.staleJobs++;
+    }
+  }
+  if (regional(renderer) && maximum > 0 && !renderer.sectionWater?.reclaim.active) {
+    while (stepSectionCompaction(renderer, limits, () => {
+      const stats = detailMeshResources(renderer);
+      if (stats.combinedCpuBytes <= limits.maxCpuBytes &&
+          stats.stagingBytes <= limits.maxStagingBytes &&
+          stats.gpuBytes + (renderer.sectionCompaction?.plan.stagingBytes ?? 0) <= limits.maxGpuBytes)
+        recordRegionalPeak(renderer, stats, renderer.sectionCompaction?.plan.stagingBytes ?? 0);
+      return stats;
+    },
+      maximum === Infinity ? Infinity : started + limits.maxSliceMs,
+      maximum === Infinity ? Infinity : limits.maxCopyBytesPerSlice - renderer.meshStats.lastSliceCopyBytes)) {
+      if (maximum !== Infinity || renderer.sectionCompaction || renderer.meshStats.compactionBlocked) {
+        Object.assign(renderer.meshStats, detailMeshResources(renderer), {
+          lastSliceMs: performance.now() - started, limits,
+        });
+        return 0;
+      }
     }
   }
   let pending = queue(renderer, limits);
@@ -375,6 +641,10 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
   const stepped = new Set();
   const blocked = new Set();
   let steps = 0;
+  if (renderer.sectionWater && maximum > 0) {
+    renderer.sectionWater.refresh();
+    steps += renderer.sectionWater.step(limits, started, steps);
+  }
   while (
     completed < maximum &&
     (maximum === Infinity ||
@@ -389,20 +659,53 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
           renderer.sectionRejections.get(item.key) !== item.token
       );
       if (!next) break;
-      const job = createSectionMeshJob(
+      const empty = regional(renderer) &&
+        emptySectionJob(renderer.world, next.cx, next.cz, next.sy, sectionLimits);
+      let jobLimits = sectionLimits;
+      if (regional(renderer)) {
+        if (!renderer.geometryPalette) {
+          renderer.meshStats.blocked = { reason: "palette-reservation",
+            allocation: GeometryColorPalette.allocation(limits.paletteCapacity) };
+          break;
+        }
+        let now = detailMeshResources(renderer);
+        const uploadReserve = empty ? 0 : Math.max(0, now.palette.gpuBytes - now.paletteUploadStagingBytes);
+        const jobBytes = Math.min(sectionLimits.maxTotalBytes, Math.floor((
+          Math.min(limits.maxCpuBytes - now.combinedCpuBytes, limits.maxStagingBytes - now.stagingBytes) -
+          384 * 1024 - uploadReserve) / 2));
+        if (!empty) jobLimits = { ...sectionLimits, maxTotalBytes: Math.max(0, jobBytes) };
+        const reserve = empty ? 0 : jobLimits.maxTotalBytes * 2 + 384 * 1024 + uploadReserve;
+        now = evictHiddenRegionalRetention(renderer, (stats) =>
+          stats.combinedCpuBytes + reserve <= limits.maxCpuBytes, now);
+        if ((!empty && jobBytes < 188) || now.combinedCpuBytes + reserve > limits.maxCpuBytes ||
+            now.stagingBytes + reserve > limits.maxStagingBytes) {
+          renderer.meshStats.blocked = { reason: "job-reservation", ...now };
+          renderer.sectionRejections.set(next.key, next.token);
+          renderer.sectionRejectionDetails.set(next.key, { reason: "job-reservation", key: next.key });
+          renderer.meshStats.budgetRejections++;
+          steps++;
+          if (maximum !== Infinity && (steps >= limits.maxStepsPerSlice ||
+              performance.now() - started >= limits.maxSliceMs)) break;
+          continue;
+        }
+      }
+      const job = empty || createSectionMeshJob(
           renderer.world,
           next.cx,
           next.cz,
           next.sy,
           renderer.atlas,
-          sectionLimits
+          jobLimits
         );
       const dispose = job.dispose.bind(job);
       job.dispose = () => {
+        if (!job.waterGroup?.parent) renderer.sectionWater?.release(job.waterGroup);
         job.pagePlan?.dispose();
         dispose();
       };
       renderer.sectionJobs.set(next.key, job);
+      job.admissionKey = admissionKey;
+      if (regional(renderer)) recordRegionalPeak(renderer, detailMeshResources(renderer));
     }
     const entry = [...renderer.sectionJobs].find(
       ([key]) => maximum === Infinity || !blocked.has(key)
@@ -412,8 +715,8 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
     stepped.add(key);
     steps++;
     // Rotate across calls too: an expensive first job must not starve its peer.
-    renderer.sectionJobs.delete(key);
-    renderer.sectionJobs.set(key, job);
+    if (renderer.sectionWater) renderer.sectionWater.accounting.rotateJob(key, job);
+    else { renderer.sectionJobs.delete(key); renderer.sectionJobs.set(key, job); }
     const meshing = !job.done;
     if (meshing) job.step({
       maxCells: maximum === Infinity ? Infinity : Math.max(0,
@@ -422,6 +725,7 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
       flush: maximum === Infinity,
     });
     if (meshing) renderer.meshStats.lastSliceCells += job.lastSlice.cells;
+    renderer.sectionWater?.accounting.syncJob(job);
     if (!job.done) {
       // A zero-progress job cannot spin even with a stopped/coarse clock.
       if (!job.lastSlice.cells) blocked.add(key);
@@ -429,7 +733,10 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
     }
     const item = pending.find((candidate) => candidate.key === key);
     if (job.status === "stale") renderer.meshStats.staleJobs++;
-    const column = renderer.chunks.get(`${job.stamp.cx},${job.stamp.cz}`);
+    const column = regional(renderer)
+      ? sectionRegion(renderer, job.stamp.cx, job.stamp.cz)
+      : renderer.chunks.get(`${job.stamp.cx},${job.stamp.cz}`);
+    if (column?.userData.waterRetirement) { blocked.add(key); continue; }
     if (job.pagePlan && (job.pagePlan.column !== column ||
         job.pagePlan.revision !== (column?.userData.pageRevision ?? 0))) {
       // A peer section can publish while this copy yields. Keep its immutable
@@ -439,13 +746,18 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
     }
     if (job.status === "ready" && !job.pagePlan) {
       try {
-        const group = sectionSourceGroup(job.result, renderer.materials);
-        job.pagePlan = new SectionPagePlan(column, job.stamp.sy, group, {
+        const group = job.waterGroup ?? sectionSourceGroup(job.result, regional(renderer)
+          ? regionalPaletteMaterials(renderer) : renderer.materials);
+        if (renderer.sectionWater) job.waterGroup = group;
+        const pageLimits = {
           minSection: sectionYs(renderer.world)[0],
           maxVertices: sectionLimits.maxVertices,
           maxBytes: sectionLimits.maxBytes,
           maxTotalBytes: limits.maxGpuBytes,
-        });
+        };
+        job.pagePlan = regional(renderer)
+          ? regionalPagePlan(renderer, job.stamp.cx, job.stamp.cz, job.stamp.sy, group, pageLimits)
+          : new SectionPagePlan(column, job.stamp.sy, group, pageLimits);
       } catch (error) {
         job.dispose();
         renderer.sectionJobs.delete(key);
@@ -465,19 +777,86 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
     job.oldColumnBytes = oldColumnBytes;
     job.oldColumnDraws = oldColumnDraws;
     const plan = job.pagePlan;
+    if (renderer.sectionWater && job.status === "ready") {
+      renderer.sectionWater.prepare(job);
+      steps += renderer.sectionWater.step(limits, started, steps);
+      if (job.pagePlan !== plan || column?.userData.waterRetirement ||
+          !job.current() || renderer.sectionJobs.get(key) !== job) {
+        blocked.add(key); continue;
+      }
+      if (!renderer.sectionWater.prepare(job)) {
+        if (job.waterInvalid) {
+          // An exchanged shell has no original payload to fall back to. Keep
+          // the installed snapshot and dirty ticket; rebuild on a later slice.
+          job.dispose();
+          renderer.sectionJobs.delete(key);
+          break;
+        }
+        blocked.add(key); continue;
+      }
+      plan.transparentBytes = plan.transparentMeshes.reduce((n, mesh) =>
+        n + (renderer.sectionWater.meshBytes(mesh) ?? geometryBytes(mesh.geometry)), 0);
+      plan.draws = plan.pages.length + plan.transparentMeshes.reduce((n, mesh) => n + meshSubmissionCount(mesh), 0);
+    }
     const sourceBytes = (group) => (group?.children ?? []).reduce(
       (sum, mesh) => sum + (mesh.userData.sectionSource ? geometryBytes(mesh.geometry) : 0), 0
     );
     const oldSourceBytes = sourceBytes(column?.userData.sections?.get(job.stamp.sy)?.group);
     const newSourceBytes = sourceBytes(plan?.group);
     job.sourceDelta = newSourceBytes - oldSourceBytes;
-    const admitted =
+    let admitted =
       job.status === "ready" &&
       resources.sourceBytes - oldSourceBytes + newSourceBytes <= limits.maxGpuBytes &&
       resources.gpuBytes - oldColumnBytes + plan.bytes + plan.transparentBytes <=
         limits.maxGpuBytes &&
       resources.drawCalls - oldColumnDraws + plan.draws <=
         limits.maxDrawCalls;
+    if (regional(renderer) && job.status === "ready") {
+      const meshBytes = mesh => renderer.sectionWater?.meshBytes(mesh) ?? geometryBytes(mesh.geometry);
+      const newTransparentBytes = plan.group.children.reduce((sum, mesh) =>
+        sum + (mesh.userData.sectionSource || renderer.sectionWater?.owner.contains(mesh) ? 0 : geometryBytes(mesh.geometry)), 0);
+      const oldGpu = (column?.userData.pages ?? []).reduce((n, m) => n + geometryBytes(m.geometry), 0);
+      const oldTransparent = [...column.userData.sections.values()].flatMap((s) => s.group.children)
+        .filter((m) => !m.userData.sectionSource);
+      oldColumnBytes = oldGpu + oldTransparent.reduce((n, m) => n + meshBytes(m), 0);
+      oldColumnDraws = column.userData.pages.length +
+        oldTransparent.reduce((n, m) => n + meshSubmissionCount(m), 0);
+      job.oldColumnBytes = oldColumnBytes;
+      job.oldColumnDraws = oldColumnDraws;
+      const plannedHeadroom = Math.max(limits.compactionHeadroomBytes,
+        ...plan.pages.map((page) => page.compactionBytes ?? page.bytes));
+      const finalBytes = plan.bytes + plan.transparentBytes;
+      const fits = (stats) => {
+        const headroom = Math.max(plannedHeadroom, stats.maxCompactionBytes);
+        return stats.combinedCpuBytes <= limits.maxCpuBytes &&
+          stats.stagingBytes <= limits.maxStagingBytes &&
+          stats.gpuBytes + stats.waterStagingGpuBytes + plan.stagingBytes + newTransparentBytes <= limits.maxGpuBytes &&
+          stats.gpuBytes - oldColumnBytes + finalBytes + headroom <= limits.maxGpuBytes &&
+          stats.canonicalBytes - oldColumnBytes + finalBytes + stats.paletteUploadStagingBytes + headroom <= limits.maxCpuBytes &&
+          (renderer.sectionWater ? renderer.sectionWater.attachments.reserve(job) :
+            stats.drawCalls - oldColumnDraws + plan.draws <= limits.maxDrawCalls);
+      };
+      const now = renderer.sectionWater ? detailMeshResources(renderer) : evictHiddenRegionalRetention(renderer, fits);
+      admitted = fits(now);
+      if (admitted) recordRegionalPeak(renderer, now, plan.stagingBytes + newTransparentBytes);
+      if (!admitted) renderer.meshStats.blocked = {
+        reason: "regional-publication", key, ...now,
+        replacementGpuBytes: plan.stagingBytes + newTransparentBytes,
+        projectedDrawCalls: now.drawCalls - oldColumnDraws + plan.draws,
+      };
+      else renderer.meshStats.blocked = null;
+      if (!admitted && renderer.sectionWater) {
+        const headroom = Math.max(plannedHeadroom, now.maxCompactionBytes);
+        renderer.sectionWater.reclaim.capacity(job,
+          Math.max(now.combinedCpuBytes - limits.maxCpuBytes,
+            now.canonicalBytes - oldColumnBytes + finalBytes + now.paletteUploadStagingBytes + headroom - limits.maxCpuBytes),
+          Math.max(now.gpuBytes + now.waterStagingGpuBytes + plan.stagingBytes + newTransparentBytes - limits.maxGpuBytes,
+            now.gpuBytes - oldColumnBytes + finalBytes + headroom - limits.maxGpuBytes),
+          now.stagingBytes - limits.maxStagingBytes);
+        blocked.add(key);
+        continue;
+      }
+    }
     if (admitted) {
       if (job.world !== renderer.world || !job.current() ||
           column !== plan.column || (column?.userData.pageRevision ?? 0) !== plan.revision) {
@@ -495,17 +874,30 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
       } catch (error) {
         job.dispose();
         renderer.sectionJobs.delete(key);
+        if (error instanceof GeometryPaletteError) {
+          renderer.meshStats.blocked = { reason: error.reason, key, ...detailMeshResources(renderer) };
+          renderer.sectionRejectionDetails.set(key, { reason: error.reason, key });
+          renderer.meshStats.budgetRejections++;
+          if (item) renderer.sectionRejections.set(key, item.token);
+          blocked.add(key);
+          continue;
+        }
         throw error;
       }
       if (!plan.done) {
         blocked.add(key);
         continue;
       }
+      if (renderer.sectionWater && (!renderer.sectionWater.attachments.valid(job) ||
+          performance.now() >= started + limits.maxSliceMs)) {
+        blocked.add(key); continue;
+      }
       const result = job.takeResult();
       if (result) {
         try {
-          if (install(renderer, job, result)) {
+          if (install(renderer, job, result, renderer.sectionWater ? started + limits.maxSliceMs : Infinity)) {
             renderer.sectionRejections.delete(key);
+            renderer.sectionRejectionDetails.delete(key);
             resources.gpuBytes += plan.bytes + plan.transparentBytes - oldColumnBytes;
             resources.drawCalls += plan.draws - oldColumnDraws;
             resources.sourceBytes += newSourceBytes - oldSourceBytes;
@@ -523,13 +915,20 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
         }
       } else renderer.meshStats.staleJobs++;
     } else if (job.status !== "stale") {
+      if (regional(renderer) && job.status !== "ready")
+        renderer.meshStats.blocked = { reason: "section-mesher-budget", key,
+          sectionLimits, ...detailMeshResources(renderer) };
       renderer.meshStats.budgetRejections++;
+      renderer.sectionRejectionDetails.set(key, {
+        reason: renderer.meshStats.blocked?.reason ?? "mesh-budget", key,
+      });
       if (item) renderer.sectionRejections.set(key, item.token);
     }
     // Retry invalidated/rejected keys next call, not repeatedly in this slice.
     blocked.add(key);
     job.dispose();
     renderer.sectionJobs.delete(key);
+    if (regional(renderer) && !renderer.sectionJobs.size && hasRegionalDeadRanges(renderer)) break;
     // Publication changes only this ticket and resource admission. Preserve the
     // sorted queue for the rest of this slice instead of rescanning/sorting the
     // entire native volume after every section. Freed capacity still retries
@@ -543,18 +942,25 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
       queueResourceRevision = renderer.meshResourceRevision;
     }
   }
+  pruneEmptySectionRegions(renderer);
+  if (!renderer.world.chunks.size) disposeIdlePalette(renderer);
+  if (renderer.sectionRejectionDetails.size)
+    renderer.meshStats.blocked = { ...renderer.sectionRejectionDetails.values().next().value,
+      rejectedSections: renderer.sectionRejectionDetails.size };
   Object.assign(renderer.meshStats, detailMeshResources(renderer, true), {
     pendingSections: pending.length,
+    lastSliceSteps: steps,
     lastSliceMs: performance.now() - started,
     // CPU source backing and both job-owned staging pools are separate from
     // installed GPU capacity. Each job and page plan is capped at maxGpuBytes.
     memoryLimits: {
-      sourceBytes: limits.maxGpuBytes,
-      stagingSourceBytes: limits.maxJobs * limits.maxGpuBytes,
-      stagingPageBytes: limits.maxJobs * limits.maxGpuBytes,
+      sourceBytes: limits.maxCpuBytes ?? limits.maxGpuBytes,
+      stagingSourceBytes: limits.maxStagingBytes ?? limits.maxJobs * limits.maxGpuBytes,
+      stagingPageBytes: limits.maxStagingBytes ?? limits.maxJobs * limits.maxGpuBytes,
       stagingUnsealedVertices: limits.maxJobs * sectionLimits.maxVertices,
     },
     limits,
   });
+  if (renderer.sectionWater && maximum > 0) renderer.sectionWater.frame = { limits, started, steps };
   return completed;
 }

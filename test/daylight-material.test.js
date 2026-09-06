@@ -4,13 +4,15 @@ import * as THREE from "three";
 import { BLOCK } from "../src/blocks.js";
 import { sampleDaylightAt } from "../src/daylight-material.js";
 import { daylightRenderer, daylightTunnel } from "./daylight-fixture.js";
-import { ENTRANCE_SURFACES, surfaceAirPoint, surfaceTunnel } from "./daylight-surface-fixture.js";
+import { ENTRANCE_SURFACES, completeLightingHalo, surfaceAirPoint, surfaceTunnel } from "./daylight-surface-fixture.js";
+import { settleRendererLighting } from "./light-renderer-fixture.js";
 
 test("natural world shading distinguishes outdoor, entrance and deep surfaces in the same frame", (t) => {
   const fixture = daylightTunnel();
+  completeLightingHalo(fixture.world);
   const feet = { x: 4.5, y: 8, z: 2.5 };
   const g = daylightRenderer(t, fixture.world, feet);
-  g.update(0, 1, feet);
+  settleRendererLighting(g, feet);
   const at = (x) => sampleDaylightAt(g.skyColumns, fixture.position(x));
   assert.deepEqual(at(-2.5), { direct: 1, ambient: 1 });
   assert.equal(at(4.5).direct, 0);
@@ -122,7 +124,7 @@ test("Lambert hooks preserve torch/emissive/ambient paths and compose with exist
   assert.match(shader.fragmentShader, /linearToOutputTexel\(vec4\(uCaveFog, 1.0\)\)/);
   assert.match(shader.fragmentShader, /mix\(caveFog, fogColor, skyMask.y\)/);
   assert.equal(shader.uniforms.uSkyCeilings.value, g.skyColumns.texture);
-  assert.equal(shader.uniforms.uSurfaceDaylight.value, g.skyColumns.surfaceLight.texture);
+  assert.equal(shader.uniforms.uSurfaceLightPages.value, g.skyColumns.surfaceLight.store.table);
   assert.equal(Object.hasOwn(shader.uniforms, "uDaylightOpenings"), false, "camera diagnostics are not shader inputs");
   const distantShader = {
     uniforms: {},
@@ -142,7 +144,7 @@ test("[surface-light] the surface atlas preserves the same entrance faces at dee
   for (const x of [4.5, 15.5, 16.5, 32.5, 4.5]) {
     g.camera.position.copy(fixture.position(x));
     g.camera.lookAt(2.53125, 11, 2.53125);
-    g.update(0, samples.length, { ...feet, x });
+    settleRendererLighting(g, { ...feet, x });
     const u = g.daylightMaterial.uniforms;
     samples.push({
       x,

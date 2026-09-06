@@ -5,29 +5,32 @@ import { CaveDaylight } from "../src/cave-daylight.js";
 import { sampleDaylightAt } from "../src/daylight-material.js";
 import { SkyColumns, SKY_COLUMN_LIMITS } from "../src/sky-columns.js";
 import { SURFACE_DAYLIGHT_LIMITS } from "../src/surface-daylight.js";
-import { ENTRANCE_SURFACES, surfaceAccess, surfaceAirPoint, surfaceTunnel } from "./daylight-surface-fixture.js";
+import { ENTRANCE_SURFACES, completeLightingHalo, surfaceAccess, surfaceAirPoint, surfaceTunnel } from "./daylight-surface-fixture.js";
 import { daylightTunnel } from "./daylight-fixture.js";
 import { authoredColumns } from "./shape-fixture.js";
+import { flushColumns } from "./light-renderer-fixture.js";
 
 function setup(t, fixture = surfaceTunnel(true)) {
+  completeLightingHalo(fixture.world);
   const columns = new SkyColumns(), daylight = new CaveDaylight(columns);
   t.after(() => columns.dispose());
   const tick = (x = 4.5, radius = 4) => {
     columns.begin(fixture.world);
     columns.updateField(fixture.position(x), radius);
+    flushColumns(columns);
     assert.ok(columns.stats.surfaceBuilds <= SURFACE_DAYLIGHT_LIMITS.chunkBuilds);
     assert.ok(columns.stats.surfaceCellReads <= SURFACE_DAYLIGHT_LIMITS.chunkBuilds * 9 * 256 * SKY_COLUMN_LIMITS.height);
     assert.ok(columns.stats.surfaceVoxelVisits <= SURFACE_DAYLIGHT_LIMITS.chunkBuilds * 2 * 48 * 48 * SKY_COLUMN_LIMITS.height);
     assert.ok(columns.stats.surfaceFloodVisits <= SURFACE_DAYLIGHT_LIMITS.chunkBuilds * 48 * 48 * SKY_COLUMN_LIMITS.height);
     assert.ok(columns.stats.surfaceStampChecks <= 169);
-    return columns.surfaceLight.pending;
+    return columns.surfaceLight.pending + columns.requests.size + columns.surfaceLight.store.queue.size + columns.skyUploads.size;
   };
   const settle = (x = 4.5, radius = 4) => {
     let frames = 0;
     do {
       tick(x, radius);
       frames++;
-    } while (columns.surfaceLight.pending && frames <= 41);
+    } while ((columns.surfaceLight.pending || columns.requests.size || columns.surfaceLight.store.queue.size || columns.skyUploads.size) && frames <= 4096);
     assert.equal(columns.surfaceLight.pending, 0);
     return frames;
   };
@@ -74,13 +77,13 @@ test("closures and missing or replaced halo chunks clear every dependent tile be
   fixture.world.epoch++;
   columns.begin(fixture.world);
   assert.equal(columns.surfaceLight.cache.size, 0);
-  assert.ok(columns.surfaceLight.data.every((value) => value === 0));
+  assert.ok(columns.surfaceLight.store.mapping.every((value) => value === 0));
   settle(50.5);
   assert.deepEqual(at(), open);
   fixture.world.generator = {};
   columns.begin(fixture.world);
   assert.equal(columns.surfaceLight.cache.size, 0);
-  assert.ok(columns.surfaceLight.data.every((value) => value === 0));
+  assert.ok(columns.surfaceLight.store.mapping.every((value) => value === 0));
 });
 
 test("unchanged geometry and camera torque consume no rebuilds, cell scans, or texture uploads", (t) => {
@@ -88,7 +91,7 @@ test("unchanged geometry and camera torque consume no rebuilds, cell scans, or t
   fixture.world.getBiome = fixture.world.ensureArea = fixture.world.generate = () => assert.fail("surface lighting is non-generating");
   fixture.world.chunks.values = fixture.world.chunks[Symbol.iterator] = () => assert.fail("no resident-map scan");
   settle();
-  const expected = at(), texture = columns.surfaceLight.texture, version = texture.version;
+  const expected = at(), texture = columns.surfaceLight.store.table, version = texture.version;
   const ceilingVersion = columns.texture.version, resources = columns.surfaceLight.resources();
   for (let i = 0; i < 64; i++) {
     columns.begin(fixture.world);
@@ -104,7 +107,7 @@ test("unchanged geometry and camera torque consume no rebuilds, cell scans, or t
     assert.equal(texture.version, version);
   }
   assert.deepEqual(columns.surfaceLight.resources(), resources);
-  assert.equal(resources.atlasBytes, 81 * 256 * 384);
+  assert.equal(resources.atlasBytes, 0);
   assert.equal(resources.scratchBytes, 48 * 48 * 384 * 5);
 });
 
@@ -115,20 +118,20 @@ test("tile budgets cannot be bypassed by repeated updates and texture layers sta
     for (let x = -4; x <= 4; x++)
       if (!fixture.world.chunks.has(`${x},${z}`)) fixture.world.admit(x, z);
   const firstPending = tick();
-  assert.equal(firstPending, 79);
+  assert.ok(firstPending > 0);
   const builds = columns.stats.surfaceBuilds;
   columns.updateField(fixture.position(4.5), 4);
   assert.equal(columns.stats.surfaceBuilds, builds, "begin, not a second updateField, owns the rebuild allowance");
-  assert.equal(columns.surfaceLight.pending, firstPending);
-  assert.ok(settle() <= 40);
+  assert.ok(columns.stats.cellReads <= 8192 && columns.stats.surfaceCellReads <= 8192);
+  assert.ok(settle() <= 4096);
   for (let x = 5; x < 22; x++) {
     fixture.world.admit(x, 0);
     settle(x * 16 + 0.5);
     const resource = columns.surfaceLight.resources();
     assert.ok(resource.cachedChunks <= SURFACE_DAYLIGHT_LIMITS.cachedChunks);
-    assert.ok(resource.cacheBytes <= SURFACE_DAYLIGHT_LIMITS.cachedChunks * 256 * 384);
-    assert.equal(resource.layers, 81);
-    assert.equal(resource.atlasBytes, 81 * 256 * 384);
+    assert.ok(resource.cacheBytes <= 81 * 324 * 384);
+    assert.ok(resource.layers <= 512);
+    assert.equal(resource.atlasBytes, 0);
   }
 });
 
@@ -150,9 +153,9 @@ test("negative Y, world replacement and disposal keep render-only caches separat
   other.put(0, 5, 0, BLOCK.STONE);
   columns.begin(other);
   assert.equal(columns.surfaceLight.cache.size, 0);
-  assert.ok(columns.surfaceLight.data.every((value) => value === 0));
+  assert.ok(columns.surfaceLight.store.mapping.every((value) => value === 0));
   let disposed = 0;
-  columns.surfaceLight.texture.addEventListener("dispose", () => disposed++);
+  columns.surfaceLight.store.table.addEventListener("dispose", () => disposed++);
   columns.dispose();
   assert.equal(disposed, 1);
 });

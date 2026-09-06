@@ -10,6 +10,7 @@ import { DistantTerrain } from "./distant-terrain.js";
 import { landmarkDetailSections } from "./distant-landmarks.js";
 import { endVisualFog } from "./end-visual-policy.js";
 import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
+import { refreshRegionalPaletteMaterials } from "./geometry-palette-material.js";
 import { LOCAL_LIGHT_LIMITS } from "./local-lighting.js";
 import { disposeBatches, geometryBytes } from "./mesh-palette.js";
 import {
@@ -28,6 +29,7 @@ import {
   DETAIL_MESH_LIMITS,
   detailMeshResources,
   rebuildSectionMeshes,
+  reconcileSectionPackingMode,
   sectionColumnCovered,
   usesSectionMeshing,
 } from "./section-renderer.js";
@@ -147,9 +149,11 @@ export function createChunkMaterials(atlas) {
 }
 
 export class GameRenderer {
-  constructor(container, world) {
+  constructor(container, world, { waterFusion = false } = {}) {
     this.container = container;
     this.world = world;
+    // Constructor-only experimental host opt-in. Game/UI never enables it.
+    this.waterFusionEnabled = waterFusion === true;
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.Fog("#d6e1cf", 20, 45);
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.05, 512);
@@ -262,18 +266,26 @@ export class GameRenderer {
       releaseLostContextResources(
         this.renderer, this.scene, [
           this.atlas.texture, this.atlas.emissiveTexture, ...this.miningTextures,
-          this.skyColumns?.texture, this.skyColumns?.surfaceLight.texture,
-          this.blockLight?.texture, this.blockLight?.validTexture,
+          this.geometryPalette?.texture,
         ], this.contextResourceOwners
       );
-      // The generic array-texture recovery marks every layer dirty. This
-      // field has its own bounded cache republisher, including while lost.
-      if (this.renderer.getContext().isContextLost()) this.blockLight?.restoreGPU();
+      // Paged lighting owns its textures and bounded subrectangle republishing.
+      // Never ask generic recovery to mark entire physical bank layers dirty.
+      if (this.renderer.getContext().isContextLost()) {
+        this.daylightMaterial?.restoreGPU();
+        this.geometryPalette?.restoreGPU();
+      }
+      this.lightingNeedsFlush = true;
     };
     this.contextRestoredHandler = () => {
       this.setPlayerVisualEffects();
       this.shadowDirty = true;
-      this.blockLight?.restoreGPU();
+      // The old context's draw cannot satisfy the new context's shadow budget.
+      // Allow the next enabled update even when simulation time is frozen.
+      this.lastShadowTime = -Infinity;
+      this.daylightMaterial?.restoreGPU();
+      this.geometryPalette?.restoreGPU();
+      this.lightingNeedsFlush = true;
     };
     this.renderer.domElement.addEventListener("webglcontextlost", this.contextLostHandler);
     this.renderer.domElement.addEventListener("webglcontextrestored", this.contextRestoredHandler);
@@ -296,8 +308,8 @@ export class GameRenderer {
     return this.renderDistanceOverride ?? QUALITY[this.quality].renderRadius;
   }
 
-  /** Diagnostic opt-in; keeps quality effects and render scale unchanged.
-   * Pass null (or select a quality preset) to return to the preset distance. */
+  /** Set full-detail distance without changing graphics effects or resolution.
+   * Null restores the internal preset fallback for diagnostic callers. */
   setRenderDistanceOverride(radius) {
     const spec = geometryWorldSpec(this.world);
     const next = validateRenderDistanceOverride(
@@ -312,6 +324,12 @@ export class GameRenderer {
   }
 
   removeChunk(key) {
+    if (this.sectionWater)
+      return this.sectionWater.accounting.mutation(() => this.removeChunkTransaction(key));
+    return this.removeChunkTransaction(key);
+  }
+
+  removeChunkTransaction(key) {
     cancelSectionColumn(this, key);
     const old = this.chunks.get(key);
     if (!old) return;
@@ -364,13 +382,16 @@ export class GameRenderer {
   }
 
   rebuildDirty(maxChunks = 2) {
+    reconcileSectionPackingMode(this);
     for (const key of this.world.removedChunks ?? []) {
       this.removeChunk(key);
       if (!this.world.chunks?.has(key)) this.world.dirtyChunks.delete(key);
     }
     this.world.removedChunks?.clear();
     this.syncVisibleChunks();
-    if (usesSectionMeshing(this.world))
+    // Regional representation also supports legacy-height saves. They must not
+    // fall back to one unbatched mesh set per column at the same distance.
+    if (this.meshLimits?.regionalPages || usesSectionMeshing(this.world))
       return rebuildSectionMeshes(this, maxChunks);
     const cameraX = Math.floor(this.camera.position.x / CHUNK_SIZE);
     const cameraZ = Math.floor(this.camera.position.z / CHUNK_SIZE);
@@ -503,7 +524,7 @@ export class GameRenderer {
     for (const [key, group] of this.chunks) {
       if (!group.visible || group.parent !== this.scene) continue;
       if (group.userData.sections) {
-        if (sectionColumnCovered(group)) covered.add(key);
+        if (sectionColumnCovered(group, this.camera)) covered.add(key);
         continue;
       }
       let draws = false;
@@ -588,7 +609,7 @@ export class GameRenderer {
       outdoors,
       coverage,
       detailSections: this.world.dimension === "end"
-        ? landmarkDetailSections(this.chunks) : undefined,
+        ? landmarkDetailSections(this.chunks, this.camera) : undefined,
       budgetMs: this.quality === "high" ? 2 : 1,
     });
     const horizonVisible =
@@ -689,6 +710,7 @@ export class GameRenderer {
 
   updateDaylight() {
     if (!this.atmosphere.setSkyAccess) return;
+    this.lightingNeedsFlush = true;
     if (!this.skyColumns) {
       this.skyColumns = new SkyColumns(this.renderRadius);
       this.caveDaylight = new CaveDaylight(this.skyColumns);
@@ -698,6 +720,8 @@ export class GameRenderer {
       this.daylightForward = new THREE.Vector3();
       for (const material of Object.values(this.materials))
         this.daylightMaterial.install(material);
+      refreshRegionalPaletteMaterials(this);
+      this.sectionWater?.refresh();
       this.distant?.setDaylight?.(this.daylightMaterial);
     }
     this.camera.getWorldPosition(this.daylightPosition);
@@ -758,7 +782,27 @@ export class GameRenderer {
   }
 
   render() {
+    // One shared lighting upload budget per CPU update, even if a caller draws
+    // the scene again. All scene/hand materials see published mappings first.
+    if (this.daylightMaterial && this.lightingNeedsFlush !== false) {
+      this.daylightMaterial.flush(this.renderer);
+      this.lightingNeedsFlush = false;
+    }
+    if (this.sectionWater) {
+      this.sectionWater.refresh();
+      const frame = this.sectionWater.frame;
+      // Reuse only the rebuild slice's unspent quota and ORIGINAL deadline.
+      // Repeated draws and late daylight rebinding never grant another slice.
+      if (frame && performance.now() < frame.started + frame.limits.maxSliceMs) {
+        frame.steps += this.sectionWater.step(frame.limits, frame.started, frame.steps);
+        this.meshStats.lastSliceSteps = frame.steps;
+        this.meshStats.lastSliceMs = performance.now() - frame.started;
+      }
+      this.meshStats.waterRenderBlocked = !this.sectionWater.canRender();
+      if (this.meshStats.waterRenderBlocked) return false;
+    }
     this.renderer.render(this.scene, this.camera);
+    return true;
   }
 
   resize({ resetScale = false } = {}) {
@@ -874,12 +918,13 @@ export class GameRenderer {
   setQuality(quality) {
     const hadRipples = QUALITY[this.quality].ripples;
     this.quality = Object.hasOwn(QUALITY, quality) ? quality : "medium";
-    this.renderDistanceOverride = null;
     const settings = QUALITY[this.quality];
     this.atmosphere.cloudsEnabled = settings.clouds;
     this.updateLightingMode();
     if (hadRipples !== settings.ripples)
       this.materials.water.needsUpdate = true;
+    refreshRegionalPaletteMaterials(this);
+    this.sectionWater?.refresh();
     this.scene.fog.near = qualityFogDistance(this.renderRadius) * 0.38;
     this.scene.fog.far = qualityFogDistance(this.renderRadius);
     this.viewCenter = null;
@@ -964,6 +1009,7 @@ export class GameRenderer {
     this.renderer.domElement.removeEventListener("webglcontextrestored", this.contextRestoredHandler);
     this.contextResourceOwners?.clear();
     for (const key of this.chunks.keys()) this.removeChunk(key);
+    this.sectionWater?.dispose();
     for (const material of Object.values(this.materials)) material.dispose();
     this.atlas.texture.dispose();
     this.atlas.emissiveTexture.dispose();

@@ -7,9 +7,11 @@ import { sampleDaylightAt } from "../src/daylight-material.js";
 import { raycast } from "../src/raycast.js";
 import { SkyColumns, SKY_COLUMN_LIMITS, UNKNOWN_SKY_HEIGHT } from "../src/sky-columns.js";
 import { daylightTunnel } from "./daylight-fixture.js";
-import { ENTRANCE_SURFACES, surfaceAccess, surfaceTunnel } from "./daylight-surface-fixture.js";
+import { ENTRANCE_SURFACES, completeLightingHalo, surfaceAccess, surfaceTunnel } from "./daylight-surface-fixture.js";
+import { settleColumns } from "./light-renderer-fixture.js";
 
 function sampler(t, fixture) {
+  completeLightingHalo(fixture.world);
   const columns = new SkyColumns();
   const daylight = new CaveDaylight(columns);
   t.after(() => columns.dispose());
@@ -17,7 +19,7 @@ function sampler(t, fixture) {
     columns,
     daylight,
     at(x, forward = { x: 1, y: 0, z: 0 }) {
-      columns.begin(fixture.world);
+      settleColumns(columns, fixture.world, fixture.position(x), columns.layout.radius);
       return daylight.sample(fixture.world, fixture.position(x), forward);
     },
   };
@@ -83,7 +85,7 @@ test("the ceiling texture preserves exposed surfaces independently of camera lig
   const fixture = daylightTunnel(-32);
   const probe = sampler(t, fixture);
   const access = probe.at(8.5);
-  probe.columns.updateField(fixture.position(8.5), 2);
+  settleColumns(probe.columns, fixture.world, fixture.position(8.5), 2);
   const exterior = fixture.position(-2.5);
   const interior = fixture.position(4.5);
   assert.deepEqual(sampleDaylightAt(probe.columns, exterior), { direct: 1, ambient: 1 });
@@ -96,12 +98,12 @@ test("the ceiling texture preserves exposed surfaces independently of camera lig
   assert.deepEqual(sampleDaylightAt(probe.columns, interior), litEntry, "changing camera access does not change surface daylight");
   fixture.world.put(-3, 100, 2, BLOCK.OAK_SLAB, BLOCK_STATE.TOP);
   probe.columns.begin(fixture.world);
-  probe.columns.updateField(fixture.position(8.5), 2);
+  settleColumns(probe.columns, fixture.world, fixture.position(8.5), 2);
   assert.equal(probe.columns.ceiling(-2.5, 2.5), 101);
   assert.equal(sampleDaylightAt(probe.columns, exterior).direct, 0, "a high opaque slab blocks direct sky; neighboring open sky may still provide diffuse light");
   fixture.world.put(-3, 100, 2, BLOCK.GLASS);
   probe.columns.begin(fixture.world);
-  probe.columns.updateField(fixture.position(8.5), 2);
+  settleColumns(probe.columns, fixture.world, fixture.position(8.5), 2);
   assert.deepEqual(sampleDaylightAt(probe.columns, exterior), { direct: 1, ambient: 1 });
   fixture.world.chunks.delete("-1,0");
   probe.columns.begin(fixture.world);
@@ -119,16 +121,16 @@ test("skylight work is bounded to resident columns and never queries a generator
   const probe = sampler(t, fixture);
   const count = fixture.world.chunks.size;
   const access = probe.at(8.5);
-  assert.equal(probe.columns.data.byteLength, 144 * 144 * 4, "default radius remains four");
+  assert.equal(probe.columns.data.byteLength, 176 * 176 * 4, "R4 receivers use an R5 source ceiling field");
   probe.columns.updateField(fixture.position(8.5), 1000);
   assert.equal(fixture.world.chunks.size, count);
   assert.ok(probe.columns.cache.size <= SKY_COLUMN_LIMITS.cachedChunks);
-  assert.equal(probe.columns.layout.radius, 6, "oversized requests clamp to the supported maximum");
-  assert.equal(probe.columns.data.byteLength, 208 * 208 * 4);
+  assert.equal(probe.columns.layout.radius, 12, "oversized requests clamp to the supported maximum");
+  assert.equal(probe.columns.data.byteLength, 432 * 432 * 4);
   assert.ok(probe.columns.stats.chunkBuilds <= count);
   assert.ok(probe.columns.stats.cellReads <= count * 16 * 16 * SKY_COLUMN_LIMITS.height);
   const textureVersion = probe.columns.texture.version;
-  probe.columns.begin(fixture.world);
+  probe.at(8.5);
   probe.columns.updateField(fixture.position(8.5), 1000);
   assert.equal(probe.columns.stats.chunkBuilds, 0, "unchanged chunks reuse revision-keyed ceiling data");
   assert.equal(probe.columns.texture.version, textureVersion);
@@ -138,7 +140,7 @@ test("skylight work is bounded to resident columns and never queries a generator
 test("ceiling cache detects replacement objects without retaining evicted terrain buffers", (t) => {
   const fixture = daylightTunnel();
   const probe = sampler(t, fixture);
-  probe.columns.begin(fixture.world);
+  probe.at(8.5);
   assert.equal(probe.columns.ceiling(8, 2), 12);
   const original = fixture.world.chunks.get("0,0");
   fixture.world.chunks.set("0,0", {
@@ -147,10 +149,10 @@ test("ceiling cache detects replacement objects without retaining evicted terrai
     sections: new Map(),
   });
   // Even a legacy replacement that reuses revision/incarnation values is new.
-  probe.columns.begin(fixture.world);
+  probe.at(8.5);
   assert.equal(probe.columns.ceiling(8, 2), fixture.world.spec.minY);
   for (const entry of probe.columns.cache.values())
-    assert.ok(entry.stamps.every((stamp) => stamp === undefined || typeof stamp === "number"));
+    assert.equal(typeof entry.stamp, "string", "dependency identity retains no chunk buffers");
 });
 
 test("[surface-light] fixed roofed entrance faces stay lit when the observer crosses the light radius", (t) => {
@@ -164,7 +166,7 @@ test("[surface-light] fixed roofed entrance faces stay lit when the observer cro
     assert.ok(state.access.sources.length <= CAVE_DAYLIGHT_LIMITS.sources);
     assert.ok(state.work.rays <= CAVE_DAYLIGHT_LIMITS.sources + CAVE_DAYLIGHT_LIMITS.directions + 1);
     assert.ok(state.work.cache <= SKY_COLUMN_LIMITS.cachedChunks);
-    assert.equal(state.work.bytes, 144 * 144 * 4);
+    assert.equal(state.work.bytes, 176 * 176 * 4);
     for (let i = 0; i < ENTRANCE_SURFACES.length; i++) {
       const surface = state.surfaces[i];
       assert.ok(surface.known && surface.visible, `${surface.name} must be resident and still visible`);

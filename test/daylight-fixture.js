@@ -4,6 +4,7 @@ import { BLOCK } from "../src/blocks.js";
 import { DistantTerrain } from "../src/distant-terrain.js";
 import { createChunkMaterials, GameRenderer } from "../src/renderer.js";
 import { authoredColumns } from "./shape-fixture.js";
+import { lightRenderer } from "./light-renderer-fixture.js";
 
 export function daylightTunnel(y = 8) {
   const world = authoredColumns([[-1, 0], [0, 0], [1, 0], [2, 0]]);
@@ -56,7 +57,7 @@ export function daylightRenderer(t, world, feet, quality = "low") {
     localLights: [new THREE.PointLight(), new THREE.PointLight()], lightStats: {},
     lastLightTime: -Infinity, shadowDirty: true, lastShadowTime: -Infinity,
     shadowPosition: new THREE.Vector3(), shadowSunDirection: new THREE.Vector3(),
-    renderer: { shadowMap: {} }, resize() {},
+    renderer: { ...lightRenderer(), shadowMap: {} }, resize() {},
   });
   graphics.localLights.forEach((light) => scene.add(light));
   graphics.setQuality(quality);

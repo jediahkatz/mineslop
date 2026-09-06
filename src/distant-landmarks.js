@@ -43,12 +43,12 @@ export function pillarFootprint(pillar) {
 
 // Renderer integration passes this separately from whole-column coverage.
 // Completed empty sections own their volume too; pending sections do not.
-export function landmarkDetailSections(chunks) {
+export function landmarkDetailSections(chunks, camera) {
   const result = new Set();
   for (const [key, column] of chunks) {
     if (!column.visible || !column.parent) continue;
     for (const [sy, section] of column.userData.sections ?? []) {
-      if (sectionGeometryCovered(column, section))
+      if (sectionGeometryCovered(column, section, camera))
         result.add(`${key},${sy}`);
     }
   }
