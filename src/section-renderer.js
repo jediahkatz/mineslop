@@ -345,7 +345,7 @@ export function sectionColumnCovered(group, camera) {
   return true;
 }
 
-function queue(renderer, limits) {
+function queue(renderer) {
   const world = renderer.world;
   const camera = renderer.camera;
   const xs = Math.floor(camera.position.x / CHUNK_SIZE);
@@ -361,9 +361,9 @@ function queue(renderer, limits) {
     columns.push({ key, cx, cz });
   }
   // Priority geometry depends on the view and native column coordinates, not
-  // dirty tickets. Cache this bounded layout; still read every current ticket
-  // and incarnation below. Stationary native warmup must not re-sort thousands
-  // of identical bounds every 8ms slice.
+  // dirty tickets. Retain the priority lattice, not a snapshot of pending work.
+  // Admission reads live tickets; an existing job must not wait behind a scan
+  // of every section on every slice.
   const viewKey = [
     renderer.renderRadius, required.join(","),
     columns.map(({ key }) => key).join(";"),
@@ -405,37 +405,55 @@ function queue(renderer, limits) {
     const ordered = [...buckets.keys()].sort((a, b) => a - b).flatMap((key) => buckets.get(key));
     layout = renderer.sectionQueueLayout = { world, key: viewKey, slots: ordered, columns };
   }
-  const missing = [], replacements = [];
-  const budgetKey = [
+  return layout.slots;
+}
+
+function sectionQueueBudgetKey(renderer, limits) {
+  return [
     limits.maxGpuBytes, limits.maxDrawCalls,
     limits.maxCpuBytes, limits.maxStagingBytes, limits.maxJobBytes,
     limits.paletteCapacity, renderer.geometryPalette?.freeCount,
     renderer.sectionMeshLimits?.maxVertices, renderer.sectionMeshLimits?.maxBytes,
     renderer.sectionMeshLimits?.maxTotalBytes, renderer.sectionMeshLimits?.maxDrawCalls,
   ].join(":");
-  for (const record of layout.columns) {
-    record.chunk = world.chunks.get(record.key);
-    record.column = renderer.chunks.get(record.key);
-  }
+}
+
+function refreshSectionQueueItem(renderer, item, budgetKey) {
+  const chunk = renderer.world.chunks.get(item.columnKey);
+  if (!chunk) return null;
+  const column = renderer.chunks.get(item.columnKey);
+  const old = column?.userData.incarnation === chunk.incarnation &&
+    column.userData.sections?.get(item.sy);
+  const ticket = renderer.world.dirtySectionRevisions?.get(item.key);
+  if (old && ticket === undefined) return null;
+  const revision = chunk.sectionRevisions?.get(item.sy) ?? chunk.revision;
+  Object.assign(item, { incarnation: chunk.incarnation, revision, ticket, missing: !old,
+    resourceRevision: renderer.meshResourceRevision, budgetKey });
+  item.token = [chunk.incarnation, revision, ticket,
+    renderer.meshResourceRevision, budgetKey].join(":");
+  return item;
+}
+
+function nextSection(renderer, limits) {
+  // Admission may have evicted a hidden column since this slice began.
+  if (!renderer.sectionQueueLayout) queue(renderer);
+  const layout = renderer.sectionQueueLayout;
+  const budgetKey = sectionQueueBudgetKey(renderer, limits);
+  const eligible = (item) => !renderer.sectionJobs.has(item.key) &&
+    refreshSectionQueueItem(renderer, item, budgetKey) &&
+    renderer.sectionRejections.get(item.key) !== item.token;
+  // Selection may consume the remaining deadline. Keep just that candidate
+  // for the next slice, revalidating its live source/ticket/admission token.
+  // A view/layout change or column cancellation discards it with the lattice.
+  if (layout.candidate && eligible(layout.candidate)) return layout.candidate;
+  layout.candidate = null;
+  let replacement;
   for (const item of layout.slots) {
-    const { chunk, column } = item.record;
-    const old = column?.userData.sections?.get(item.sy);
-    const ticket = world.dirtySectionRevisions?.get(item.key);
-    if (old && column.userData.incarnation === chunk.incarnation && ticket === undefined)
-      continue;
-    const revision = chunk.sectionRevisions?.get(item.sy) ?? chunk.revision;
-    if (item.incarnation !== chunk.incarnation || item.revision !== revision ||
-        item.ticket !== ticket || item.resourceRevision !== renderer.meshResourceRevision ||
-        item.budgetKey !== budgetKey) {
-      Object.assign(item, { incarnation: chunk.incarnation, revision, ticket,
-        resourceRevision: renderer.meshResourceRevision, budgetKey });
-      item.token = [chunk.incarnation, revision, ticket,
-        renderer.meshResourceRevision, budgetKey].join(":");
-    }
-    if (old) replacements.push(item);
-    else missing.push(item);
+    if (!eligible(item)) continue;
+    if (item.missing) return layout.candidate = item;
+    replacement ??= item;
   }
-  return missing.concat(replacements);
+  return layout.candidate = replacement;
 }
 
 function install(renderer, job, result, deadline = Infinity) {
@@ -587,6 +605,7 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
   const started = performance.now();
   renderer.meshStats.lastSliceCells = 0;
   renderer.meshStats.lastSliceCopyBytes = 0;
+  renderer.meshStats.lastSliceSteps = 0;
   renderer.meshStats.waterWork = [];
   if (renderer.sectionWater) renderer.sectionWater.frame = null;
   const admissionKey = [limits.maxCpuBytes, limits.maxGpuBytes, limits.maxStagingBytes].join(":");
@@ -634,8 +653,7 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
       }
     }
   }
-  let pending = queue(renderer, limits);
-  let queueResourceRevision = renderer.meshResourceRevision;
+  const pending = queue(renderer);
   const resources = detailMeshResources(renderer, true);
   let completed = 0;
   const stepped = new Set();
@@ -652,13 +670,13 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
         renderer.meshStats.lastSliceCells < limits.maxCellsPerSlice)) &&
     (maximum === Infinity || performance.now() - started < limits.maxSliceMs)
   ) {
-    while (renderer.sectionJobs.size < limits.maxJobs) {
-      const next = pending.find(
-        (item) =>
-          !renderer.sectionJobs.has(item.key) &&
-          renderer.sectionRejections.get(item.key) !== item.token
-      );
+    // Advance every retained job before spending this slice on admission
+    // metadata. This also matters when maxJobs has a vacant slot.
+    const mayAdmit = [...renderer.sectionJobs.keys()].every((key) => stepped.has(key));
+    while (mayAdmit && renderer.sectionJobs.size < limits.maxJobs) {
+      const next = nextSection(renderer, limits);
       if (!next) break;
+      if (maximum !== Infinity && performance.now() - started >= limits.maxSliceMs) break;
       const empty = regional(renderer) &&
         emptySectionJob(renderer.world, next.cx, next.cz, next.sy, sectionLimits);
       let jobLimits = sectionLimits;
@@ -704,9 +722,12 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
         dispose();
       };
       renderer.sectionJobs.set(next.key, job);
+      job.queueItem = next;
+      if (renderer.sectionQueueLayout) renderer.sectionQueueLayout.candidate = null;
       job.admissionKey = admissionKey;
       if (regional(renderer)) recordRegionalPeak(renderer, detailMeshResources(renderer));
     }
+    if (maximum !== Infinity && performance.now() - started >= limits.maxSliceMs) break;
     const entry = [...renderer.sectionJobs].find(
       ([key]) => maximum === Infinity || !blocked.has(key)
     );
@@ -731,7 +752,8 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
       if (!job.lastSlice.cells) blocked.add(key);
       continue;
     }
-    const item = pending.find((candidate) => candidate.key === key);
+    const item = job.queueItem &&
+      refreshSectionQueueItem(renderer, job.queueItem, sectionQueueBudgetKey(renderer, limits));
     if (job.status === "stale") renderer.meshStats.staleJobs++;
     const column = regional(renderer)
       ? sectionRegion(renderer, job.stamp.cx, job.stamp.cz)
@@ -901,7 +923,6 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
             resources.gpuBytes += plan.bytes + plan.transparentBytes - oldColumnBytes;
             resources.drawCalls += plan.draws - oldColumnDraws;
             resources.sourceBytes += newSourceBytes - oldSourceBytes;
-            pending = pending.filter((candidate) => candidate.key !== key);
             completed++;
           } else {
             disposeMeshPartitions(result);
@@ -929,18 +950,8 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
     job.dispose();
     renderer.sectionJobs.delete(key);
     if (regional(renderer) && !renderer.sectionJobs.size && hasRegionalDeadRanges(renderer)) break;
-    // Publication changes only this ticket and resource admission. Preserve the
-    // sorted queue for the rest of this slice instead of rescanning/sorting the
-    // entire native volume after every section. Freed capacity still retries
-    // refusals in this slice; world edits are re-read at the next queue build.
-    if (queueResourceRevision !== renderer.meshResourceRevision) {
-      for (const candidate of pending) {
-        const token = candidate.token.split(":");
-        token[3] = renderer.meshResourceRevision;
-        candidate.token = token.join(":");
-      }
-      queueResourceRevision = renderer.meshResourceRevision;
-    }
+    // Admission refreshes a candidate's token on demand, so a publication need
+    // not rewrite every remaining section's token to retry freed capacity.
   }
   pruneEmptySectionRegions(renderer);
   if (!renderer.world.chunks.size) disposeIdlePalette(renderer);
@@ -948,7 +959,7 @@ export function rebuildSectionMeshes(renderer, maxSections = 2) {
     renderer.meshStats.blocked = { ...renderer.sectionRejectionDetails.values().next().value,
       rejectedSections: renderer.sectionRejectionDetails.size };
   Object.assign(renderer.meshStats, detailMeshResources(renderer, true), {
-    pendingSections: pending.length,
+    queueSlots: pending.length,
     lastSliceSteps: steps,
     lastSliceMs: performance.now() - started,
     // CPU source backing and both job-owned staging pools are separate from
