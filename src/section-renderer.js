@@ -593,6 +593,9 @@ function installTransaction(renderer, job, result) {
   );
   // Publication succeeded. No other section's dirty ticket is acknowledged.
   job.acknowledge();
+  // Empty sections also own fallback coverage. Keep that invalidation separate
+  // from resource relief so zero-byte publication does not retry budget refusals.
+  renderer.detailCoverageRevision = (renderer.detailCoverageRevision ?? 0) + 1;
   if (
     column.userData.meshed &&
     column.userData.requiredSections.every(
