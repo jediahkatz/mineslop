@@ -25,6 +25,8 @@ import { WORLD_MAX, WORLD_MIN } from "./terrain.js";
 import { TransactionInvariantError } from "./transactions.js";
 import { createWorldContext, DIMENSIONS, getWorldSpec } from "./world-spec.js";
 
+const preparedEcologyRecords = new WeakMap();
+
 function freeze(value) {
   if (value && typeof value === "object") {
     for (const child of Object.values(value)) freeze(child);
@@ -537,32 +539,94 @@ export class ExpansionEcology {
       edits.push({ name, previous, next: freeze(next) });
     }
     const afterBytes = this._reservation(sizes);
-    let used = false;
-    return Object.freeze({
+    const token = { used: false };
+    const install = () => {
+      for (const { name, previous, next } of edits) {
+        stores[name].set(next.id, next);
+        if (name === "eggs" && !previous) {
+          this._childIds.add(next.childId);
+          this._eggOrder.push(next.id);
+        }
+        if (name === "eggs") {
+          if (previous?.status === "incubating")
+            this._eggPositions.delete(eggPositionKey(previous));
+          if (next.status === "incubating")
+            this._eggPositions.set(eggPositionKey(next), next.id);
+        }
+        if (name === "elders") this._markerEntities.set(next.id, next.entityId);
+        if (name === "entries" && next.kind === "villager")
+          this._markerEntities.set(next.memberId, next.id);
+      }
+    };
+    const participant = Object.freeze({
       owner: this, beforeBytes, afterBytes,
-      validate: () => !used && !this._disposed && this._revision === revision &&
+      validate: () => !token.used && !this._disposed && this._revision === revision &&
         this._bytes === beforeBytes && this._stores === stores &&
         this.context === context && this.coordinator === coordinator &&
         coordinator.usage(this) === beforeBytes && ctx.world === world && current() &&
         edits.every(({ name, previous, next }) => stores[name].get(next.id) === previous) &&
         guard() === true,
       publish: () => {
+        token.used = true;
+        install();
+        this._bytes = afterBytes;
+        this._revision++;
+      },
+      notify: () => this.onChange?.(),
+    });
+    preparedEcologyRecords.set(participant, {
+      token, install, edits, beforeBytes, afterBytes, revision, stores, context, coordinator, world,
+    });
+    return participant;
+  }
+
+  /** Combine disjoint prepared ecology records under one canonical publication. */
+  prepareParticipantBatch(parts) {
+    if (!Array.isArray(parts) || parts.length < 2) return null;
+    const intents = parts.map((part) => preparedEcologyRecords.get(part));
+    const first = intents[0];
+    const keys = intents.flatMap((intent) =>
+      intent?.edits.map(({ name, next }) => `${name}/${next.id}`) ?? []);
+    if (!first || intents.some((intent) => !intent ||
+      intent.beforeBytes !== first.beforeBytes || intent.revision !== first.revision ||
+      intent.stores !== first.stores || intent.context !== first.context ||
+      intent.coordinator !== first.coordinator || intent.world !== first.world) ||
+      new Set(keys).size !== keys.length)
+      return null;
+    const beforeBytes = first.beforeBytes;
+    const projected = Object.fromEntries(
+      Object.entries(first.stores).map(([name, store]) => [name, new Map(store)]));
+    for (const intent of intents) {
+      for (const { name, previous, next } of intent.edits) {
+        if (projected[name].get(next.id) !== previous) return null;
+        projected[name].set(next.id, next);
+      }
+    }
+    if (Object.entries(projected).some(([name, store]) =>
+      store.size > ECOLOGY_LIMITS[name]))
+      return null;
+    const normalized = normalizeEcologySnapshot({
+      version: 1,
+      seed: first.context.seed,
+      generatorVersion: first.context.generatorVersion,
+      entries: [...projected.entries.values()],
+      eggs: [...projected.eggs.values()],
+      elders: [...projected.elders.values()],
+    }, first.context);
+    if (!normalized) return null;
+    const sizes = Object.fromEntries(
+      ["entries", "eggs", "elders"].map((name) => [name, normalized[name].length]));
+    const afterBytes = this._reservation(sizes);
+    let used = false;
+    return Object.freeze({
+      owner: this, beforeBytes, afterBytes,
+      validate: () => !used && intents.every((intent, index) =>
+        parts[index].validate() && !intent.token.used),
+      publish: () => {
         used = true;
-        for (const { name, previous, next } of edits) {
-          stores[name].set(next.id, next);
-          if (name === "eggs" && !previous) {
-            this._childIds.add(next.childId);
-            this._eggOrder.push(next.id);
-          }
-          if (name === "eggs") {
-            if (previous?.status === "incubating")
-              this._eggPositions.delete(eggPositionKey(previous));
-            if (next.status === "incubating")
-              this._eggPositions.set(eggPositionKey(next), next.id);
-          }
-          if (name === "elders") this._markerEntities.set(next.id, next.entityId);
-          if (name === "entries" && next.kind === "villager")
-            this._markerEntities.set(next.memberId, next.id);
+        for (const intent of intents) {
+          intent.token.used = true;
+          intent.install();
         }
         this._bytes = afterBytes;
         this._revision++;
@@ -814,15 +878,17 @@ export class ExpansionEcology {
   }
 
   _prepareDeath(mob, ctx, {
-    playerKill = false, prepareRemoval, prepareDrops, prepareExperience, prepareUniqueCompletion,
+    playerKill = false, deferRewards = false,
+    prepareRemoval, prepareDrops, prepareExperience, prepareUniqueCompletion,
   }, contribution) {
     const state = this.state(mob?.id), guard = this._capture(mob, ctx);
-    if (!guard || typeof playerKill !== "boolean") return null;
+    if (!guard || typeof playerKill !== "boolean" || typeof deferRewards !== "boolean")
+      return null;
     const reward = ecologyDeathReward(mob.kind, playerKill);
     const participants = contribution ? [] : [prepareHook(prepareRemoval, mob)];
-    if (reward.drops.length)
+    if (!deferRewards && reward.drops.length)
       participants.push(prepareHook(prepareDrops, reward.drops, ecologyPoint(mob.position), state.dimension));
-    if (reward.experience)
+    if (!deferRewards && reward.experience)
       participants.push(prepareHook(prepareExperience, reward.experience, ecologyPoint(mob.position), state.dimension));
     const changes = [{ store: "entries", value: { ...state, alive: false } }];
     if (mob.kind === "elder_guardian") {

@@ -179,13 +179,35 @@ export function contributeHorseHit(domain, batch, id, amount, direction, options
   return contribution ?? failure ?? fail("invalid-resident-batch");
 }
 
+/** Canonical horse-owned base health edit for potion pulses and instant healing. */
+export function contributeHorsePotionHealth(domain, batch, id, health, {
+  validate = () => true,
+} = {}) {
+  if (!domain._ready() || !Number.isFinite(health) || !horseSynchronous(validate))
+    return null;
+  const mob = domain._base(id);
+  if (!mob || health <= 0 || health > mob.spec.health || health === mob.health)
+    return null;
+  return contributeResidentEditBatch(domain.wildlife, batch, (add) => {
+    const base = horseResidentEdit(domain.wildlife, mob, {
+      health, validate, retaliate: false,
+    });
+    return base && add("horse", base)
+      ? { peers: [], result: { entityId: id, health, killed: false } }
+      : null;
+  });
+}
+
 function prepareHorseHitParts(domain, id, amount, direction, {
-  ownerId = "player", playerKill = false, retaliate = true, validate, participants = [],
+  ownerId = "player", playerKill = false, playerCredit = playerKill,
+  deferRewards = false, retaliate = true, validate, participants = [],
 } = {}, advance, add) {
   if (!domain._ready()) return fail("unavailable");
   if (!Number.isFinite(amount) || amount <= 0 || typeof playerKill !== "boolean" ||
+    typeof playerCredit !== "boolean" || (playerKill && !playerCredit) ||
+    typeof deferRewards !== "boolean" ||
     typeof retaliate !== "boolean" || !horseDataArray(participants, RESIDENT_EDIT_LIMITS.peers) ||
-    !currentAction(validate) || (playerKill && !horseSynchronous(validate))) return fail("invalid-hit");
+    !currentAction(validate) || (playerCredit && !horseSynchronous(validate))) return fail("invalid-hit");
   const mob = domain._base(id), actor = playerKill ? domain._actor(ownerId) : null;
   if (!mob || (playerKill && !domain._reachable(actor, mob))) return fail("inactive-or-out-of-reach");
   const state = domain._newRecord(mob);
@@ -218,14 +240,18 @@ function prepareHorseHitParts(domain, id, amount, direction, {
     drops.push(leather);
     if (state.saddle) drops.push(cloneStack(state.saddle, domain.context));
     // ONE overflow participant retains both leather and the exact saddle.
-    const sink = prepareDrops(domain, drops, position, "horse-death");
-    if (!sink) return fail("drop-rejected");
-    sinks.push(sink);
-    if (playerKill) {
+    if (!deferRewards) {
+      const sink = prepareDrops(domain, drops, position, "horse-death");
+      if (!sink) return fail("drop-rejected");
+      sinks.push(sink);
+    }
+    if (playerCredit) {
       experience = 1 + Math.floor(horseStableDraw(domain.context, id, state.dimension, "experience") * 3);
-      const xp = prepareExperience(domain, experience, position);
-      if (!xp) return fail("experience-rejected");
-      sinks.push(xp);
+      if (!deferRewards) {
+        const xp = prepareExperience(domain, experience, position);
+        if (!xp) return fail("experience-rejected");
+        sinks.push(xp);
+      }
     }
     events.push({ type: "death", id, position, ownerId: state.rider, ...(exit ? { exit } : {}) });
   } else {
@@ -254,10 +280,10 @@ function prepareHorseHitParts(domain, id, amount, direction, {
     remove: killed, retain: !killed, motion: movement, direction, retaliate,
   });
   if (!base || !add("horse", base)) return fail("invalid-resident-edit");
-  return { peers: [own, ...sinks, ...participants], result: {
+  return { exposeResult: deferRewards, peers: [own, ...sinks, ...participants], result: {
     hit: true, killed, damage, entityId: id, kind: "horse",
     drops: drops.map((stack) => cloneStack(stack, domain.context)), experience,
-    dropsCommitted: true, experienceCommitted: true,
+    dropsCommitted: !deferRewards, experienceCommitted: !deferRewards,
     handCostCommitted: participants.some((part) => part?.owner === domain.gameplay),
     ...(exit ? { exit: structuredClone(exit) } : {}),
   } };

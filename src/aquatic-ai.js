@@ -434,6 +434,7 @@ export function admitEcologySpawn(kind, position, collider, ctx) {
 
 function steer(mob, target, speed, dt, ctx, collider, locomotion) {
   if (!finitePosition(target)) return false;
+  speed *= ctx.mobStatusModifiers?.(mob)?.movementMultiplier ?? 1;
   const dx = target.x - mob.position.x, dz = target.z - mob.position.z;
   const distance = Math.hypot(dx, dz);
   const yaw = distance > 1e-6 ? Math.atan2(dx, dz) : (mob.root?.rotation.y ?? 0);
@@ -609,7 +610,10 @@ function drowned(mob, brain, state, sample, dt, ctx, collider) {
   if (ecologyDistance(eye, ctx.playerEye) <= mob.spec.reach) {
     if (brain.cooldown <= 0) {
       brain.cooldown = mob.spec.cooldown;
-      ctx.damagePlayer?.(mob.spec.damage, mob.spec.name, mob, { kind: "melee", position: eye });
+      const damage = Math.max(0, mob.spec.damage +
+        (ctx.mobStatusModifiers?.(mob)?.meleeDamageBonus ?? 0));
+      if (damage > 0)
+        ctx.damagePlayer?.(damage, mob.spec.name, mob, { kind: "melee", position: eye });
     }
   } else steer(mob, ctx.player, mob.spec.speed, dt, ctx, collider, "amphibious");
 }

@@ -144,6 +144,7 @@ function brainFor(mob) {
 
 function moveToward(mob, goal, dt, ctx, collider, speed, flying = false) {
   if (!finitePosition(goal)) return;
+  speed *= ctx.mobStatusModifiers?.(mob)?.movementMultiplier ?? 1;
   // Optional route provider may return ONE nearby waypoint, never ask the AI
   // to execute an unbounded terrain search or open doors by side effect.
   if (synchronousEcologyHook(ctx.npcWaypoint)) {
@@ -330,7 +331,10 @@ function blaze(mob, brain, dt, ctx, state, collider) {
     mob.lookTarget = ecologyPoint(ctx.playerEye);
     if (distance <= 2 && brain.cooldown <= 0) {
       brain.cooldown = 1.5;
-      ctx.damagePlayer?.(mob.spec.damage, mob.spec.name, mob, { kind: "melee", position: eye });
+      const damage = Math.max(0, mob.spec.damage +
+        (ctx.mobStatusModifiers?.(mob)?.meleeDamageBonus ?? 0));
+      if (damage > 0)
+        ctx.damagePlayer?.(damage, mob.spec.name, mob, { kind: "melee", position: eye });
     } else if (distance <= mob.spec.reach && synchronousEcologyHook(ctx.shootBlaze)) {
       if (brain.cooldown <= 0 && brain.burst === 0) {
         brain.charge = Math.min(1.5, brain.charge + dt);

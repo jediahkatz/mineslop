@@ -104,6 +104,7 @@ export function disposeExplorationStage(staged) {
     "progressionIntegration",
     "explorationServices",
     "vehicleServices",
+    "mobIntegration",
     "projectileServices",
     "fluidServices",
     "buildingServices",

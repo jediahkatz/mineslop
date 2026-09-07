@@ -1667,6 +1667,7 @@ export class VoxelGame {
     currentConduitServices(this)?.frame(dt);
     const vehicleFrame = (this.vehicleFrame = (this.vehicleFrame ?? 0) + 1);
     this.vehicleServices?.beginFrame(vehicleFrame);
+    this.mobPotionImpact?.frame(dt, { simulating: this.simulating });
     this.portalCooldown -= dt;
     if (this.stationOverride && !this.inventoryActions.stationValid()) {
       this.ui.closeInventory();

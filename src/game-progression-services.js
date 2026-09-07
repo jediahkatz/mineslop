@@ -196,7 +196,7 @@ export class GameProgressionServices {
    * onSessionChange(open,session,reason) is where parent owns overlay/input.
    */
   activate(game, {
-    getOwner, getEcology, getEcologyContext, readPotionTargets,
+    getOwner, getEcology, getEcologyContext, readPotionTargets, preparePotionImpact,
     onSessionChange = noOp, onChange = noOp, onProjectileEvent = noOp,
   } = {}) {
     if (!game || !this._available() || game.world !== this.world ||
@@ -206,7 +206,7 @@ export class GameProgressionServices {
       return this._game === game && this.active ? { ok: true } : refusal("already_activated");
     if (this.world.epoch !== this._stageEpoch || this.world.dimension !== this._stageDimension)
       return refusal("stale_progression_stage");
-    if ([getOwner, getEcology, getEcologyContext, readPotionTargets].some(
+    if ([getOwner, getEcology, getEcologyContext, readPotionTargets, preparePotionImpact].some(
       (callback) => callback !== undefined && !synchronous(callback)
     ) || ![onSessionChange, onChange, onProjectileEvent].every(synchronous))
       return refusal("invalid_progression_bridge");
@@ -231,6 +231,7 @@ export class GameProgressionServices {
           available: owner.alive && owner.world === this.world && !this.gameplay.dead,
         }] : [];
       }),
+      prepareImpact: preparePotionImpact,
       validateLive: () => this.active,
       onEvent: (event) => { if (this.active) onProjectileEvent(event); },
     })) return refusal("potion_activation_rejected");

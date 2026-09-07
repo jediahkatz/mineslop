@@ -2,6 +2,7 @@ import { GameMobActions } from "./game-mob-actions.js";
 import { ingredientMobLoot, isIngredientMob } from "./ingredient-mob-loot.js";
 import { TransactionInvariantError } from "./transactions.js";
 import { residentDamage } from "./wildlife-resident-edit.js";
+import { contributeResidentEditBatch } from "./wildlife-resident-batch.js";
 
 const refuse = (reason) => ({ ok: false, hit: false, killed: false, damage: 0, handled: true, reason });
 
@@ -12,6 +13,48 @@ const refuse = (reason) => ({ ok: false, hit: false, killed: false, damage: 0, h
 export class GameIngredientMobActions extends GameMobActions {
   owns(mob) { return isIngredientMob(mob); }
   interact() { return null; }
+
+  contributePotionDeath(batch, mob, { validate = () => true } = {}) {
+    const game = this.game, { wildlife, world } = game;
+    if (!this.owns(mob) || wildlife?.byId.get(mob.id) !== mob ||
+      mob.dead || mob.dormant || typeof validate !== "function")
+      return null;
+    const quote = ingredientMobLoot(world, mob, true);
+    return quote && contributeResidentEditBatch(wildlife, batch, (add) =>
+      add("ingredient", { remove: mob, validate })
+        ? {
+            exposeResult: true,
+            peers: [],
+            result: {
+              entityId: mob.id,
+              killed: true,
+              damage: mob.health,
+              drops: quote.drops,
+              experience: quote.experience,
+            },
+          }
+        : null);
+  }
+
+  contributePotionHealth(batch, mob, health, { validate = () => true } = {}) {
+    const { wildlife } = this.game;
+    if (!this.owns(mob) || wildlife?.byId.get(mob.id) !== mob ||
+      mob.dead || mob.dormant || !Number.isFinite(health) || health <= 0 ||
+      health > mob.spec.health || health === mob.health || typeof validate !== "function")
+      return null;
+    return contributeResidentEditBatch(wildlife, batch, (add) => {
+      const options = health > mob.health
+        ? { mob, heal: health - mob.health, validate }
+        : {
+            damage: residentDamage(wildlife.player, mob, mob.health - health,
+              { x: 0, y: 0, z: 0 }, false, true),
+            validate,
+          };
+      return add("ingredient", options)
+        ? { peers: [], result: { entityId: mob.id, health, killed: false } }
+        : null;
+    });
+  }
 
   prepareHit(mob, amount, {
     participants = [], melee = false, reach, validate: extra = () => true,

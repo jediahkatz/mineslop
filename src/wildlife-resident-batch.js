@@ -8,7 +8,9 @@ import {
 } from "./wildlife-resident-edit.js";
 
 export const RESIDENT_EDIT_LIMITS = Object.freeze({ entries: 8, actors: 8, peers: 16 });
+export const POTION_RESIDENT_EDIT_LIMITS = Object.freeze({ entries: 28, actors: 28, peers: 64 });
 const batches = new WeakMap();
+const boundSources = new WeakMap();
 const validBytes = (value) => Number.isSafeInteger(value) && value >= 0;
 const dataField = (value, key) => Object.hasOwn(Object.getOwnPropertyDescriptor(value, key) ?? {}, "value");
 
@@ -30,32 +32,44 @@ function reject(state) {
 
 function bindPeer(part, state) {
   const { owner, beforeBytes, afterBytes, validate, publish, notify } = part;
-  return Object.freeze({
+  const bound = Object.freeze({
     owner, beforeBytes, afterBytes,
     validate: () => state.phase === "finalized" &&
       Reflect.apply(validate, part, []) === true && state.phase === "finalized",
     publish: () => Reflect.apply(publish, part, []),
     ...(notify ? { notify: () => Reflect.apply(notify, part, []) } : {}),
   });
+  boundSources.set(bound, part);
+  return bound;
 }
 
-export function beginResidentEditBatch(wildlife) {
+function begin(wildlife, limits) {
   const snapshot = captureResidentBatch(wildlife);
   if (!snapshot) return null;
   const batch = Object.freeze({ type: "wildlife-resident-edit-batch" });
   batches.set(batch, { snapshot, phase: "collecting", building: false,
     edits: [], identities: new Set(), contributions: [], peers: [], peerParts: new Map(),
-    spawns: 0, retains: 0, counter: false, defend: false });
+    spawns: 0, retains: 0, counter: false, lifeCounter: false, defend: false, limits });
   return batch;
+}
+
+export function beginResidentEditBatch(wildlife) {
+  return begin(wildlife, RESIDENT_EDIT_LIMITS);
+}
+
+/** Dedicated complete-roster bound; never used by generic resident callers. */
+export function beginPotionResidentEditBatch(wildlife) {
+  return begin(wildlife, POTION_RESIDENT_EDIT_LIMITS);
 }
 
 function append(state, domain, options) {
   if (state.phase !== "collecting" || !state.building ||
-    state.edits.length >= RESIDENT_EDIT_LIMITS.entries) return reject(state);
+    state.edits.length >= state.limits.entries) return reject(state);
   const edit = prepareResidentEdit(state.snapshot, domain, options);
   if (!edit || (edit.id !== undefined && (state.identities.has(edit.id) ||
-    state.identities.size >= RESIDENT_EDIT_LIMITS.actors)) ||
+    state.identities.size >= state.limits.actors)) ||
     (edit.nextId !== state.snapshot.nextId && state.counter) || (edit.defend && state.defend) ||
+    (edit.nextLife !== state.snapshot.nextLife && state.lifeCounter) ||
     state.snapshot.entities.length + state.spawns + Number(!!edit.spawn) > state.snapshot.maxEntities ||
     state.snapshot.ecologyCount + state.spawns + Number(!!edit.spawn) > MAX_ECOLOGY_RESIDENTS ||
     state.snapshot.retainedSize + state.retains + Number(edit.retainAdded) > MAX_LIVING_HORSES)
@@ -64,6 +78,7 @@ function append(state, domain, options) {
   // must combine cooldown/fuse in one source edit, never rely on last-write wins.
   if (edit.id !== undefined) state.identities.add(edit.id);
   state.counter ||= edit.nextId !== state.snapshot.nextId;
+  state.lifeCounter ||= edit.nextLife !== state.snapshot.nextLife;
   state.defend ||= !!edit.defend;
   state.spawns += Number(!!edit.spawn);
   state.retains += Number(edit.retainAdded);
@@ -79,19 +94,17 @@ export function contributeResidentEditBatch(wildlife, batch, prepare) {
   const state = batches.get(batch);
   if (!state || state.snapshot.wildlife !== wildlife || state.phase !== "collecting" ||
     state.building || !synchronousEcologyHook(prepare) ||
-    state.contributions.length >= RESIDENT_EDIT_LIMITS.entries) return reject(state);
+    state.contributions.length >= state.limits.entries) return reject(state);
   state.building = true;
   const before = state.edits.length;
   try {
     const prepared = prepare((domain, options) => append(state, domain, options));
     if (state.phase !== "collecting" || !prepared || prepared.then ||
       state.edits.length !== before + 1 ||
-      !horseDataArray(prepared.peers, RESIDENT_EDIT_LIMITS.peers - state.peers.length) ||
+      !horseDataArray(prepared.peers, state.limits.peers - state.peers.length) ||
       prepared.peers.some((part) => !validPeer(part, state.snapshot)) ||
       !state.snapshot.current() || state.edits.some((edit) => !edit.current())) return reject(state);
     const parts = prepared.peers.map((part) => bindPeer(part, state));
-    const owners = [...state.peers, ...parts].map((part) => part.owner);
-    if (new Set(owners).size !== owners.length) return reject(state);
     // Tokens never expose validators/publishers, even after finalization. Only
     // the complete final plan may expose the prepared owner participants.
     const peers = parts.map((part) => {
@@ -100,12 +113,14 @@ export function contributeResidentEditBatch(wildlife, batch, prepare) {
       state.peerParts.set(peer, part);
       return peer;
     });
+    const result = Object.freeze({ ...prepared.result });
     const contribution = Object.freeze({
       type: "wildlife-resident-edit-contribution", complete: false,
       peers: Object.freeze(peers),
+      ...(prepared.exposeResult === true ? { result } : {}),
     });
     state.peers.push(...peers);
-    state.contributions.push({ contribution, result: Object.freeze({ ...prepared.result }) });
+    state.contributions.push({ contribution, result });
     return state.phase === "collecting" && state.snapshot.current() &&
       state.edits.every((edit) => edit.current()) ? contribution : reject(state);
   } catch (error) {
@@ -117,8 +132,8 @@ export function contributeResidentEditBatch(wildlife, batch, prepare) {
 }
 
 /** Final caller supplies ALL contribution identities and exact peer tokens,
- * plus any independent action/runtime/cost participants. No owner deduplication;
- * commit the resulting complete list once, as required by the coordinator.
+ * plus any independent action/runtime/cost participants. Same-owner keyed
+ * peers coalesce into one participant; commit the complete list exactly once.
  */
 export function finalizeResidentEditBatch(wildlife, batch, options = {}) {
   const state = batches.get(batch);
@@ -131,27 +146,44 @@ export function finalizeResidentEditBatch(wildlife, batch, options = {}) {
 }
 
 function finalize(state, wildlife, options) {
-  if (!horseDataRecord(options, ["contributions", "participants"], [])) return reject(state);
-  const { contributions = [], participants = [] } = options;
+  if (!horseDataRecord(options, ["contributions", "participants", "randomState"], []))
+    return reject(state);
+  const { contributions = [], participants = [], randomState = state?.snapshot.randomState } = options;
   if (!state || state.snapshot.wildlife !== wildlife || state.phase !== "collecting" ||
-    state.building || !state.edits.length || !horseDataArray(contributions, RESIDENT_EDIT_LIMITS.entries) ||
+    state.building || !state.edits.length || !horseDataArray(contributions, state.limits.entries) ||
     contributions.length !== state.contributions.length ||
     new Set(contributions).size !== contributions.length ||
     state.contributions.some((entry) => !contributions.includes(entry.contribution)) ||
-    !horseDataArray(participants, RESIDENT_EDIT_LIMITS.peers) ||
+    !horseDataArray(participants, state.limits.peers) ||
     state.peers.some((part) => !participants.includes(part)) ||
+    !Number.isSafeInteger(randomState) || randomState < 0 || randomState > 0xffffffff ||
     !state.snapshot.current() || state.edits.some((edit) => !edit.current())) return reject(state);
   state.phase = "finalizing";
   const peers = participants.map((part) => state.peerParts.get(part) ??
     (validPeer(part, state.snapshot) ? bindPeer(part, state) : null));
   if (peers.some((part) => !validPeer(part, state.snapshot)) ||
-    new Set(peers.map((part) => part.owner)).size !== peers.length ||
     state.phase !== "finalizing" || !state.snapshot.current() ||
     state.edits.some((edit) => !edit.current())) return reject(state);
   const { snapshot, edits } = state;
   const removals = edits.filter((edit) => edit.remove).sort((a, b) => b.removeIndex - a.removeIndex);
   const nextId = edits.find((edit) => edit.nextId !== snapshot.nextId)?.nextId ?? snapshot.nextId;
-  const notices = edits.map((edit) => edit.notify).filter(Boolean);
+  const nextLife = edits.find((edit) => edit.nextLife !== snapshot.nextLife)?.nextLife ??
+    snapshot.nextLife;
+  if (removals.length && typeof wildlife.prepareStatusRetirement === "function") {
+    const retirement = wildlife.prepareStatusRetirement(
+      removals.map((edit) => edit.remove),
+      () => state.phase === "finalized" && snapshot.current() &&
+        removals.every((edit) => edit.current())
+    );
+    if (retirement && !peers.some((part) => part.owner === retirement.owner)) {
+      if (!validPeer(retirement, snapshot)) return reject(state);
+      peers.push(bindPeer(retirement, state));
+    }
+  }
+  const notices = [
+    ...edits.map((edit) => edit.notify).filter(Boolean),
+    ...removals.map((edit) => () => wildlife.onRemove(edit.remove)),
+  ];
   const notify = notices.length === 1 ? notices[0] : notices.length ? () => {
     const errors = [];
     for (const notice of notices) {
@@ -173,16 +205,29 @@ function finalize(state, wildlife, options) {
       state.phase === "finalized" && snapshot.current() && edits.every((edit) => edit.current()),
     publish: () => {
       state.phase = "published";
-      installResidentEdits(snapshot, edits, removals, nextId);
+      installResidentEdits(snapshot, edits, removals, nextId, nextLife, randomState);
     },
     ...(notify ? { notify } : {}),
   });
   // Last validation catches late contributions (including attempted additions
   // from a peer's validator). Publishers are installation-only by coordinator
   // contract; the base never calls peer publishers or reserves their resources.
+  const uniquePeers = [];
+  for (const owner of new Set(peers.map((part) => part.owner))) {
+    const owned = peers.filter((part) => part.owner === owner);
+    if (owned.length === 1) {
+      uniquePeers.push(owned[0]);
+      continue;
+    }
+    const combined = owner?.prepareParticipantBatch?.(
+      owned.map((part) => boundSources.get(part) ?? part));
+    if (!validPeer(combined, state.snapshot) || combined.owner !== owner)
+      return reject(state);
+    uniquePeers.push(bindPeer(combined, state));
+  }
   return Object.freeze({
     complete: true,
-    participants: Object.freeze([...peers, base]),
+    participants: Object.freeze([...uniquePeers, base]),
     results: Object.freeze(contributions.map((contribution) =>
       state.contributions.find((entry) => entry.contribution === contribution).result)),
   });

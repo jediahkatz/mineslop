@@ -195,14 +195,17 @@ test("eight entries/touched actors are finite; the ninth poisons rather than tru
   const f = horseFixture(t), w = f.wildlife;
   assert.equal(RESIDENT_EDIT_LIMITS.entries, 8);
   assert.equal(RESIDENT_EDIT_LIMITS.actors, 8);
-  const mobs = Array.from({ length: 9 }, (_, i) => residentSource(f, { id: `resident-batch:limit:${i}` }));
+  const mobs = Array.from({ length: 9 }, (_, i) =>
+    residentSource(f, { id: `resident-batch:limit:${i}` }));
   let batch = w.beginResidentEditBatch();
-  let contributions = mobs.slice(0, 8).map((mob) => w.contributeSourceEdit(batch, mob, { attackCooldown: 0.25 }));
+  let contributions = mobs.slice(0, 8).map((mob) =>
+    w.contributeSourceEdit(batch, mob, { attackCooldown: 0.25 }));
   const revision = w._ecologyRevision;
   assert.equal(f.coordinator.commit(finishResidentBatch(w, batch, contributions).participants).ok, true);
   assert.equal(w._ecologyRevision, revision + 1);
   batch = w.beginResidentEditBatch();
-  contributions = mobs.slice(0, 8).map((mob) => w.contributeSourceEdit(batch, mob, { attackCooldown: 0.3 }));
+  contributions = mobs.slice(0, 8).map((mob) =>
+    w.contributeSourceEdit(batch, mob, { attackCooldown: 0.3 }));
   const before = residentState(f);
   assert.equal(w.contributeSourceEdit(batch, mobs[8], { attackCooldown: 0.3 }), null);
   assert.equal(w.finalizeResidentEditBatch(batch, { contributions }), null);

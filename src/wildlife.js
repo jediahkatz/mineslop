@@ -69,7 +69,8 @@ import {
 import { CHUNK_SIZE } from "./terrain.js";
 import { TransactionCoordinator } from "./transactions.js";
 import {
-  beginResidentEditBatch, contributeResidentEditBatch, finalizeResidentEditBatch,
+  beginPotionResidentEditBatch, beginResidentEditBatch, contributeResidentEditBatch,
+  finalizeResidentEditBatch,
   prepareStandaloneResidentEdit,
 } from "./wildlife-resident-batch.js";
 import { horseResidentEdit, residentDamage } from "./wildlife-resident-edit.js";
@@ -80,6 +81,7 @@ const RED = new THREE.Color("#ff7c70");
 const WHITE = new THREE.Color("#fff4de");
 const FORWARD = new THREE.Vector3(0, 0, 1);
 const noop = () => {};
+const preparedMobExplosions = new WeakMap();
 const dimensionOf = (world) => world.dimension ?? "overworld";
 const positionData = ({ x, y, z }) => ({ x, y, z });
 function hash(value) {
@@ -99,6 +101,8 @@ export class Wildlife {
       onDamage = noop,
       onDrop = noop,
       onIngredientDamage = null,
+      onRemove = noop,
+      prepareStatusRetirement = null,
       onExplode = noop,
       onToast = noop,
       autoSpawn = true,
@@ -116,6 +120,8 @@ export class Wildlife {
     this.onDamage = onDamage;
     this.onDrop = onDrop;
     this.onIngredientDamage = onIngredientDamage;
+    this.onRemove = onRemove;
+    this.prepareStatusRetirement = prepareStatusRetirement;
     this.onExplode = onExplode;
     this.onToast = onToast;
     this.autoSpawn = autoSpawn;
@@ -136,6 +142,7 @@ export class Wildlife {
     this.projectiles = [];
     this.randomState = hash(`${world.seed}:${this.dimension}:wildlife`);
     this.nextId = 0;
+    this.nextLife = 1;
     this.clock = 0;
     this.spawnProtectionUntil = 0;
     this.elapsed = 0;
@@ -294,7 +301,10 @@ export class Wildlife {
       )
         return null;
     }
-    const entity = this._createEntity(kind, position, id, () => this.random());
+    if (!Number.isSafeInteger(this.nextLife) || this.nextLife < 1 ||
+      this.nextLife >= Number.MAX_SAFE_INTEGER) return null;
+    const entity = this._createEntity(kind, position, id, () => this.random(), this.nextLife);
+    this.nextLife++;
     if (local) this.nextId = nextId;
     this.entities.push(entity);
     this.byId.set(id, entity);
@@ -302,9 +312,10 @@ export class Wildlife {
     return entity;
   }
 
-  _createEntity(kind, position, id, random) {
+  _createEntity(kind, position, id, random, life) {
     const entity = createMobState(kind, random);
     entity.id = id;
+    entity.life = life;
     entity.model = createMobModel(kind);
     setSulfurBlock(entity);
     entity.root = entity.model.root;
@@ -321,10 +332,23 @@ export class Wildlife {
     // An ecology resident can only relinquish its base pose in a prepared
     // death plan, alongside its domain state and retained rewards.
     if (entity.spec.ecology || this.retainsHorse(entity)) return false;
-    this.byId.delete(entity.id);
-    this.entities.splice(this.entities.indexOf(entity), 1);
-    entity.dead = true;
-    this._ecologyRevision++;
+    if (typeof this.prepareStatusRetirement !== "function") {
+      this.byId.delete(entity.id);
+      this.entities.splice(this.entities.indexOf(entity), 1);
+      entity.dead = true;
+      this._ecologyRevision++;
+      this.onRemove(entity);
+      return;
+    }
+    const batch = this.beginResidentEditBatch();
+    const contribution = batch && contributeResidentEditBatch(this, batch, (add) =>
+      add("lifecycle", { remove: entity })
+        ? { peers: [], result: { entityId: entity.id } }
+        : null);
+    const plan = contribution && this.finalizeResidentEditBatch(batch, {
+      contributions: [contribution],
+    });
+    return plan && this.coordinator.commit(plan.participants).ok ? undefined : false;
   }
 
   /** Pure monotonic allocation proposal. Full canonical marker identities live
@@ -356,6 +380,7 @@ export class Wildlife {
   }
 
   beginResidentEditBatch() { return beginResidentEditBatch(this); }
+  beginPotionResidentEditBatch() { return beginPotionResidentEditBatch(this); }
 
   finalizeResidentEditBatch(batch, options) {
     return finalizeResidentEditBatch(this, batch, options);
@@ -391,6 +416,31 @@ export class Wildlife {
     });
   }
 
+  /** Potion orchestration owns authorization, rewards and status sidecars.
+   * This contributes only the canonical base health/removal edit.
+   */
+  contributePotionHealth(batch, mob, health, { validate } = {}) {
+    return contributeResidentEditBatch(this, batch, (add) => {
+      if (!mob || this.byId.get(mob.id) !== mob || mob.dead || mob.dormant ||
+        !Number.isFinite(health) || health < 0 || health > mob.spec.health ||
+        health === mob.health || (validate !== undefined &&
+          Object.prototype.toString.call(validate) !== "[object Function]"))
+        return null;
+      const options = health === 0
+        ? { remove: mob, validate }
+        : health > mob.health
+          ? { mob, heal: health - mob.health, validate }
+          : {
+              damage: residentDamage(this.player, mob, mob.health - health,
+                { x: 0, y: 0, z: 0 }, false, true),
+              validate,
+            };
+      return add("potion", options)
+        ? { peers: [], result: { entityId: mob.id, health, killed: health === 0 } }
+        : null;
+    });
+  }
+
   prepareHorseEdit(mob, options) {
     const edit = horseResidentEdit(this, mob, options);
     return edit && this._prepareResidentEdit("horse", edit);
@@ -404,13 +454,15 @@ export class Wildlife {
       !ecologyCanOccupy(this.world, proposal.position, collider)) return null;
     // Detached model construction cannot consume Wildlife's committed RNG.
     let randomState = hash(`${this.world.seed}:${proposal.id}:appearance`);
+    const life = this.nextLife;
     const entity = this._createEntity(proposal.kind, proposal.position, proposal.id, () => {
       randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0;
       return randomState / 4294967296;
-    });
+    }, life);
     entity.root.scale.setScalar(proposal.baby ? 0.5 : 1);
     return this._prepareEcologyEdit({
       spawn: entity, nextId,
+      nextLife: life + 1,
       validate: () => ecologyCanOccupy(this.world, proposal.position, collider) &&
         (!validate || validate() === true),
     });
@@ -910,6 +962,37 @@ export class Wildlife {
         : { hit: false, killed: false, damage: 0, reason: "prepared-ingredient-hit-required" };
     amount = Math.min(1000, amount);
     const dealt = Math.min(entity.health, amount);
+    if (dealt === entity.health) {
+      if (typeof this.prepareStatusRetirement === "function") {
+        const batch = this.beginResidentEditBatch();
+        const contribution = batch && this.contributePotionHealth(batch, entity, 0, {
+          validate: () => true,
+        });
+        const plan = contribution && this.finalizeResidentEditBatch(batch, {
+          contributions: [contribution],
+        });
+        if (!plan || !this.coordinator.commit(plan.participants).ok)
+          return { hit: false, killed: false, damage: 0, reason: "prepared-removal-refused" };
+      } else {
+        entity.health = 0;
+        entity.hitFlash = 0.24;
+        this.rememberKilled(entity.id);
+        this.remove(entity);
+      }
+      const position = positionData(entity.position), drops = [];
+      const absorbed = releaseSulfurBlock(entity);
+      if (absorbed) {
+        drops.push(absorbed);
+        this.onDrop(absorbed.id, absorbed.count, { ...position });
+      }
+      for (const entry of entity.spec.drops) {
+        if (!Number.isInteger(entry.id) || this.random() > entry.chance) continue;
+        const count = entry.min + Math.floor(this.random() * (entry.max - entry.min + 1));
+        drops.push({ id: entry.id, count });
+        this.onDrop(entry.id, count, { ...position });
+      }
+      return { hit: true, killed: true, damage: dealt, entity, drops };
+    }
     entity.health -= dealt;
     entity.hitFlash = 0.24;
     // Enderman-only counterattack recovery; incoming melee still lands normally.
@@ -937,25 +1020,7 @@ export class Wildlife {
         this.defendUntil = this.clock + 8;
       }
     }
-    if (entity.health > 0)
-      return { hit: true, killed: false, damage: dealt, entity };
-    const position = positionData(entity.position);
-    this.rememberKilled(entity.id);
-    this.remove(entity);
-    const drops = [];
-    const absorbed = releaseSulfurBlock(entity);
-    if (absorbed) {
-      drops.push(absorbed);
-      this.onDrop(absorbed.id, absorbed.count, { ...position });
-    }
-    for (const entry of entity.spec.drops) {
-      if (!Number.isInteger(entry.id) || this.random() > entry.chance) continue;
-      const count =
-        entry.min + Math.floor(this.random() * (entry.max - entry.min + 1));
-      drops.push({ id: entry.id, count });
-      this.onDrop(entry.id, count, { ...position });
-    }
-    return { hit: true, killed: true, damage: dealt, entity, drops };
+    return { hit: true, killed: false, damage: dealt, entity };
   }
 
   rememberKilled(id) {
@@ -1035,19 +1100,74 @@ export class Wildlife {
 
   explodeMob(entity, radius) {
     if (
+      !Number.isFinite(radius) ||
+      radius <= 0 ||
       entity.dead ||
       this.context.mode === "creative" ||
       this.context.spawnProtected
     )
-      return;
+      return false;
     const position = {
       x: entity.position.x,
       y: entity.position.y + 0.65,
       z: entity.position.z,
     };
-    this.rememberKilled(entity.id);
-    this.remove(entity);
-    this.explosion(position, radius, entity);
+    // Lightweight AI fixtures have no shared transaction graph or status owner.
+    // Preserve that compatibility path, but never explode a still-live entity.
+    if (typeof this.prepareStatusRetirement !== "function") {
+      this.rememberKilled(entity.id);
+      this.remove(entity);
+      if (this.byId.get(entity.id) === entity) return false;
+      this.explosion(position, radius, entity);
+      return true;
+    }
+    const plan = this.prepareMobExplosion(entity, radius);
+    return this.commitMobExplosion(plan).ok;
+  }
+
+  /** Prepared publication gate for a creeper's tombstone, removal and status. */
+  prepareMobExplosion(entity, radius) {
+    if (!Number.isFinite(radius) || radius <= 0 || !entity || entity.dead ||
+      this.byId.get(entity.id) !== entity || this.context.mode === "creative" ||
+      this.context.spawnProtected || typeof this.prepareStatusRetirement !== "function")
+      return null;
+    const position = positionData(entity.position);
+    const mode = this.context.mode, protectedSpawn = this.context.spawnProtected;
+    const current = () => this.byId.get(entity.id) === entity && !entity.dead &&
+      entity.position.x === position.x && entity.position.y === position.y &&
+      entity.position.z === position.z && this.context.mode === mode &&
+      this.context.spawnProtected === protectedSpawn && mode !== "creative" &&
+      !protectedSpawn;
+    const batch = this.beginResidentEditBatch();
+    const contribution = batch && this.contributePotionHealth(batch, entity, 0, {
+      validate: current,
+    });
+    const resident = contribution && this.finalizeResidentEditBatch(batch, {
+      contributions: [contribution],
+    });
+    if (!resident) return null;
+    const plan = Object.freeze({
+      participants: resident.participants,
+      result: Object.freeze({
+        entityId: entity.id,
+        position: Object.freeze({ x: position.x, y: position.y + 0.65, z: position.z }),
+        radius,
+      }),
+    });
+    preparedMobExplosions.set(plan, { entity, used: false });
+    return plan;
+  }
+
+  /** Explosion mutations run only after the complete prepared removal publishes. */
+  commitMobExplosion(plan) {
+    const prepared = preparedMobExplosions.get(plan);
+    if (!prepared || prepared.used) return { ok: false, reason: "invalid-explosion-plan" };
+    const committed = this.coordinator.commit(plan.participants);
+    if (!committed.ok) return committed;
+    prepared.used = true;
+    const { position, radius } = plan.result;
+    this.explosion(position, radius, prepared.entity);
+    return { ...committed, ...plan.result };
   }
 
   explosion(position, radius, source) {
@@ -1423,14 +1543,16 @@ export class Wildlife {
 
   serialize() {
     return {
-      version: 1,
+      version: 2,
       seed: String(this.world.seed),
       dimension: this.dimension,
       randomState: this.randomState,
       nextId: this.nextId,
+      nextLife: this.nextLife,
       killed: [...this.killed],
       entities: [...this.byId.values()].map((mob) => ({
         id: mob.id,
+        life: mob.life,
         kind: mob.kind,
         position: positionData(mob.position),
         health: mob.health,
@@ -1493,7 +1615,8 @@ export class Wildlife {
         entry.kind,
         entry.position,
         entry.id,
-        random
+        random,
+        entry.life
       );
       Object.assign(mob, {
         health: entry.health,
@@ -1549,6 +1672,7 @@ export class Wildlife {
     this.context.worldContext = context;
     this.randomState = snapshot.randomState;
     this.nextId = snapshot.nextId;
+    this.nextLife = snapshot.nextLife;
     this.render(0);
     return true;
   }

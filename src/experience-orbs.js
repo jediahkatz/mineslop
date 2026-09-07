@@ -255,44 +255,58 @@ export class ExperienceOrbs {
 
   /** Detached merge/split plan, composable with station output ownership. */
   prepareSpawn(amount, position, options = {}) {
+    return this.prepareSpawnBatch([{ amount, position, options }]);
+  }
+
+  /** One owner participant preserving each reward's physical death position. */
+  prepareSpawnBatch(rewards) {
     const dimension = this.world.dimension;
     if (
       this._disposed ||
       this._preparingCollect ||
-      !Number.isSafeInteger(amount) ||
-      amount <= 0 ||
-      amount > MAX_ORB_EXPERIENCE * MAX_EXPERIENCE_ORBS ||
-      !this._positionInWorld(position) ||
-      !isLooseMotion(options)
+      !Array.isArray(rewards) ||
+      !rewards.length ||
+      rewards.length > MAX_EXPERIENCE_ORBS
     )
       return null;
-    const motion = looseMotion(options, 2.2);
     const next = this._orbs.slice();
-    let remaining = amount;
-    for (let index = 0; index < next.length; index++) {
-      const orb = next[index];
+    for (const reward of rewards) {
+      const { amount, position, options = {} } = reward ?? {};
       if (
-        orb.collecting ||
-        orb.dimension !== dimension ||
-        orb.amount === MAX_ORB_EXPERIENCE ||
-        !sameLooseMotion(orb, motion) ||
-        looseDistanceSquared(orb, position) > MERGE_DISTANCE_SQ
+        !Number.isSafeInteger(amount) ||
+        amount <= 0 ||
+        amount > MAX_ORB_EXPERIENCE * MAX_EXPERIENCE_ORBS ||
+        !this._positionInWorld(position) ||
+        !isLooseMotion(options)
       )
-        continue;
-      const moved = Math.min(remaining, MAX_ORB_EXPERIENCE - orb.amount);
-      next[index] = { ...orb, amount: orb.amount + moved, age: 0 };
-      remaining -= moved;
-      if (!remaining) break;
-    }
-    if (
-      next.length + Math.ceil(remaining / MAX_ORB_EXPERIENCE) >
-      MAX_EXPERIENCE_ORBS
-    )
-      return null;
-    while (remaining > 0) {
-      const moved = Math.min(remaining, MAX_ORB_EXPERIENCE);
-      next.push(makeOrb(moved, position, dimension, motion));
-      remaining -= moved;
+        return null;
+      const motion = looseMotion(options, 2.2);
+      let remaining = amount;
+      for (let index = 0; index < next.length; index++) {
+        const orb = next[index];
+        if (
+          orb.collecting ||
+          orb.dimension !== dimension ||
+          orb.amount === MAX_ORB_EXPERIENCE ||
+          !sameLooseMotion(orb, motion) ||
+          looseDistanceSquared(orb, position) > MERGE_DISTANCE_SQ
+        )
+          continue;
+        const moved = Math.min(remaining, MAX_ORB_EXPERIENCE - orb.amount);
+        next[index] = { ...orb, amount: orb.amount + moved, age: 0 };
+        remaining -= moved;
+        if (!remaining) break;
+      }
+      if (
+        next.length + Math.ceil(remaining / MAX_ORB_EXPERIENCE) >
+        MAX_EXPERIENCE_ORBS
+      )
+        return null;
+      while (remaining > 0) {
+        const moved = Math.min(remaining, MAX_ORB_EXPERIENCE);
+        next.push(makeOrb(moved, position, dimension, motion));
+        remaining -= moved;
+      }
     }
     return this._prepareReplacement(next);
   }

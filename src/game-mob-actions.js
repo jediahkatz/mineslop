@@ -68,6 +68,21 @@ export class GameMobActions {
   /** null means an unowned legacy actor; every owned refusal remains handled. */
   interact(mob, { held = false } = {}) {
     if (!this.owns(mob)) return null;
+    const hands = ["main", "offhand"];
+    const ordered = [
+      ...hands.filter((hand) => this.game.gameplay.getHandStack(hand) !== null),
+      ...hands.filter((hand) => this.game.gameplay.getHandStack(hand) === null),
+    ];
+    for (const hand of ordered) {
+      const result = this.interactHand(mob, hand, { held });
+      if (result !== null) return result;
+    }
+    return refuse("entity-interaction-unavailable");
+  }
+
+  /** Per-hand item intent; null lets that same hand continue to splash/generic use. */
+  interactHand(mob, hand, { held = false } = {}) {
+    if (!this.owns(mob) || !["main", "offhand"].includes(hand)) return null;
     const game = this.game;
     const validate = this.capture(mob);
     if (!validate) return refuse("stale-entity-target");
@@ -76,31 +91,22 @@ export class GameMobActions {
       if (!service?.active || service.horses.wildlife !== game.wildlife)
         return refuse("horse-owner-unavailable");
       const inventory = game.player.sneaking === true || game.player.crouching === true;
-      for (const hand of ["main", "offhand"]) {
-        const stack = game.gameplay.getHandStack(hand);
-        if (inventory || horseFood(stack?.id) || isHorseSaddle(stack))
-          return service.interactHorse(mob.id, { hand, held, inventory, validate });
-      }
-      // A real offhand food/saddle use precedes an otherwise empty main-hand
-      // mount, just as entity use precedes eating that same food in Game.
-      for (const hand of ["main", "offhand"])
-        if (game.gameplay.getHandStack(hand) === null)
-          return service.interactHorse(mob.id, { hand, held, inventory, validate });
-      return refuse("empty-hand-food-or-saddle-required");
+      const stack = game.gameplay.getHandStack(hand);
+      if (inventory || horseFood(stack?.id) || isHorseSaddle(stack) || stack === null)
+        return service.interactHorse(mob.id, { hand, held, inventory, validate });
+      return null;
     }
     const host = game.ecologyServices;
     if (!host?.active || host.wildlife !== game.wildlife ||
         host.gameplay !== game.gameplay)
       return refuse("ecology-owner-unavailable");
     if (mob.kind === "villager") {
+      if (hand !== "main") return null;
       const result = validate() && game.progressionIntegration?.openTrader(mob.id);
       return result ? { ...result, handled: true } : refuse("villager-unavailable");
     }
-    for (const hand of ["main", "offhand"]) {
-      const plan = host.prepareInteraction(mob.id, { hand, validate });
-      if (plan) return this.commit(plan);
-    }
-    return refuse("ecology-interaction-unavailable");
+    const plan = host.prepareInteraction(mob.id, { hand, validate });
+    return plan ? this.commit(plan) : null;
   }
 
   prepareHit(mob, amount, {

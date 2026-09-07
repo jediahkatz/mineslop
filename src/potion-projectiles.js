@@ -82,12 +82,13 @@ export class PotionProjectiles {
   get activated() { return this.#bindings !== null && !this.#disposed; }
   serialize() { return structuredClone(this.#state); }
 
-  activate({ getOwner, readTargets, validateLive, onEvent = () => {} }) {
+  activate({ getOwner, readTargets, prepareImpact, validateLive, onEvent = () => {} }) {
     if (this.#disposed || this.#bindings ||
         ![getOwner, readTargets, validateLive, onEvent].every(synchronous) ||
+        (prepareImpact !== undefined && !synchronous(prepareImpact)) ||
         !this.coordinator.register(this, this.#bytes, { allowOverBudget: true }))
       return false;
-    this.#bindings = { getOwner, readTargets, validateLive, onEvent };
+    this.#bindings = { getOwner, readTargets, prepareImpact, validateLive, onEvent };
     return true;
   }
 
@@ -195,16 +196,20 @@ export class PotionProjectiles {
       if (typeof target.id !== "string" || target.id.length > 128 || !target.ref ||
           !point(target.position) || !Number.isFinite(target.radius) || target.radius <= 0 ||
           target.radius > 2 || !Number.isFinite(target.height) || target.height <= 0 ||
-          target.height > 4 || target.gameplay?.coordinator !== this.coordinator ||
-          target.effects?.coordinator !== this.coordinator ||
-          target.gameplay.context?.seed !== this.context.seed ||
-          target.gameplay.context?.generatorVersion !== this.context.generatorVersion ||
-          target.gameplay.dead || target.gameplay._disposed || seen.has(target.id) ||
-          this.coordinator.usage(target.gameplay) === undefined ||
-          this.coordinator.usage(target.effects) !== target.effects.reservedBytes ||
-          target.effects.reservedBytes === 0 ||
-          result.some((entry) => entry.gameplay === target.gameplay || entry.effects === target.effects))
+          target.height > 4 || seen.has(target.id))
         return null;
+      if (!this.#bindings.prepareImpact && (
+        target.gameplay?.coordinator !== this.coordinator ||
+        target.effects?.coordinator !== this.coordinator ||
+        target.gameplay.context?.seed !== this.context.seed ||
+        target.gameplay.context?.generatorVersion !== this.context.generatorVersion ||
+        target.gameplay.dead || target.gameplay._disposed ||
+        this.coordinator.usage(target.gameplay) === undefined ||
+        this.coordinator.usage(target.effects) !== target.effects.reservedBytes ||
+        target.effects.reservedBytes === 0 ||
+        result.some((entry) =>
+          entry.gameplay === target.gameplay || entry.effects === target.effects)
+      )) return null;
       dataRecord(target.target ?? {}, [
         "undead", "ignoresPoisonAndRegeneration", "poisonImmune", "effectImmune",
       ], "splash target flags");
@@ -212,7 +217,8 @@ export class PotionProjectiles {
       result.push({ ...target, position: vector(target.position),
         target: { ...target.target },
         poseRevision: target.poseRevision ?? target.ref.poseRevision,
-        revision: target.gameplay.revision, effectRevision: target.effects.revision,
+        revision: target.gameplay?.revision,
+        effectRevision: target.effects?.revision,
         bounds: bodyBox(target.position, target.radius, target.height) });
     }
     return result;
@@ -283,15 +289,31 @@ export class PotionProjectiles {
     }
     const valid = () => validOwner() && step.validate() && targetGuard();
     if (impact) {
-      const bounds = projectileBox(impact), peers = [];
+      const bounds = projectileBox(impact), peers = [], impacts = [];
       for (const target of targets) {
         if (!inSplash(bounds, target.bounds)) continue;
         const distance = boxDistance(bounds, target.bounds);
         if (distance >= 4 && direct !== target.id) continue;
-        const plan = prepareStatusApplication(target.gameplay, target.effects, projectile.stack.data.potion, {
-          splash: { distance, directHit: target.id === direct }, target: target.target,
+        const splash = { distance, directHit: target.id === direct };
+        impacts.push({ target, splash });
+        if (!this.#bindings.prepareImpact) {
+          const plan = prepareStatusApplication(
+            target.gameplay,
+            target.effects,
+            projectile.stack.data.potion,
+            { splash, target: target.target }
+          );
+          if (!plan) return null;
+          peers.push(...plan.participants);
+        }
+      }
+      if (this.#bindings.prepareImpact && impacts.length) {
+        const plan = this.#bindings.prepareImpact({
+          potion: projectile.stack.data.potion,
+          impacts,
+          validate: valid,
         });
-        if (!plan) return null;
+        if (!plan?.participants) return null;
         peers.push(...plan.participants);
       }
       return retire(valid, { type: "impact", id, position: vector(impact) }, peers);

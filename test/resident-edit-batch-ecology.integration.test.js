@@ -196,6 +196,61 @@ test("a full ecology sidecar can retire an existing resident without allocating 
   assert.equal(f.host.ecology.state(f.mob.id).alive, false);
 });
 
+test("combined ecology records recheck capacity and marker uniqueness", (t) => {
+  const original = guardianPair(t), saved = original.snapshot();
+  for (let index = 1; index < ECOLOGY_LIMITS.entries - 1; index++) {
+    const state = createEcologyState("turtle", `aggregate:ecology:${index}`,
+      { x: 24.5, y: 1, z: 24.5 }, original.context);
+    saved.ecology.ecology.entries.push({ ...state, alive: false });
+  }
+  const capacity = ecologyHostFixture(t, { saved });
+  const additions = ["a", "b"].map((suffix) => capacity.host.ecology._prepare([{
+    store: "entries",
+    value: createEcologyState("turtle", `aggregate:ecology:${suffix}`,
+      { x: 24.5, y: 1, z: 24.5 }, capacity.context),
+  }], capacity.wildlife.context));
+  assert.ok(additions.every(Boolean));
+  assert.equal(capacity.host.ecology.prepareParticipantBatch(additions), null);
+
+  const conflict = guardianPair(t);
+  const villagers = ["a", "b"].map((suffix, index) => conflict.host.ecology._prepare([{
+    store: "entries",
+    value: createEcologyState("villager", `aggregate:villager:${suffix}`,
+      { x: 4.5 + index, y: 1, z: 4.5 }, conflict.context, {
+        memberId: "aggregate:shared-member",
+      }),
+  }], conflict.wildlife.context));
+  assert.ok(villagers.every(Boolean));
+  assert.equal(conflict.host.ecology.prepareParticipantBatch(villagers), null);
+
+  const eggs = guardianPair(t);
+  const parents = ["a", "b"].map((suffix, index) => ({
+    ...createEcologyState("turtle", `aggregate:parent:${suffix}`,
+      { x: 6.5 + index, y: 1, z: 6.5 }, eggs.context),
+    clutchSerial: 1,
+  }));
+  const parentPart = eggs.host.ecology._prepare(parents.map((value) => ({
+    store: "entries", value,
+  })), eggs.wildlife.context);
+  assert.ok(parentPart);
+  assert.equal(eggs.coordinator.commit([parentPart]).ok, true);
+  const samePosition = parents.map((parent, index) => eggs.host.ecology._prepare([{
+    store: "eggs",
+    value: {
+      id: `aggregate:egg:${index}`,
+      parentId: parent.id,
+      childId: `aggregate:child:${index}`,
+      serial: 1,
+      dimension: "overworld",
+      position: { x: 8.5, y: 1, z: 8.5 },
+      remaining: 300,
+      status: "incubating",
+    },
+  }], eggs.wildlife.context));
+  assert.ok(samePosition.every(Boolean));
+  assert.equal(eggs.host.ecology.prepareParticipantBatch(samePosition), null);
+});
+
 for (const refusal of ["drops-full", "xp-full", "save-budget"])
   test(`real ecology ${refusal} cannot pay the source or leave a partial corpse`, (t) => {
     const f = guardianPair(t, { maxEntries: refusal === "drops-full" ? 1 : undefined });

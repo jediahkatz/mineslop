@@ -10,7 +10,8 @@ import {
   cloneHorseRecord, emptyHorseSnapshot, normalizeHorseRecord, normalizeHorseSnapshot,
 } from "./horse-save.js";
 import {
-  contributeHorseHit, prepareHorseFeed, prepareHorseHit, prepareHorseInteraction, prepareHorseSlotAction,
+  contributeHorseHit, contributeHorsePotionHealth, prepareHorseFeed, prepareHorseHit,
+  prepareHorseInteraction, prepareHorseSlotAction,
 } from "./horse-actions.js";
 import {
   prepareHorseDismount, prepareHorseMount, prepareHorsePassengerRelease, updateHorses,
@@ -23,6 +24,8 @@ import { commitVehicleSnapshots, prepareVehicleSnapshot } from "./vehicle-load.j
 import { finitePoint } from "./vehicle-water.js";
 
 export { horseInput } from "./horse-definitions.js";
+
+const preparedHorseRecords = new WeakMap();
 export { emptyHorseSnapshot, horseMobLinksValid, normalizeHorseSnapshot } from "./horse-save.js";
 
 export const horseRefused = (reason) => ({ ok: false, handled: true, reason });
@@ -367,7 +370,9 @@ export class Horses {
       (!before && (this.size >= MAX_RETAINED_HORSE_IDS ||
         (next.alive && this.livingSize >= MAX_LIVING_HORSES)))) return null;
     const entries = this._entries, living = this._living, revision = this._revision;
-    const beforeBytes = this._bytes, afterBytes = beforeBytes + horseRecordBytes(next) - horseRecordBytes(before);
+    const beforeBytes = this._bytes, nextBytes = horseRecordBytes(next);
+    const previousBytes = horseRecordBytes(before);
+    const afterBytes = beforeBytes + nextBytes - previousBytes;
     const current = captureEntityContext(this.world, this.context), wildlife = this.wildlife;
     const mob = wildlife.byId.get(id);
     // Prepare the immutable projection now; publication only installs it, so
@@ -377,34 +382,88 @@ export class Horses {
       ? createHorseView(next, environment ?? horseEnvironment(this.world, mob.position, this.hooks.sampleFluid)) : null;
     const notices = events.map((event) => freezeHorseValue(structuredClone(event)));
     const pendingExit = exit ? freezeHorseValue(structuredClone(exit)) : null;
-    let used = false;
-    return Object.freeze({
+    const token = { used: false };
+    const install = () => {
+      entries.set(id, next);
+      if (next.alive) living.set(id, next);
+      else living.delete(id);
+      if (claim || before?.rider || next.rider) this._claims.add(id);
+      if (pendingExit) this._pendingExit = pendingExit;
+      else if (clearExit) this._pendingExit = null;
+      if (input !== undefined) this._input = input;
+      if (stride !== undefined) this._strides.set(id, stride);
+      if (this._input?.id === id && (resetInput || !next.alive || !next.rider || !next.saddle))
+        this._input = null;
+      if (!next.alive) this._strides.delete(id);
+      if (mob) mob.horseView = view;
+    };
+    const participant = Object.freeze({
       owner: this, beforeBytes, afterBytes,
-      validate: () => !used && this._ready() && this.wildlife === wildlife &&
+      validate: () => !token.used && this._ready() && this.wildlife === wildlife &&
         this._entries === entries && this._living === living && this._revision === revision &&
         this._bytes === beforeBytes && entries.get(id) === before && current() &&
         (!before || before.alive) && validate() === true,
       publish: () => {
-        used = true;
-        entries.set(id, next);
-        if (next.alive) living.set(id, next);
-        else living.delete(id);
+        token.used = true;
+        install();
         this._bytes = afterBytes;
         this._revision++;
-        if (claim || before?.rider || next.rider) this._claims.add(id);
-        // Ownership of this exit exists BEFORE any observer/parent save runs.
-        if (pendingExit) this._pendingExit = pendingExit;
-        else if (clearExit) this._pendingExit = null;
-        if (input !== undefined) this._input = input;
-        if (stride !== undefined) this._strides.set(id, stride);
-        // Another tracked horse can be hurt or finish an airborne handoff while
-        // the sole rider charges a jump. Its edit cannot reset that rider's input.
-        if (this._input?.id === id && (resetInput || !next.alive || !next.rider || !next.saddle))
-          this._input = null;
-        if (!next.alive) this._strides.delete(id);
-        if (mob) mob.horseView = view;
       },
       notify: () => this._notify(notices),
+    });
+    preparedHorseRecords.set(participant, {
+      id, token, install, notices, beforeBytes, afterBytes, revision, entries, living,
+      before, next, nextBytes, previousBytes,
+    });
+    return participant;
+  }
+
+  /** Combine prepared disjoint horse record intents without invoking child publishers. */
+  prepareParticipantBatch(parts) {
+    if (!Array.isArray(parts) || parts.length < 2) return null;
+    const intents = parts.map((part) => preparedHorseRecords.get(part));
+    const first = intents[0];
+    if (!first || intents.some((intent) => !intent ||
+      intent.beforeBytes !== first.beforeBytes || intent.revision !== first.revision ||
+      intent.entries !== first.entries || intent.living !== first.living) ||
+      new Set(intents.map(({ id }) => id)).size !== intents.length)
+      return null;
+    const projectedEntries = new Map(first.entries);
+    const projectedLiving = new Map(first.living);
+    for (const { id, before, next } of intents) {
+      if (projectedEntries.get(id) !== before) return null;
+      projectedEntries.set(id, next);
+      if (next.alive) projectedLiving.set(id, next);
+      else projectedLiving.delete(id);
+    }
+    const riders = [...projectedLiving.values()]
+      .map(({ rider }) => rider).filter((rider) => rider !== null);
+    if (projectedEntries.size > MAX_RETAINED_HORSE_IDS ||
+      projectedLiving.size > MAX_LIVING_HORSES ||
+      new Set(riders).size !== riders.length ||
+      !normalizeHorseSnapshot({
+        ...emptyHorseSnapshot(this.context),
+        entries: [...projectedEntries.values()],
+      }, this.context))
+      return null;
+    const beforeBytes = first.beforeBytes;
+    const afterBytes = beforeBytes + intents.reduce(
+      (sum, intent) => sum + intent.nextBytes - intent.previousBytes, 0);
+    let used = false;
+    return Object.freeze({
+      owner: this, beforeBytes, afterBytes,
+      validate: () => !used && intents.every((intent, index) =>
+        parts[index].validate() && !intent.token.used),
+      publish: () => {
+        used = true;
+        for (const intent of intents) {
+          intent.token.used = true;
+          intent.install();
+        }
+        this._bytes = afterBytes;
+        this._revision++;
+      },
+      notify: () => this._notify(intents.flatMap(({ notices }) => notices)),
     });
   }
 
@@ -455,6 +514,9 @@ export class Horses {
   prepareHit(id, amount, direction, options) { return prepareHorseHit(this, id, amount, direction, options); }
   contributeHit(batch, id, amount, direction, options) {
     return contributeHorseHit(this, batch, id, amount, direction, options);
+  }
+  contributePotionHealth(batch, id, health, options) {
+    return contributeHorsePotionHealth(this, batch, id, health, options);
   }
   hurt(mob, amount, direction, options = {}) {
     const result = this.commit(this.prepareHit(typeof mob === "string" ? mob : mob.id, amount,

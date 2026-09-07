@@ -3,9 +3,13 @@ import test from "node:test";
 import {
   ExplorationState,
   MAX_EXPLORATION_CONTAINERS,
+  MAX_EXPLORATION_ENCOUNTERS,
   normalizeExplorationSnapshot,
 } from "../src/exploration-state.js";
-import { selectTreasureMapTarget } from "../src/exploration-markers.js";
+import {
+  memberIdentity,
+  selectTreasureMapTarget,
+} from "../src/exploration-markers.js";
 import { rollStructureLoot } from "../src/loot-tables.js";
 import { encodedBytes, MAX_RESERVED_BYTES } from "../src/save-budget.js";
 import {
@@ -351,6 +355,179 @@ test("unique encounter completions retain old progress instead of a killed-ID LR
   assert.equal(restored.load(f.ledger.serialize()), true);
   assert.equal(restored.serialize().encounters.length, markers.length);
   assert.ok(markers.every((marker) => restored.completed(marker)));
+});
+
+test("two elder completions publish through one canonical exploration participant", () => {
+  const f = fixture();
+  const markers = ["left", "right"].map((side, index) =>
+    structureMarker("elder_guardian", {
+      type: "encounter",
+      key: `elder-${side}`,
+      structureId: `fixture:batched-monument-${index}`,
+      position: { x: index * 8 },
+    }));
+  const prepared = markers.map((marker) =>
+    f.ledger.prepareEncounterComplete(marker, { validate: () => true }).participants[0]);
+  const participant = f.ledger.prepareParticipantBatch(prepared);
+  assert.ok(participant);
+  assert.equal(participant.owner, f.ledger);
+  assert.equal(f.coordinator.commit([participant, veto(f.coordinator)]).ok, false);
+  assert.ok(markers.every((marker) => !f.ledger.completed(marker)));
+  assert.equal(f.coordinator.commit([participant]).ok, true);
+  assert.ok(markers.every((marker) => f.ledger.completed(marker)));
+  assert.equal(f.ledger.revision, 1);
+});
+
+test("combined exploration records recheck capacity and container positions", () => {
+  const capacity = fixture();
+  for (let index = 0; index < MAX_EXPLORATION_ENCOUNTERS - 1; index++) {
+    const marker = structureMarker("elder_guardian", {
+      type: "encounter",
+      key: "elder-left",
+      structureId: `aggregate:monument:${index}`,
+      position: { x: index },
+    });
+    capacity.ledger._encounters.set(`aggregate:${index}`, { marker, completed: true });
+  }
+  const over = ["a", "b"].map((suffix, index) => {
+    const marker = structureMarker("elder_guardian", {
+      type: "encounter",
+      key: "elder-right",
+      structureId: `aggregate:over:${suffix}`,
+      position: { x: MAX_EXPLORATION_ENCOUNTERS + index },
+    });
+    return capacity.ledger.prepareEncounterComplete(marker, {
+      validate: () => true,
+    }).participants[0];
+  });
+  assert.ok(over.every(Boolean));
+  assert.equal(capacity.ledger.prepareParticipantBatch(over), null);
+
+  const containerCapacity = fixture();
+  const placeholder = {
+    marker: structureMarker("shipwreck_supply"),
+    state: "materialized",
+    claim: "adopted",
+    lootVersion: null,
+  };
+  for (let index = 0; index < MAX_EXPLORATION_CONTAINERS - 1; index++)
+    containerCapacity.ledger._containers.set(`aggregate:container:${index}`, placeholder);
+  const containerStore = containerCapacity.ledger._containers;
+  const encounterStore = containerCapacity.ledger._encounters;
+  const positionStore = containerCapacity.ledger._positions;
+  const containerGet = containerStore.get.bind(containerStore);
+  const encounterGet = encounterStore.get.bind(encounterStore);
+  const positionGet = positionStore.get.bind(positionStore);
+  const containerIterator = containerStore[Symbol.iterator].bind(containerStore);
+  let baselineReads = 0, fullIterations = 0;
+  containerStore.get = (key) => {
+    baselineReads++;
+    return containerGet(key);
+  };
+  encounterStore.get = (key) => {
+    baselineReads++;
+    return encounterGet(key);
+  };
+  positionStore.get = (key) => {
+    baselineReads++;
+    return positionGet(key);
+  };
+  containerStore[Symbol.iterator] = () => {
+    fullIterations++;
+    return containerIterator();
+  };
+  const containers = ["a", "b"].map((suffix, index) =>
+    containerCapacity.ledger._prepareRecords([{
+      ...placeholder,
+      marker: structureMarker("shipwreck_supply", {
+        structureId: `aggregate:container-over:${suffix}`,
+        position: { x: index * 8, y: 64, z: 8 },
+      }),
+    }], () => true));
+  assert.ok(containers.every(Boolean));
+  baselineReads = 0;
+  assert.equal(containerCapacity.ledger.prepareParticipantBatch(containers), null);
+  assert.equal(fullIterations, 0, "aggregate validation must not iterate the near-cap ledger");
+  assert.ok(baselineReads <= containers.length * 3,
+    `aggregate performed ${baselineReads} baseline reads for ${containers.length} deltas`);
+
+  const positions = fixture();
+  const duplicate = ["a", "b"].map((suffix) => positions.ledger._prepareRecords([{
+    marker: structureMarker("shipwreck_supply", {
+      structureId: `aggregate:shipwreck:${suffix}`,
+      position: { x: 4, y: 64, z: 4 },
+    }),
+    state: "materialized",
+    claim: "adopted",
+    lootVersion: null,
+  }], () => true));
+  assert.ok(duplicate.every(Boolean));
+  assert.equal(positions.ledger.prepareParticipantBatch(duplicate), null);
+
+  const duplicateIdentity = fixture();
+  const duplicateMarker = structureMarker("shipwreck_supply", {
+    structureId: "aggregate:duplicate-identity",
+  });
+  const duplicateIdentityParts = ["first", "second"].map(() =>
+    duplicateIdentity.ledger._prepareRecords([{
+      marker: duplicateMarker,
+      state: "materialized",
+      claim: "adopted",
+      lootVersion: null,
+    }], () => true));
+  assert.ok(duplicateIdentityParts.every(Boolean),
+    "each duplicate identity delta must be valid alone");
+  assert.equal(duplicateIdentity.ledger.prepareParticipantBatch(duplicateIdentityParts), null);
+
+  const crossBaseline = fixture();
+  const baselineCollision = structureMarker("elder_guardian", {
+    type: "encounter",
+    structureId: "aggregate:cross-baseline:encounter",
+  });
+  const collisionIdentity = memberIdentity(baselineCollision, crossBaseline.context);
+  crossBaseline.ledger._containers.set(collisionIdentity, {
+    marker: structureMarker("shipwreck_supply", {
+      structureId: "aggregate:cross-baseline:container",
+    }),
+    state: "materialized",
+    claim: "adopted",
+    lootVersion: null,
+  });
+  const baselineParts = [baselineCollision, structureMarker("elder_guardian", {
+    type: "encounter",
+    structureId: "aggregate:cross-baseline:other",
+  })].map((marker) => crossBaseline.ledger._prepareRecords([{
+    marker,
+    completed: true,
+  }], () => true));
+  assert.ok(baselineParts.every(Boolean),
+    "opposite-store collision must reach aggregate validation");
+  assert.equal(crossBaseline.ledger.prepareParticipantBatch(baselineParts), null);
+
+  const stale = fixture();
+  const staleMarkers = ["a", "b"].map((suffix, index) =>
+    structureMarker("elder_guardian", {
+      type: "encounter",
+      key: "elder-left",
+      structureId: `aggregate:stale:${suffix}`,
+      position: { x: index },
+    }));
+  const stalePart = stale.ledger.prepareParticipantBatch(staleMarkers.map((marker) =>
+    stale.ledger.prepareEncounterComplete(marker, {
+      validate: () => true,
+    }).participants[0]));
+  assert.ok(stalePart);
+  const intervening = structureMarker("elder_guardian", {
+    type: "encounter",
+    key: "elder-right",
+    structureId: "aggregate:stale:intervening",
+    position: { x: 8 },
+  });
+  assert.equal(stale.ledger.commit(stale.ledger.prepareEncounterComplete(intervening, {
+    validate: () => true,
+  })).ok, true);
+  assert.equal(stale.coordinator.commit([stalePart]).ok, false);
+  assert.ok(staleMarkers.every((marker) => !stale.ledger.completed(marker)));
 });
 
 test("stable treasure-map metadata survives materialization and contextual marker import", () => {

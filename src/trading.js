@@ -45,6 +45,8 @@ export {
   TRADING_PROFESSIONS,
 } from "./trading-offers.js";
 
+const preparedTraderRecords = new WeakMap();
+
 /**
  * Persistent NPC trade progression, not inventory, UI or an NPC simulator.
  * Ecology owns visible NPCs and supplies revisioned availability; Settlement
@@ -136,27 +138,85 @@ export class Trading {
     const context = this.context;
     const coordinator = this.coordinator;
     const store = this._npcs;
-    let used = false;
-    return Object.freeze({
+    const token = { used: false };
+    const install = () => {
+      if (previous?.jobsite) {
+        this._jobsiteOwners.delete(progressPositionKey(previous.jobsite));
+        this._jobsiteIds.delete(previous.jobsite.id);
+      }
+      store.set(next.id, next);
+      if (next.jobsite) {
+        this._jobsiteOwners.set(position, next.id);
+        this._jobsiteIds.set(next.jobsite.id, next.id);
+      }
+      this._recordBytes.set(next.id, size);
+    };
+    const participant = Object.freeze({
       owner: this, beforeBytes, afterBytes,
       validate: () =>
-        !used && !this._busy && !this._disposed &&
+        !token.used && !this._busy && !this._disposed &&
         this.context === context && this.coordinator === coordinator &&
         this._revision === revision && this._bytes === beforeBytes &&
         this._npcs === store && store.get(next.id) === previous &&
         validate() === true,
       publish: () => {
+        token.used = true;
+        install();
+        this._bytes = afterBytes;
+        this._revision++;
+      },
+      ...(this.onChange ? { notify: () => this.onChange() } : {}),
+    });
+    preparedTraderRecords.set(participant, {
+      id: next.id, token, install, beforeBytes, afterBytes, revision, context, coordinator, store,
+      records: [{ id: next.id, previous, next, size }],
+    });
+    return participant;
+  }
+
+  /** Combine disjoint prepared trader records without child publication. */
+  prepareParticipantBatch(parts) {
+    if (!Array.isArray(parts) || parts.length < 2) return null;
+    const intents = parts.map((part) => preparedTraderRecords.get(part));
+    const first = intents[0];
+    if (!first || intents.some((intent) => !intent ||
+      intent.beforeBytes !== first.beforeBytes || intent.revision !== first.revision ||
+      intent.context !== first.context || intent.coordinator !== first.coordinator ||
+      intent.store !== first.store) ||
+      new Set(intents.flatMap(({ records }) => records.map(({ id }) => id))).size !==
+        intents.reduce((sum, { records }) => sum + records.length, 0))
+      return null;
+    const beforeBytes = first.beforeBytes;
+    const records = intents.flatMap((intent) => intent.records);
+    const projected = new Map(first.store);
+    for (const { id, previous, next } of records) {
+      if (projected.get(id) !== previous) return null;
+      projected.set(id, next);
+    }
+    if (projected.size > MAX_TRADERS) return null;
+    const positions = new Set(), siteIds = new Set();
+    for (const npc of projected.values()) {
+      if (!npc.jobsite) continue;
+      const position = progressPositionKey(npc.jobsite);
+      if (positions.has(position) || siteIds.has(npc.jobsite.id)) return null;
+      positions.add(position);
+      siteIds.add(npc.jobsite.id);
+    }
+    const afterBytes = beforeBytes + records.reduce(
+      (sum, record) => sum + record.size -
+        (record.previous ? this._recordBytes.get(record.id) : 0), 0) -
+      Number(first.store.size === 0 && records.some(({ previous }) => !previous));
+    let used = false;
+    return Object.freeze({
+      owner: this, beforeBytes, afterBytes,
+      validate: () => !used && intents.every((intent, index) =>
+        parts[index].validate() && !intent.token.used),
+      publish: () => {
         used = true;
-        if (previous?.jobsite) {
-          this._jobsiteOwners.delete(progressPositionKey(previous.jobsite));
-          this._jobsiteIds.delete(previous.jobsite.id);
+        for (const intent of intents) {
+          intent.token.used = true;
+          intent.install();
         }
-        store.set(next.id, next);
-        if (next.jobsite) {
-          this._jobsiteOwners.set(position, next.id);
-          this._jobsiteIds.set(next.jobsite.id, next.id);
-        }
-        this._recordBytes.set(next.id, size);
         this._bytes = afterBytes;
         this._revision++;
       },
@@ -295,26 +355,33 @@ export class Trading {
         afterBytes += size - this._recordBytes.get(id);
         return { id, previous, next, size };
       });
-      let used = false;
+      const token = { used: false };
+      const install = () => {
+        for (const { id, previous, next, size } of edits) {
+          this._jobsiteOwners.delete(progressPositionKey(previous.jobsite));
+          this._jobsiteIds.delete(previous.jobsite.id);
+          store.set(id, next);
+          this._recordBytes.set(id, size);
+        }
+      };
       const source = Object.freeze({
         owner: this, beforeBytes, afterBytes,
-        validate: () => !used && !this._busy && !this._disposed &&
+        validate: () => !token.used && !this._busy && !this._disposed &&
           this.context === context && this.coordinator === coordinator &&
           this._revision === revision && this._bytes === beforeBytes &&
           this._npcs === store && edits.every(({ id, previous }) => store.get(id) === previous) &&
           validate() === true,
         publish: () => {
-          used = true;
-          for (const { id, previous, next, size } of edits) {
-            this._jobsiteOwners.delete(progressPositionKey(previous.jobsite));
-            this._jobsiteIds.delete(previous.jobsite.id);
-            store.set(id, next);
-            this._recordBytes.set(id, size);
-          }
+          token.used = true;
+          install();
           this._bytes = afterBytes;
           this._revision++;
         },
         ...(this.onChange ? { notify: () => this.onChange() } : {}),
+      });
+      preparedTraderRecords.set(source, {
+        token, install, beforeBytes, afterBytes, revision, context, coordinator, store,
+        records: edits.map(({ id, previous, next, size }) => ({ id, previous, next, size })),
       });
       return composeProgressionPlan(this, source, participants, {
         ok: true, npcIds: edits.map(({ id }) => id), jobSitesReleased: edits.length,

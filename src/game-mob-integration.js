@@ -3,10 +3,12 @@ import { ExperienceOrbs } from "./experience-orbs.js";
 import { GameEcologyMarkers } from "./game-ecology-markers.js";
 import { GameEcologyServices } from "./game-ecology-services.js";
 import { GameIngredientMobActions } from "./game-ingredient-mob-actions.js";
+import { GameMobPotionImpact } from "./game-mob-potion-impact.js";
 import { GameplayLightScratch, readGameplayHabitat } from "./gameplay-light.js";
 import { normalizeGameMobArchive, snapshotGameMobs } from "./game-mob-state.js";
 import { normalizeVehicleServicesSnapshot } from "./game-vehicle-state.js";
 import { normalizeDifficulty } from "./mob-difficulty.js";
+import { MobStatusEffects } from "./mob-status-effects.js";
 import { isDaylight } from "./mob-species.js";
 import { Wildlife } from "./wildlife.js";
 
@@ -40,6 +42,13 @@ export class GameMobIntegration {
     this.scene = new THREE.Scene();
     this.markers = new GameEcologyMarkers(explorationServices?.index);
     try {
+      this.mobStatusEffects = new MobStatusEffects({
+        coordinator: world.coordinator,
+        context,
+        state: archive.mobStatusEffects,
+        mobsByDimension: archive.mobStates,
+        allowOverBudget: saved != null,
+      });
       this.experienceOrbs = new ExperienceOrbs(this.scene, world, {
         context, coordinator: world.coordinator,
         prepareCollect: (amount) => this._current()
@@ -178,6 +187,13 @@ export class GameMobIntegration {
         ? (this._game.ingredientMobActions ??= new GameIngredientMobActions(this._game))
           .environment(mob, amount, direction, retaliate)
         : { hit: false, killed: false, damage: 0, reason: "inactive-ingredient-owner" },
+      prepareStatusRetirement: (removed, validate) => this._current()
+        ? this.mobStatusEffects.prepareRetire(removed.map((mob) => ({
+            dimension: this.world.dimension,
+            entityId: mob.id,
+            life: mob.life,
+          })), { validate: () => this._current() && validate() })
+        : null,
       onExplode: (at, radius) => { if (this._current()) this._game.explode(at, radius, false); },
       onToast: (text) => { if (this._current()) this._game.ui.toast(text); },
     });
@@ -215,7 +231,15 @@ export class GameMobIntegration {
     Object.assign(game, {
       mobIntegration: this, ecologyServices: this.ecologyServices,
       wildlife: this.wildlife, experienceOrbs: this.experienceOrbs,
+      mobStatusEffects: this.mobStatusEffects,
     });
+    game.mobPotionImpact = new GameMobPotionImpact(game);
+    this.wildlife.context.mobStatusModifiers = (mob) =>
+      game.mobStatusEffects?.modifiers({
+        dimension: this.world.dimension,
+        entityId: mob.id,
+        life: mob.life,
+      });
     this._game = game;
     return true;
   }
@@ -230,7 +254,15 @@ export class GameMobIntegration {
 
   capture() {
     if (!this._current()) throw new Error("Cannot capture stale mob owners");
-    const snapshot = snapshotGameMobs(this._game);
+    let snapshot = snapshotGameMobs(this._game);
+    const reconcile = this.mobStatusEffects.prepareReconcile(snapshot.mobStates, {
+      validate: () => this._current(),
+    });
+    if (reconcile) {
+      if (!this.world.coordinator.commit([reconcile]).ok)
+        throw new Error("Cannot retire stale mob status effects");
+      snapshot = snapshotGameMobs(this._game);
+    }
     this._game.mobStates = snapshot.mobStates;
     return snapshot;
   }
@@ -273,8 +305,10 @@ export class GameMobIntegration {
     if (this.ecologyServices?.dispose() === false || this.wildlife?.dispose() === false)
       return false;
     this.experienceOrbs?.dispose();
+    this.mobStatusEffects?.dispose();
     if (this._game?.mobIntegration === this) {
-      this._game.mobIntegration = this._game.ecologyServices = null;
+      this._game.mobIntegration = this._game.ecologyServices =
+        this._game.mobStatusEffects = this._game.mobPotionImpact = null;
     }
     this._disposed = true;
     this._game = null;
