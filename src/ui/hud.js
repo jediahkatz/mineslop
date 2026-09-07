@@ -1,6 +1,10 @@
 import { experienceProgress } from "../experience-feedback.js";
 import { isValidExperience } from "../experience.js";
+import { parseStructureIdentity } from "../canonical-structure-identity.js";
+import { normalizeStack } from "../inventory-slots.js";
 import { stackIdentity } from "../item-stack-data.js";
+import { ITEM } from "../items.js";
+import { WORLD_MAX, WORLD_MIN } from "../terrain.js";
 import { createCombatIndicator } from "./combat-indicator.js";
 import { element, setText } from "./dom.js";
 import { createExperienceFeedback } from "./experience-feedback.js";
@@ -11,6 +15,71 @@ import { clamp, dimensionName } from "./model.js";
 import { pixelIcon } from "./pixel-icons.js";
 import { hotbarSlotView, stackDisplayName } from "./slot-model.js";
 import { createStackSlot } from "./slots.js";
+
+function mapGuidanceDetails(stack, position) {
+  let normalized;
+  try {
+    if (
+      !stack ||
+      typeof stack !== "object" ||
+      ![Object.prototype, null].includes(Object.getPrototypeOf(stack)) ||
+      !["id", "count", "data"].every((key) => {
+        const field = Object.getOwnPropertyDescriptor(stack, key);
+        return field && field.enumerable && Object.hasOwn(field, "value");
+      }) ||
+      Reflect.ownKeys(stack).some(
+        (key) => typeof key !== "string" || !["id", "count", "data"].includes(key)
+      ) ||
+      stack.id !== ITEM.TREASURE_MAP
+    )
+      return null;
+    normalized = normalizeStack(stack);
+  } catch {
+    return null;
+  }
+  const target = normalized.data?.mapTarget;
+  if (
+    !target ||
+    !position ||
+    !parseStructureIdentity(
+      target.structureId,
+      target.seed,
+      target.generatorVersion,
+      target.dimension
+    ) ||
+    ![position.x, position.z].every(Number.isFinite) ||
+    position.x < WORLD_MIN ||
+    position.x >= WORLD_MAX ||
+    position.z < WORLD_MIN ||
+    position.z >= WORLD_MAX ||
+    ![Math.floor(position.x), Math.floor(position.z)].every(Number.isSafeInteger)
+  )
+    return null;
+  const rawDx = target.x - position.x;
+  const rawDz = target.z - position.z;
+  const dx = Math.round(rawDx);
+  const dz = Math.round(rawDz);
+  if (
+    ![rawDx, rawDz].every(Number.isFinite) ||
+    ![dx, dz].every(Number.isSafeInteger)
+  )
+    return null;
+  const directions = [
+    ...(Math.abs(dx) < 1 ? [] : [`${Math.abs(dx)} ${dx < 0 ? "west" : "east"}`]),
+    ...(Math.abs(dz) < 1 ? [] : [`${Math.abs(dz)} ${dz < 0 ? "north" : "south"}`]),
+  ];
+  const reached = directions.length === 0;
+  return {
+    text: `Treasure map · ${directions.join(" · ") || "target reached"} · target ${target.x}, ${target.y}, ${target.z}`,
+    milestone: reached
+      ? "reached"
+      : `${Math.sign(dx)}:${Math.sign(dz)}`,
+    signature: stackIdentity(normalized),
+  };
+}
+
+export const selectedMapGuidance = (stack, position) =>
+  mapGuidanceDetails(stack, position)?.text ?? "";
 
 export function createHUD(root, { listen, onSelect }) {
   const $ = (selector) => root.querySelector(selector);
@@ -46,10 +115,42 @@ export function createHUD(root, { listen, onSelect }) {
   let selectedSignature = "";
   let selectedTimer;
   let experienceVisible = false;
+  let selectedStack = null;
+  let playerPosition = null;
+  let visibleGuidance = "";
+  let announcedMap = "";
+  let announcedMilestone = "";
+
+  function updateMapGuidance() {
+    const guidance = mapGuidanceDetails(selectedStack, playerPosition);
+    const text = guidance?.text ?? "";
+    if (text !== visibleGuidance) {
+      visibleGuidance = text;
+      setText($(".map-guidance"), text);
+      $(".map-guidance").hidden = !text;
+    }
+    if (!guidance) {
+      if (announcedMap || announcedMilestone)
+        setText($(".map-guidance-announcement"), "");
+      announcedMap = "";
+      announcedMilestone = "";
+      return;
+    }
+    if (
+      guidance.signature !== announcedMap ||
+      guidance.milestone !== announcedMilestone
+    ) {
+      announcedMap = guidance.signature;
+      announcedMilestone = guidance.milestone;
+      setText($(".map-guidance-announcement"), guidance.text);
+    }
+  }
 
   function updateGameplay(state, hasSnapshot) {
     hotbar.update(state);
     const selected = hotbarSlotView(state, state.selected).stack;
+    selectedStack = selected;
+    updateMapGuidance();
     const signature = `${state.selected}:${selected ? stackIdentity(selected) : ""}`;
     if (signature !== selectedSignature) {
       selectedSignature = signature;
@@ -156,11 +257,14 @@ export function createHUD(root, { listen, onSelect }) {
         );
         compactFps.update(fps);
       }
-      if (position)
+      if (position) {
+        playerPosition = position;
+        updateMapGuidance();
         ["x", "y", "z"].forEach((axis, index) => {
           const value = Number(position[axis] ?? position[index] ?? 0);
           setText($(`[data-coordinate="${axis}"]`), Math.floor(value));
         });
+      }
       if (biome !== undefined)
         setText(
           $("[data-biome-name]"),

@@ -23,6 +23,8 @@ export function shellMarkup() {
       <div class="hotbar-area">
         <div class="spawn-grace" role="timer" aria-live="off" title="Mobs leave you alone briefly. Attacking ends protection. Falls, lava and other hazards still hurt." hidden></div>
         <div class="selected-block-name" aria-live="polite"></div>
+        <div class="map-guidance" aria-hidden="true" hidden></div>
+        <div class="map-guidance-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
         <div class="survival-vitals" hidden>
           <div class="vital-meter armor-meter" role="img" hidden><div class="vital-pips" data-vital="armor"></div></div>
           <div class="vital-meter air-meter" role="img" hidden><div class="vital-pips" data-vital="air"></div></div>

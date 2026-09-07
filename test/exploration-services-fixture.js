@@ -20,6 +20,8 @@ import {
 } from "../src/structure-catalog.js";
 import { TransactionCoordinator } from "../src/transactions.js";
 import { describeV5Structure } from "../src/terrain-v5-manifest.js";
+import { describeV6Structure } from "../src/terrain-v6-manifest.js";
+import { describeV7Structure } from "../src/terrain-v7-manifest.js";
 import { World } from "../src/world.js";
 import { createWorldContext } from "../src/world-spec.js";
 
@@ -66,10 +68,16 @@ export function nativeExplorationSite(
     assert.ok(located.sampledColumns <= NATIVE_EXPLORATION_SEARCH.maxSamples);
     attempts.push({ from, ...located });
     if (!located.target) continue;
-    const describe = world.generatorVersion === 5 ? describeV5Structure : describeStructure;
+    const describe = {
+      4: describeStructure,
+      5: describeV5Structure,
+      6: describeV6Structure,
+      7: describeV7Structure,
+    }[world.generatorVersion];
+    assert.ok(describe, "native exploration requires an expanded generator");
     const descriptor = describe(
       kind,
-      context,
+      { ...context, generatorVersion: world.generatorVersion },
       located.target.gx,
       located.target.gz
     );
