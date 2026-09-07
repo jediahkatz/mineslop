@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { BLOCKS } from "./blocks.js";
 import { geometryWorldSpec } from "./geometry-world.js";
-import { getBiomeTint, leafBlock } from "./mesh-palette.js";
+import { blockBatch, getBiomeTint, leafBlock } from "./mesh-palette.js";
 import { hash } from "./noise.js";
 import { CHUNK_SIZE, WORLD_MAX, WORLD_MIN } from "./terrain.js";
 import { TREE_REACH, TREE_SPACING } from "./terrain-trees.js";
@@ -352,6 +352,7 @@ class VegetationLayer {
       ["color", job._colors],
     ])
       geometry.setAttribute(name, new THREE.Float32BufferAttribute(values, 3));
+    geometry.setAttribute("lodDetailBatch", new THREE.Uint8BufferAttribute(job._detailBatches, 1));
     const vertexCount = geometry.getAttribute("position").count;
     const IndexArray = vertexCount > 65535 ? Uint32Array : Uint16Array;
     this._sourceIndices = new IndexArray(job._indices.length);
@@ -395,7 +396,7 @@ class VegetationLayer {
     this.nativeSamples = job.nativeSamples;
     this.primitiveCount = job.primitiveCount;
     this.resourceBytes =
-      vertexCount * 9 * Float32Array.BYTES_PER_ELEMENT + indices.byteLength;
+      vertexCount * (9 * Float32Array.BYTES_PER_ELEMENT + 1) + indices.byteLength;
     this.cutout();
   }
 
@@ -519,6 +520,7 @@ class VegetationJob {
     this.primitiveCount = 0;
     this._positions = [];
     this._normals = [];
+    this._detailBatches = [];
     this._colors = [];
     this._indices = [];
     this._palette = new Map();
@@ -557,6 +559,8 @@ class VegetationJob {
     for (const [x, y, z] of polygon) {
       this._positions.push(x - this.originX, y, z - this.originZ);
       this._normals.push(...facing);
+      this._detailBatches.push(blockBatch[primitive.block] === "foliage" ? 1 :
+        blockBatch[primitive.block] === "berryFoliage" ? 2 : 0);
       const height = THREE.MathUtils.clamp(
         (y - primitive.minY) / (primitive.maxY - primitive.minY),
         0,
@@ -772,6 +776,7 @@ class VegetationJob {
     if (this._disposed) return;
     this._disposed = true;
     this._positions.length = this._normals.length = this._colors.length = 0;
+    this._detailBatches.length = 0;
     this._indices.length = 0;
     this._pending.length = 0;
     this._pendingCursor = 0;

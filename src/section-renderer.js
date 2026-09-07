@@ -171,7 +171,8 @@ export function clearSectionJobs(renderer) {
 
 export function detailMeshResources(renderer, cached = false) {
   if (regional(renderer)) return regionalResources(renderer);
-  let gpuBytes = 0,
+  const detailMask = renderer.distant?.detailMask.resources();
+  let gpuBytes = detailMask?.gpuBytes ?? 0,
     sourceBytes = 0,
     drawCalls = 0,
     visibleDrawCalls = 0,
@@ -210,6 +211,7 @@ export function detailMeshResources(renderer, cached = false) {
   }
   return {
     gpuBytes,
+    detailMask,
     sourceBytes,
     stagingSourceBytes: [...(renderer.sectionJobs?.values() ?? [])].reduce(
       (sum, job) => sum + (job.result?.parts ?? job.mesher?.context.parts ?? []).reduce(
@@ -301,7 +303,8 @@ function regionalResources(renderer) {
   reservedPageBytes += renderer.sectionCompaction?.plan.stagingBytes ?? 0;
   const stagingSourceBytes = bufferBytes(staging);
   const palette = renderer.geometryPalette?.resources();
-  const canonicalBytes = bufferBytes(cpu) + (palette?.cpuBytes ?? 0);
+  const detailMask = renderer.distant?.detailMask.resources();
+  const canonicalBytes = bufferBytes(cpu) + (palette?.cpuBytes ?? 0) + (detailMask?.cpuBytes ?? 0);
   const mayWritePalette = [...(renderer.sectionJobs?.values() ?? [])]
     .some((job) => !job.done || job.bytes > 0);
   const paletteUploadStagingBytes = Math.max(palette?.pendingUploadBytes ?? 0,
@@ -312,11 +315,12 @@ function regionalResources(renderer) {
     Math.max(bufferBytes(pendingBuffers) + pendingSnapshotBytes, jobReservations) +
     reservedPageBytes + paletteUploadStagingBytes + (water?.unallocatedCpu ?? 0);
   return {
-    gpuBytes: (water?.externalGpu ?? bufferBytes(gpu)) + (palette?.gpuBytes ?? 0) + (water?.liveGpu ?? 0),
+    gpuBytes: (water?.externalGpu ?? bufferBytes(gpu)) + (palette?.gpuBytes ?? 0) + (water?.liveGpu ?? 0) +
+      (detailMask?.gpuBytes ?? 0),
     sourceBytes: 0, canonicalBytes,
     waterStagingGpuBytes: water?.stagingGpu ?? 0,
     waterAllocatedGpuBytes: water?.allocatedGpu ?? 0,
-    palette, paletteUploadStagingBytes,
+    palette, paletteUploadStagingBytes, detailMask,
     maxPageBytes, maxCompactionBytes,
     reservedCompactionHeadroomBytes: Math.max(renderer.meshLimits?.compactionHeadroomBytes ?? 0,
       maxCompactionBytes, experimentalTailHeadroom(renderer)),

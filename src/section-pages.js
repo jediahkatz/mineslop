@@ -485,12 +485,13 @@ export function sectionMeshVisible(mesh, camera, scene) {
 }
 
 /** Same authority for whole-column LOD and per-section End landmarks. */
-export function sectionGeometryCovered(column, section, camera) {
+export function sectionGeometryCovered(column, section, camera, batch) {
   const group = section?.group;
   if (!group?.visible || group.parent !== column || !attachedVisible(column) ||
       group.children.length !== section.draws) return false;
   if (!group.children.length) return !section.bytes;
   for (const source of group.children) {
+    if (batch && source.userData.batch !== batch) continue;
     const count = source.geometry?.index?.count ??
       source.geometry?.attributes.position?.count ?? 0;
     if (!fullRange(source, 0, count)) return false;

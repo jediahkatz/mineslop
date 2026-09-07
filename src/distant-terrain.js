@@ -14,6 +14,7 @@ import {
 } from "./distant-vegetation.js";
 import { DistantTerraces } from "./distant-terraces.js";
 import { DistantLandmarks } from "./distant-landmarks.js";
+import { DistantDetailMask } from "./distant-detail-mask.js";
 import { installDistantSurface } from "./distant-surface-material.js";
 import { visualHorizon } from "./end-visual-policy.js";
 import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
@@ -113,6 +114,9 @@ export class DistantTerrain {
       side: THREE.DoubleSide,
       forceSinglePass: true,
     });
+    this.detailMask = new DistantDetailMask();
+    this.detailMask.install(this._terrainMaterial);
+    this.detailMask.install(this._waterMaterial, 3);
     this._active = null;
     this._job = null;
     this._vegetation = null;
@@ -768,6 +772,7 @@ export class DistantTerrain {
       outdoors,
       coverage = new Set(),
       detailSections = new Set(),
+      detailBatches = new Map(),
       budgetMs = 2,
     } = {}
   ) {
@@ -795,6 +800,7 @@ export class DistantTerrain {
       this._clear();
       return false;
     }
+    this.detailMask.update(position, geometryWorldSpec(this.world, targetDimension), detailBatches);
     if (
       !this._sameIdentity(this._identity) ||
       this._identity.dimension !== targetDimension
@@ -960,6 +966,7 @@ export class DistantTerrain {
     this._clear();
     this._terrainMaterial.dispose();
     this._waterMaterial.dispose();
+    this.detailMask.dispose();
     this.group.removeFromParent();
     this._disposed = true;
   }

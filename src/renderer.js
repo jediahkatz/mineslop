@@ -8,6 +8,7 @@ import { releaseLostContextResources } from "./context-resources.js";
 import { DaylightMaterial } from "./daylight-material.js";
 import { DistantTerrain } from "./distant-terrain.js";
 import { landmarkDetailSections } from "./distant-landmarks.js";
+import { distantDetailBatches } from "./distant-detail-mask.js";
 import { endVisualFog } from "./end-visual-policy.js";
 import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
 import { refreshRegionalPaletteMaterials } from "./geometry-palette-material.js";
@@ -546,6 +547,20 @@ export class GameRenderer {
     return covered;
   }
 
+  detailBatchCoverage() {
+    const key = [
+      this.meshResourceRevision ?? 0,
+      this.viewCenter,
+      this.renderRadius,
+      this.camera.layers.mask,
+      this.quality,
+    ].join(":");
+    if (this.detailBatchCache?.key === key) return this.detailBatchCache.value;
+    const value = distantDetailBatches(this.chunks, this.camera);
+    this.detailBatchCache = { key, value };
+    return value;
+  }
+
   streamingFogDistance(position, coverage = this.detailCoverage()) {
     let distance = qualityFogDistance(this.renderRadius);
     if (!this.world.chunks) return distance;
@@ -608,6 +623,7 @@ export class GameRenderer {
       dimension: this.world.dimension,
       outdoors,
       coverage,
+      detailBatches: this.detailBatchCoverage(),
       detailSections: this.world.dimension === "end"
         ? landmarkDetailSections(this.chunks, this.camera) : undefined,
       budgetMs: this.quality === "high" ? 2 : 1,
