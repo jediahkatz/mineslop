@@ -799,6 +799,9 @@ export class GameRenderer {
   }
 
   render() {
+    // Loss is observable before its event; skip GPU work without consuming
+    // the pending lighting flush needed by the first restored draw.
+    if (this.renderer.getContext?.()?.isContextLost?.()) return false;
     // One shared lighting upload budget per CPU update, even if a caller draws
     // the scene again. All scene/hand materials see published mappings first.
     if (this.daylightMaterial && this.lightingNeedsFlush !== false) {
