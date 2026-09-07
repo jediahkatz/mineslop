@@ -3,9 +3,11 @@ import { ExperienceOrbs } from "./experience-orbs.js";
 import { GameEcologyMarkers } from "./game-ecology-markers.js";
 import { GameEcologyServices } from "./game-ecology-services.js";
 import { GameIngredientMobActions } from "./game-ingredient-mob-actions.js";
+import { GameplayLightScratch, readGameplayHabitat } from "./gameplay-light.js";
 import { normalizeGameMobArchive, snapshotGameMobs } from "./game-mob-state.js";
 import { normalizeVehicleServicesSnapshot } from "./game-vehicle-state.js";
 import { normalizeDifficulty } from "./mob-difficulty.js";
+import { isDaylight } from "./mob-species.js";
 import { Wildlife } from "./wildlife.js";
 
 const point = ({ x, y, z }) => ({ x, y, z });
@@ -29,6 +31,8 @@ export class GameMobIntegration {
       world, gameplay, overflow, context, progressionIntegration, explorationServices,
       vehicleServices: null, _game: null, _disposed: false,
       _stageEpoch: world.epoch, _stageDimension: world.dimension,
+      habitatLightWork: { queries: 0, cellReads: 0, queuedCells: 0 },
+      habitatLightScratch: new GameplayLightScratch(),
     });
     this._initialHorses = vehicles.horses;
     this._savedActive = archive.mobs;
@@ -51,6 +55,7 @@ export class GameMobIntegration {
         exploration: explorationServices?.exploration,
         trading: progressionIntegration.services.trading,
         markers: this.markers, saved: archive.ecology, allowOverBudget: saved != null,
+        readHabitat: (...args) => this.readHabitat(...args),
         // Owner API: normalization/activate/serialize must consult this current
         // sidecar, not the initial load (tracking and tombstones change in play).
         readHorses: () => this.horseSnapshot(),
@@ -88,6 +93,25 @@ export class GameMobIntegration {
 
   horseSnapshot() {
     return this.vehicleServices ? this.vehicleServices.horses.serialize() : this._initialHorses;
+  }
+
+  readHabitat(position, candidateWorld, kind, spawn) {
+    if (candidateWorld !== this.world || !this._current()) return null;
+    if (kind !== "drowned") return readGameplayHabitat(candidateWorld, position);
+    const stats = {};
+    const habitat = readGameplayHabitat(candidateWorld, position, {
+      light: true,
+      skipBlockAboveSky: isDaylight(spawn?.timeOfDay) ? 7 : undefined,
+      stats,
+      scratch: this.habitatLightScratch,
+    });
+    for (const key of ["queries", "cellReads", "queuedCells"]) {
+      const amount = key === "queries" ? 1 : stats[key] ?? 0;
+      this.habitatLightWork[key] = Math.min(
+        Number.MAX_SAFE_INTEGER, this.habitatLightWork[key] + amount
+      );
+    }
+    return habitat;
   }
 
   /** Load the real detached Horses leaf BEFORE restoring its paired base. */

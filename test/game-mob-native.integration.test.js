@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { BLOCK } from "../src/blocks.js";
 import { ECOLOGY_HOST_LIMITS } from "../src/ecology-population.js";
+import { createTravelPreviewWorld } from "../src/game-travel-stage.js";
 import { ITEM } from "../src/items.js";
 import { World } from "../src/world.js";
 import { gameMobFixture, point } from "./game-mob-integration-fixture.js";
@@ -14,6 +15,31 @@ import { findNaturalColumn } from "./terrain-v4-helpers.js";
 function terrainWork(world) {
   const { chunkGenerations, regionGenerations } = world.generator.counters;
   return { chunkGenerations, regionGenerations };
+}
+
+async function naturalOceanGame(t, { autoSpawn = true } = {}) {
+  const world = new World("cedar-valley", { generatorVersion: 4, useWorker: false });
+  const column = findNaturalColumn(world.generator, (candidate) =>
+    /(^|_)ocean$/.test(candidate.id) && !candidate.frozen && !/frozen/.test(candidate.id) &&
+    candidate.waterLevel !== null && candidate.waterLevel - candidate.top >= 8,
+  "deep non-frozen Game drowned habitat");
+  const at = { x: column.x + 0.5, y: world.spec.seaLevel - 3, z: column.z + 0.5 };
+  return {
+    world, column, at,
+    f: await gameMobFixture(t, {
+      world, generatorFactory: null, spawnPosition: { ...at, z: at.z - 26 },
+      autoSpawn, admissionRadius: 3,
+    }),
+  };
+}
+
+function naturalEcologyPoint(player, serial) {
+  const angle = serial * 2.399963229728653;
+  const radius = 26 + (serial % 3) * 7;
+  return {
+    x: Math.floor(player.x + Math.sin(angle) * radius) + 0.5,
+    z: Math.floor(player.z + Math.cos(angle) * radius) + 0.5,
+  };
 }
 
 async function workingLibrarian(t) {
@@ -44,22 +70,18 @@ async function workingLibrarian(t) {
 }
 
 test("natural ocean population reaches the actual Game frame without fabricated light or a second Ecology owner", async (t) => {
-  const world = new World("cedar-valley", { generatorVersion: 4, useWorker: false });
-  t.after(() => world.dispose());
-  const column = findNaturalColumn(world.generator, (candidate) =>
-    /(^|_)ocean$/.test(candidate.id) && !candidate.frozen && !/frozen/.test(candidate.id) &&
-    candidate.waterLevel !== null && candidate.waterLevel - candidate.top >= 8,
-  "deep non-frozen Game dolphin habitat");
-  const at = { x: column.x + 0.5, y: world.spec.seaLevel - 3, z: column.z + 0.5 };
-  const f = await gameMobFixture(t, {
-    world, generatorFactory: null, spawnPosition: { ...at, z: at.z - 26 },
-    autoSpawn: true, admissionRadius: 3,
-  });
+  const { world, column, at, f } = await naturalOceanGame(t);
   const terrain = terrainWork(world), edits = world.serialize();
   const population = t.mock.method(f.ecology, "populate");
+  const admissions = t.mock.method(f.ecology, "prepareAdmission");
   const stepping = t.mock.method(f.ecology, "stepMob");
   t.mock.method(world, "ensureArea", () => assert.fail("live Game mob frames cannot admit new terrain"));
+  const lightWork = { ...f.mobs.habitatLightWork };
   f.frame(2);
+  const lightCellReads = f.mobs.habitatLightWork.cellReads - lightWork.cellReads;
+  const lightQueries = f.mobs.habitatLightWork.queries - lightWork.queries;
+  assert.ok(lightQueries <= 8 && lightCellReads <= 5_000,
+    `one actual Game population pulse exceeded its light-work contract: ${lightCellReads}`);
   assert.equal(population.mock.callCount(), 1);
   const work = population.mock.calls[0].result;
   assert.ok(work.admitted > 0 && work.admitted <= ECOLOGY_HOST_LIMITS.admissions);
@@ -72,10 +94,107 @@ test("natural ocean population reaches the actual Game frame without fabricated 
   assert.equal(f.wildlife.horseServices, f.horses);
   assert.equal(f.ecology.habitat(at).biomeId, column.id);
   assert.equal(f.ecology.habitat(at).blockLight, undefined);
-  assert.equal(f.wildlife.entities.some((mob) => mob.kind === "drowned"), false);
+  const drowned = f.wildlife.entities.find((mob) => mob.kind === "drowned");
+  assert.ok(drowned, "actual Game autoSpawn admits a naturally dark underwater drowned");
+  assert.equal(f.ecology.habitat(drowned.position, "drowned").blockLight, 0);
+  assert.ok(f.ecology.habitat(drowned.position, "drowned").skyLight <= 7);
+  const drownedAttempts = admissions.mock.calls.filter((call) => call.arguments[0] === "drowned");
+  assert.ok(drownedAttempts.some((call) =>
+    f.ecology.habitat(call.arguments[1], "drowned").skyLight > 7 && call.result === null));
+  assert.ok(drownedAttempts.some((call) => call.result !== null));
   assert.ok(f.wildlife.mesh.count > 0);
   assert.deepEqual(terrainWork(world), terrain);
   assert.deepEqual(world.serialize(), edits);
+});
+
+test("actual Game autoSpawn refuses lit, unknown-frontier, unloaded and incorrect drowned habitats", async (t) => {
+  await t.test("block light", async (t) => {
+    const { f } = await naturalOceanGame(t);
+    for (const serial of [2, 5]) {
+      const site = naturalEcologyPoint(f.player.position, serial);
+      for (const y of [49, 53, 57, 61]) f.put(Math.floor(site.x) + 1, y, Math.floor(site.z), BLOCK.GLOWSTONE);
+    }
+    const darkDepth = { ...naturalEcologyPoint(f.player.position, 2), y: 56 };
+    assert.ok(f.ecology.habitat(darkDepth, "drowned").blockLight > 0);
+    f.frame(2);
+    assert.equal(f.wildlife.entities.some((mob) => mob.kind === "drowned"), false);
+  });
+
+  await t.test("unloaded target and unknown dependency frontier", async (t) => {
+    const { f } = await naturalOceanGame(t);
+    const unloaded = naturalEcologyPoint(f.player.position, 2);
+    const unloadedKey = `${Math.floor(unloaded.x / 16)},${Math.floor(unloaded.z / 16)}`;
+    f.world._removeChunk(unloadedKey, f.world.chunks.get(unloadedKey));
+    assert.equal(f.ecology.habitat({ ...unloaded, y: 56 }), null);
+    const frontier = naturalEcologyPoint(f.player.position, 5);
+    const cx = Math.floor(frontier.x / 16), cz = Math.floor(frontier.z / 16);
+    const localX = Math.floor(frontier.x) - cx * 16;
+    const dependencyKey = `${cx + (localX < 8 ? -1 : 1)},${cz}`;
+    f.world._removeChunk(dependencyKey, f.world.chunks.get(dependencyKey));
+    assert.equal(f.world.isLoaded(frontier.x, frontier.z), true);
+    assert.equal(f.ecology.habitat({ ...frontier, y: 56 }, "drowned"), null,
+      "missing propagation dependencies are unknown, not zero light");
+    f.frame(2);
+    assert.equal(f.wildlife.entities.some((mob) => mob.kind === "drowned"), false);
+  });
+
+  await t.test("incorrect biome and water body", async (t) => {
+    const f = await gameMobFixture(t, { autoSpawn: true, admissionRadius: 3 });
+    f.frame(2);
+    assert.equal(f.wildlife.entities.some((mob) => mob.kind === "drowned"), false);
+  });
+});
+
+test("Game habitat light invalidates prepared admission on mutation and follows archive/travel lifetime", async (t) => {
+  const { f } = await naturalOceanGame(t, { autoSpawn: false });
+  const site = { ...naturalEcologyPoint(f.player.position, 2), y: 56 };
+  const habitat = f.ecology.habitat(site, "drowned");
+  assert.deepEqual({ blockLight: habitat.blockLight, skyLight: habitat.skyLight },
+    { blockLight: 0, skyLight: 7 });
+  const stale = f.ecology.prepareAdmission("drowned", site);
+  assert.ok(stale);
+  f.put(Math.floor(site.x) + 1, Math.floor(site.y), Math.floor(site.z), BLOCK.GLOWSTONE);
+  assert.equal(f.ecology.commit(stale).ok, false);
+  assert.equal(f.wildlife.entities.some((mob) => mob.kind === "drowned"), false);
+
+  const replaced = await naturalOceanGame(t, { autoSpawn: false });
+  const replacementSite = { ...naturalEcologyPoint(replaced.f.player.position, 2), y: 56 };
+  const replacementPlan = replaced.f.ecology.prepareAdmission("drowned", replacementSite);
+  assert.ok(replacementPlan);
+  const replacementKey =
+    `${Math.floor(replacementSite.x / 16)},${Math.floor(replacementSite.z / 16)}`;
+  const oldChunk = replaced.f.world.chunks.get(replacementKey);
+  replaced.f.world._removeChunk(replacementKey, oldChunk);
+  const [replacementX, replacementZ] = replacementKey.split(",").map(Number);
+  replaced.f.world._generateSync(replacementX, replacementZ);
+  assert.notEqual(replaced.f.world.chunks.get(replacementKey), oldChunk);
+  assert.equal(replaced.f.ecology.commit(replacementPlan).ok, false);
+
+  // Restore an unmodified naturally admitted archive through the complete Game owner graph.
+  const admitted = await naturalOceanGame(t);
+  admitted.f.frame(2);
+  const drowned = admitted.f.wildlife.entities.find((mob) => mob.kind === "drowned");
+  assert.ok(drowned);
+  const saved = admitted.f.snapshot(), savedWorld = structuredClone(saved.world);
+  const restored = await gameMobFixture(t, {
+    saved, generatorFactory: null, autoSpawn: false, admissionRadius: 3,
+  });
+  assert.deepEqual(restored.world.serialize(), savedWorld);
+  assert.equal(restored.wildlife.byId.get(drowned.id)?.kind, "drowned");
+  const sourceHabitat = admitted.f.ecology.habitat(drowned.position);
+  assert.deepEqual(restored.ecology.habitat(drowned.position), sourceHabitat);
+
+  const oldEpoch = restored.world.epoch, oldWildlife = restored.wildlife;
+  const preview = createTravelPreviewWorld(restored.world, "nether");
+  const destination = { ...preview.getSpawn(), dimension: "nether" };
+  preview.dispose();
+  const travelled = await restored.game.travel.teleport(destination);
+  assert.equal(travelled.ok, true, travelled.message);
+  assert.ok(restored.world.epoch > oldEpoch);
+  assert.equal(restored.world.dimension, "nether");
+  assert.equal(oldWildlife.disposed, true);
+  assert.notDeepEqual(restored.ecology.habitat(drowned.position), sourceHabitat);
+  assert.equal(restored.wildlife.byId.has(drowned.id), false);
 });
 
 test("native Game villagers work, open through physical entity use, pay finite trades and atomically release mined jobsites", async (t) => {

@@ -577,11 +577,15 @@ export class GameEcologyServices {
         spec.radius + (ecologyCollider(mob.kind, this.ecology.state(mob.id))?.radius ?? mob.spec.radius)));
   }
 
-  habitat(position) {
+  habitat(position, kind) {
     const cell = bodyAt(position);
     if (!this.world.isLoaded(cell.x, cell.z)) return null;
     if (this.hooks.readHabitat) {
-      const supplied = invoke(this.hooks.readHabitat, ecologyPoint(position), this.world);
+      // The optional third argument extends the hook without changing existing
+      // two-argument providers; JavaScript callbacks safely ignore extra args.
+      const supplied = invoke(this.hooks.readHabitat, ecologyPoint(position), this.world, kind, {
+        timeOfDay: this.wildlife?.context.timeOfDay,
+      });
       if (!record(supplied) ||
         (supplied.homeBeach !== undefined && !finitePosition(supplied.homeBeach))) return null;
       return {
@@ -608,7 +612,7 @@ export class GameEcologyServices {
     if (!identity) return null;
     if (kind === "blaze" && (!finitePosition(marker?.position) ||
       ecologyDistance(center(marker.position), this.wildlife.context.player) > 16)) return null;
-    const habitat = this.habitat(position);
+    const habitat = this.habitat(position, kind);
     const loaded = this._loadedGuard(position);
     const markerLoaded = marker ? this._loadedGuard(marker.position) : () => true;
     const beach = homeBeach ?? habitat?.homeBeach;
@@ -628,7 +632,7 @@ export class GameEcologyServices {
     return this._plan(plan, () => {
       if (!guard() || !player() || !loaded() || !markerLoaded() || !beachLoaded() ||
         ctx.timeOfDay !== this.wildlife.context.timeOfDay || !this._spawnAllowed(kind, position)) return false;
-      const next = this.habitat(position);
+      const next = this.habitat(position, kind);
       return ["biomeId", "blockLight", "skyLight"].every((key) => next?.[key] === habitat?.[key]) &&
         (habitat?.homeBeach === undefined ? next?.homeBeach === undefined :
           ecologyDistance(habitat.homeBeach, next?.homeBeach) === 0) &&
