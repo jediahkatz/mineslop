@@ -550,6 +550,7 @@ export class GameRenderer {
   detailBatchCoverage() {
     const key = [
       this.meshResourceRevision ?? 0,
+      this.detailCoverageRevision ?? 0,
       this.viewCenter,
       this.renderRadius,
       this.camera.layers.mask,
