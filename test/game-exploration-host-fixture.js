@@ -16,6 +16,7 @@ import { GameProjectileServices } from "../src/game-projectile-services.js";
 import { GameTravel } from "../src/game-travel.js";
 import { GameUseActions } from "../src/game-use-actions.js";
 import { Gameplay } from "../src/gameplay.js";
+import { hasExpandedTerrain } from "../src/generator-version.js";
 import { Pickups } from "../src/pickups.js";
 import { Player } from "../src/player.js";
 import { Settlement } from "../src/settlement.js";
@@ -104,6 +105,7 @@ export function disposeExplorationStage(staged) {
     "progressionIntegration",
     "explorationServices",
     "vehicleServices",
+    "mobIntegration",
     "projectileServices",
     "fluidServices",
     "buildingServices",
@@ -149,7 +151,7 @@ function stageOwners(world, saved, { maxEntries, limits } = {}) {
     });
     staged.projectileServices = new GameProjectileServices(shared);
     staged.explorationServices =
-      world.generatorVersion === 4 ||
+      hasExpandedTerrain(world.generatorVersion) ||
       (saved && Object.hasOwn(saved, "exploration"))
         ? new GameExplorationServices({ ...shared, limits })
         : null;
@@ -474,7 +476,14 @@ export function authoredExplorationHost(
 /** Real default native factory + bounded locator; no injected sampler or registry. */
 export async function nativeExplorationHost(
   t,
-  { seed, kind = "village", variant = "", saved = null, ...options } = {}
+  {
+    seed,
+    kind = "village",
+    variant = "",
+    saved = null,
+    generatorVersion = saved?.world?.generatorVersion ?? 4,
+    ...options
+  } = {}
 ) {
   let world, descriptor;
   const dimension =
@@ -490,7 +499,7 @@ export async function nativeExplorationHost(
         : ["cedar-valley", "tidal-archive", "basalt-crossing"]
       : [seed]) {
     world = new World(candidate, {
-      generatorVersion: 4,
+      generatorVersion,
       dimension,
       useWorker: false,
     });

@@ -91,11 +91,13 @@ const sameHorses = (a, b) => {
 const sameBase = (a, b) => {
   if (a.version !== b.version || a.seed !== b.seed || a.dimension !== b.dimension ||
     a.randomState !== b.randomState || a.nextId !== b.nextId ||
+    a.nextLife !== b.nextLife ||
     a.killed.length !== b.killed.length || a.entities.length !== b.entities.length) return false;
   const killed = new Set(a.killed), entities = new Map(a.entities.map((mob) => [mob.id, mob]));
   return b.killed.every((id) => killed.has(id)) && b.entities.every((mob) => {
     const other = entities.get(mob.id);
-    return !!other && sameHorseBase(other, mob) && other.absorbedBlock === mob.absorbedBlock;
+    return !!other && other.life === mob.life &&
+      sameHorseBase(other, mob) && other.absorbedBlock === mob.absorbedBlock;
   });
 };
 
@@ -331,7 +333,8 @@ export class GameEcologyServices {
     // An absent dimension is a fresh empty base, not permission to adopt an
     // arbitrary pre-populated owner. Existing canonical records compare fully.
     return expected ? sameBase(expected, actual)
-      : actual.entities.length === 0 && actual.killed.length === 0 && actual.nextId === 0;
+      : actual.entities.length === 0 && actual.killed.length === 0 &&
+        actual.nextId === 0 && actual.nextLife === 1;
   }
 
   _adoptRestoredWildlife(wildlife, options) {
@@ -577,11 +580,15 @@ export class GameEcologyServices {
         spec.radius + (ecologyCollider(mob.kind, this.ecology.state(mob.id))?.radius ?? mob.spec.radius)));
   }
 
-  habitat(position) {
+  habitat(position, kind) {
     const cell = bodyAt(position);
     if (!this.world.isLoaded(cell.x, cell.z)) return null;
     if (this.hooks.readHabitat) {
-      const supplied = invoke(this.hooks.readHabitat, ecologyPoint(position), this.world);
+      // The optional third argument extends the hook without changing existing
+      // two-argument providers; JavaScript callbacks safely ignore extra args.
+      const supplied = invoke(this.hooks.readHabitat, ecologyPoint(position), this.world, kind, {
+        timeOfDay: this.wildlife?.context.timeOfDay,
+      });
       if (!record(supplied) ||
         (supplied.homeBeach !== undefined && !finitePosition(supplied.homeBeach))) return null;
       return {
@@ -608,7 +615,7 @@ export class GameEcologyServices {
     if (!identity) return null;
     if (kind === "blaze" && (!finitePosition(marker?.position) ||
       ecologyDistance(center(marker.position), this.wildlife.context.player) > 16)) return null;
-    const habitat = this.habitat(position);
+    const habitat = this.habitat(position, kind);
     const loaded = this._loadedGuard(position);
     const markerLoaded = marker ? this._loadedGuard(marker.position) : () => true;
     const beach = homeBeach ?? habitat?.homeBeach;
@@ -628,7 +635,7 @@ export class GameEcologyServices {
     return this._plan(plan, () => {
       if (!guard() || !player() || !loaded() || !markerLoaded() || !beachLoaded() ||
         ctx.timeOfDay !== this.wildlife.context.timeOfDay || !this._spawnAllowed(kind, position)) return false;
-      const next = this.habitat(position);
+      const next = this.habitat(position, kind);
       return ["biomeId", "blockLight", "skyLight"].every((key) => next?.[key] === habitat?.[key]) &&
         (habitat?.homeBeach === undefined ? next?.homeBeach === undefined :
           ecologyDistance(habitat.homeBeach, next?.homeBeach) === 0) &&
@@ -752,14 +759,43 @@ export class GameEcologyServices {
       this._prepareHitParts(entityId, amount, direction, options, add));
   }
 
+  /** Canonical ecology-owned base health edit for nonlethal potion outcomes. */
+  contributePotionHealth(batch, entityId, health, { validate = () => true } = {}) {
+    const guard = this._guard(), mob = this.wildlife?.byId.get(entityId);
+    if (!guard || !mob?.spec.ecology || mob.dead || mob.dormant ||
+      !Number.isFinite(health) || health <= 0 || health > mob.spec.health ||
+      health === mob.health || !synchronousEcologyHook(validate))
+      return null;
+    const loaded = this._loadedGuard(mob.position);
+    const current = () => guard() && loaded() && validate() === true;
+    return contributeResidentEditBatch(this.wildlife, batch, (add) => {
+      const options = health > mob.health
+        ? { mob, heal: health - mob.health, validate: current }
+        : {
+            damage: residentDamage(this.wildlife.player, mob, mob.health - health,
+              { x: 0, y: 0, z: 0 }, false),
+            validate: current,
+          };
+      return add("ecology", options)
+        ? {
+            peers: [],
+            result: { entityId, health, killed: false },
+          }
+        : null;
+    });
+  }
+
   _prepareHitParts(entityId, amount, direction, {
-    playerKill = false, retaliate = true, hit = null, participants = [], validate,
+    playerKill = false, playerCredit = playerKill,
+    deferRewards = false, retaliate = true, hit = null, participants = [], validate,
   }, add) {
     const guard = this._guard(), mob = this.wildlife?.byId.get(entityId);
     if (!guard || !mob || !mob.spec.ecology || mob.dead || mob.dormant ||
       !Number.isFinite(amount) || amount <= 0 || typeof playerKill !== "boolean" ||
+      typeof playerCredit !== "boolean" || (playerKill && !playerCredit) ||
+      typeof deferRewards !== "boolean" ||
       typeof retaliate !== "boolean" || !horseDataArray(participants, RESIDENT_EDIT_LIMITS.peers) ||
-      ((playerKill || validate !== undefined) && !synchronousEcologyHook(validate))) return null;
+      ((playerCredit || validate !== undefined) && !synchronousEcologyHook(validate))) return null;
     const currentAction = validate ?? (() => true);
     const player = playerKill ? this._playerGuard() : () => true;
     if (!player || invoke(currentAction) !== true) return null;
@@ -795,7 +831,8 @@ export class GameEcologyServices {
     })) return null;
     if (!killed) plan = { peers: [], outcome: {} };
     else plan = this.ecology._prepareDeathContribution(mob, ctx, {
-      playerKill,
+      playerKill: playerCredit,
+      deferRewards,
       prepareDrops: (drops, at, dimension) => this._drops(drops, at, dimension, "ecology-death"),
       prepareExperience: (xp, at, dimension) => this._experience(xp, at, dimension),
       prepareUniqueCompletion: (elder) => {
@@ -820,10 +857,16 @@ export class GameEcologyServices {
       if (!participant(release) || release.owner !== this.trading) return null;
       extra.push(release);
     }
-    return { peers: [...plan.peers, ...extra], result: {
+    return { exposeResult: deferRewards, peers: [...plan.peers, ...extra], result: {
       ok: true, ...plan.outcome,
       handled: true, hit: true, killed, damage: dealt, entityId: mob.id,
       dropsCommitted: true, experienceCommitted: true,
+      ...(deferRewards ? {
+        drops: plan.outcome.reward?.drops ?? [],
+        experience: plan.outcome.reward?.experience ?? 0,
+        dropsCommitted: false,
+        experienceCommitted: false,
+      } : {}),
     } };
   }
 

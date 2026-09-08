@@ -548,22 +548,21 @@ export class VoxelGame {
     this.ui.setLoading(0.05, "Reading the world seed");
     await new Promise((resolve) => requestAnimationFrame(resolve));
     let staged, replacement;
-    let activationStarted = false, installing = false;
+    let activationStarted = false;
     try {
       staged = await this.prepareWorld(seed, saved, { ...options, context });
       options.validate?.();
       if (options.persistNewWorld)
         replacement = this.snapshotPreparedNewWorld(staged);
-      installing = true;
       await this.installPreparedWorld(staged, saved, options.validate,
         replacement ? (activate) => this.storage.replace(replacement, () => {
           // Recheck after the queued transaction/CAS await, before teardown.
           options.validate?.();
           activationStarted = true;
           activate();
-        }) : undefined);
+        }) : undefined, () => { activationStarted = true; });
     } catch (error) {
-      if (!options.persistNewWorld && installing) {
+      if (!options.persistNewWorld && activationStarted) {
         staged.weatherServices.dispose();
         audioOperation(this.audioEngine, "setRain", 0);
         throw error;
@@ -626,7 +625,7 @@ export class VoxelGame {
     this.building = false;
   }
 
-  async installPreparedWorld(staged, saved, validate, publish) {
+  async installPreparedWorld(staged, saved, validate, publish, onActivate) {
     await new Promise((resolve) => requestAnimationFrame(resolve));
     let graphics;
     try {
@@ -641,8 +640,16 @@ export class VoxelGame {
       throw error;
     }
     try {
-      if (publish) await publish(() => this.activatePreparedWorld(staged, saved, graphics));
-      else this.activatePreparedWorld(staged, saved, graphics);
+      // The candidate canvas remains detached while bounded near meshes are
+      // prepared. Collision readiness alone must not expose an empty first frame.
+      await graphics.prepareArrival?.(staged.pose, validate);
+      const activate = () => {
+        // Detached GPU admission can fail without beginning live teardown.
+        onActivate?.();
+        this.activatePreparedWorld(staged, saved, graphics);
+      };
+      if (publish) await publish(activate);
+      else activate();
     } finally {
       // A failed CAS/validation never transfers the staged renderer to Game.
       if (this.graphics !== graphics) graphics.dispose();
@@ -1667,6 +1674,7 @@ export class VoxelGame {
     currentConduitServices(this)?.frame(dt);
     const vehicleFrame = (this.vehicleFrame = (this.vehicleFrame ?? 0) + 1);
     this.vehicleServices?.beginFrame(vehicleFrame);
+    this.mobPotionImpact?.frame(dt, { simulating: this.simulating });
     this.portalCooldown -= dt;
     if (this.stationOverride && !this.inventoryActions.stationValid()) {
       this.ui.closeInventory();

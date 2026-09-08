@@ -7,6 +7,7 @@ import {
   normalizeHorseSnapshot, sameHorseBase,
 } from "./horse-save.js";
 import { normalizeMobSnapshot } from "./mob-save.js";
+import { normalizeMobStatusEffects } from "./mob-status-effects.js";
 import { DIMENSIONS, isDimension } from "./world-spec.js";
 
 const record = (value) => value !== null && typeof value === "object" &&
@@ -24,12 +25,14 @@ function field(object, key) {
 function sameSnapshot(a, b) {
   if (a.dimension !== b.dimension || a.seed !== b.seed ||
       a.randomState !== b.randomState || a.nextId !== b.nextId ||
+      a.nextLife !== b.nextLife ||
       a.entities.length !== b.entities.length || a.killed.length !== b.killed.length)
     return false;
   const killed = new Set(a.killed), entities = new Map(a.entities.map((mob) => [mob.id, mob]));
   return b.killed.every((id) => killed.has(id)) && b.entities.every((mob) => {
     const other = entities.get(mob.id);
-    return other && sameHorseBase(horseBaseProjection(other), horseBaseProjection(mob)) &&
+    return other && other.life === mob.life &&
+      sameHorseBase(horseBaseProjection(other), horseBaseProjection(mob)) &&
       other.absorbedBlock === mob.absorbedBlock;
   });
 }
@@ -95,6 +98,13 @@ export function normalizeGameMobArchive(saved, context, dimension = "overworld",
   if (!normalizedEcology || (ecology.elders.length &&
       !ecologyCompletionLinksValid(ecology, exploration)))
     throw new Error("Invalid saved ecology/base/completion links");
+  const statusField = field(saved, "mobStatusEffects");
+  const mobStatusEffects = normalizeMobStatusEffects(
+    statusField.present ? statusField.value : undefined,
+    context,
+    canonical
+  );
+  if (!mobStatusEffects) throw new Error("Invalid saved mob status effects");
   return {
     ...(canonical[dimension] ? { mobs: canonical[dimension] } : {}),
     mobStates: canonical,
@@ -102,6 +112,7 @@ export function normalizeGameMobArchive(saved, context, dimension = "overworld",
     // of the SAME canonical set, never additional runtime records.
     mobsByDimension: canonical,
     ecology: normalizedEcology,
+    mobStatusEffects,
   };
 }
 
@@ -122,5 +133,8 @@ export function snapshotGameMobs(game) {
     mobStates: states,
     mobsByDimension: states,
     ...(ecology ? { ecology: { ...ecology, mobsByDimension: states } } : {}),
+    ...(game.mobStatusEffects ? {
+      mobStatusEffects: game.mobStatusEffects.serialize({ mobsByDimension: states }),
+    } : {}),
   };
 }

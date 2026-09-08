@@ -152,6 +152,10 @@ export class GameProgressionIntegration {
         getOwner: this._ownerBridge,
         getEcology: () => ecologyHost()?.ecology ?? null,
         getEcologyContext: () => ecologyHost()?.readRuntimeContext() ?? null,
+        ...(game.mobPotionImpact ? {
+          readPotionTargets: () => game.mobPotionImpact.readTargets(),
+          preparePotionImpact: (request) => game.mobPotionImpact.prepareImpact(request),
+        } : {}),
         onSessionChange: (open, session, reason) => {
           if (!this.active) return;
           if (open && this.ui && !this.ui.open()) {

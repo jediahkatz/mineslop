@@ -220,11 +220,12 @@ test("ingredient death preserves the existing bounded tombstone cap", async (t) 
 });
 
 for (const generatorVersion of [1, 2, 3, 4, 5])
-  test(`legacy mob schema and compatibility copies remain exact in generator ${generatorVersion}`, async (t) => {
+  test(`legacy generator mob saves migrate once and compatibility copies remain exact in generator ${generatorVersion}`, async (t) => {
     const { f, mob } = await lootAcquisitionFixture(t, "spider", { ingredient: true, generatorVersion });
     equipLootWeapon(f, "melee");
     const alive = f.snapshot();
-    assert.equal(alive.mobs.version, 1);
+    assert.equal(alive.mobs.version, 2);
+    assert.ok(alive.mobs.entities.every((entry) => Number.isSafeInteger(entry.life)));
     const restored = await gameMobFixture(t, { saved: alive });
     assert.deepEqual(restored.snapshot().mobs, alive.mobs);
     assert.equal(restored.wildlife.entities.filter((entry) => entry.id === mob.id).length, 1);

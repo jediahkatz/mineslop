@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { BLOCK } from "../src/blocks.js";
 import { MAX_EXPERIENCE_ORBS, MAX_ORB_EXPERIENCE } from "../src/experience-orbs.js";
-import { MAX_LIVING_HORSES, MAX_RETAINED_HORSE_IDS } from "../src/horse-definitions.js";
+import {
+  horseMotion, MAX_LIVING_HORSES, MAX_RETAINED_HORSE_IDS,
+} from "../src/horse-definitions.js";
 import { emptyHorseSnapshot } from "../src/horse-save.js";
 import { ITEM } from "../src/items.js";
 import { MAX_RESERVED_BYTES } from "../src/save-budget.js";
-import { horseFixture } from "./horse-fixture.js";
+import { horseFixture, horseRecord } from "./horse-fixture.js";
 import {
   finishResidentBatch, residentRiderFixture, residentSource, residentState, residentWear,
 } from "./resident-edit-batch-fixture.js";
@@ -142,16 +144,58 @@ test("a pre-existing standalone hit plan cannot be concatenated with a shared so
   assert.equal(f.horses.commit(hit).ok, true, "the independent standalone plan remains its own action");
 });
 
-test("two horse sidecar writers refuse rather than deduplicate either domain callback", (t) => {
+test("two horse sidecar writers coalesce without dropping either domain edit", (t) => {
   const f = horsePair(t), other = f.spawn("resident-batch:other-horse"), w = f.wildlife;
   const { batch, source, victim } = contributeHorse(f);
-  const before = residentState(f);
   const duplicateOwner = f.horses.contributeHit(batch, other.id, 1, null);
-  assert.equal(duplicateOwner.ok, false);
-  assert.equal(w.finalizeResidentEditBatch(batch, {
-    contributions: [source, victim], participants: victim.peers,
-  }), null);
-  assert.deepEqual(residentState(f), before);
+  const plan = w.finalizeResidentEditBatch(batch, {
+    contributions: [source, victim, duplicateOwner],
+    participants: [...victim.peers, ...duplicateOwner.peers],
+  });
+  assert.ok(plan);
+  assert.equal(plan.participants.filter((part) => part.owner === f.horses).length, 1);
+  assert.equal(f.coordinator.commit(plan.participants).ok, true);
+  assert.equal(f.horse.health, f.horse.spec.health - 3);
+  assert.equal(other.health, other.spec.health - 1);
+});
+
+test("combined horse records recheck living capacity and rider uniqueness", (t) => {
+  const capacity = horseFixture(t);
+  for (let index = 0; index < MAX_LIVING_HORSES - 1; index++) {
+    const part = capacity.horses._prepareRecord(`aggregate:living:${index}`,
+      horseRecord(`aggregate:living:${index}`));
+    assert.ok(part);
+    assert.equal(capacity.coordinator.commit([part]).ok, true);
+  }
+  const over = ["a", "b"].map((suffix) =>
+    capacity.horses._prepareRecord(`aggregate:living:${suffix}`,
+      horseRecord(`aggregate:living:${suffix}`)));
+  assert.ok(over.every(Boolean));
+  assert.equal(capacity.horses.prepareParticipantBatch(over), null);
+
+  const identities = horseFixture(t, { bind: false });
+  assert.equal(identities.horses.load({
+    ...emptyHorseSnapshot(identities.context),
+    entries: Array.from({ length: MAX_RETAINED_HORSE_IDS - 1 }, (_, index) => ({
+      id: `r${index}`, dimension: "overworld", alive: false,
+    })),
+  }), true);
+  assert.equal(identities.horses.bindWildlife(identities.wildlife), true);
+  const retained = ["a", "b"].map((suffix) =>
+    identities.horses._prepareRecord(`aggregate:retained:${suffix}`,
+      { id: `aggregate:retained:${suffix}`, dimension: "overworld", alive: false }));
+  assert.ok(retained.every(Boolean));
+  assert.equal(identities.horses.prepareParticipantBatch(retained), null);
+
+  const riders = horseFixture(t);
+  const duplicate = ["a", "b"].map((suffix) =>
+    riders.horses._prepareRecord(`aggregate:rider:${suffix}`,
+      horseRecord(`aggregate:rider:${suffix}`, {
+        rider: "player",
+        motion: horseMotion(),
+      })));
+  assert.ok(duplicate.every(Boolean));
+  assert.equal(riders.horses.prepareParticipantBatch(duplicate), null);
 });
 
 for (const refusal of ["drop-capacity", "xp-capacity", "unsafe-exit"])

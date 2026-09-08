@@ -20,11 +20,13 @@ const headerFields = new Set([
   "dimension",
   "randomState",
   "nextId",
+  "nextLife",
   "killed",
   "entities",
 ]);
 const entityFields = new Set([
   "id",
+  "life",
   "kind",
   "position",
   "health",
@@ -97,7 +99,8 @@ function normalizeMobSnapshotData(
   dimension,
   options
 ) {
-  if (!horseDataRecord(data, [...headerFields]) ||
+  if (!horseDataRecord(data, [...headerFields],
+    [...headerFields].filter((key) => data?.version !== 1 || key !== "nextLife")) ||
     !horseDataRecord(options, ["horses"], [])) return null;
   dimension ??= data.dimension;
   const horses = Object.hasOwn(options, "horses") ? normalizeHorseSnapshot(options.horses, context) : null;
@@ -106,7 +109,7 @@ function normalizeMobSnapshotData(
   if (
     !record(data) ||
     !record(context) ||
-    data.version !== 1 ||
+    ![1, 2].includes(data.version) ||
     Object.keys(data).some((key) => !headerFields.has(key)) ||
     typeof data.seed !== "string" ||
     data.seed !== String(context.seed) ||
@@ -119,7 +122,9 @@ function normalizeMobSnapshotData(
     data.randomState > 0xffffffff ||
     !Number.isSafeInteger(data.nextId) ||
     data.nextId < 0 ||
-    data.nextId >= Number.MAX_SAFE_INTEGER
+    data.nextId >= Number.MAX_SAFE_INTEGER ||
+    (data.version === 2 && (!Number.isSafeInteger(data.nextLife) ||
+      data.nextLife < 1 || data.nextLife >= Number.MAX_SAFE_INTEGER))
   )
     return null;
 
@@ -131,13 +136,20 @@ function normalizeMobSnapshotData(
     killed.push(id);
   }
   const entities = [];
+  const lives = new Set();
+  const legacyLives = data.version === 1
+    ? new Map([...data.entities].map((entry) => entry?.id).sort()
+      .map((id, index) => [id, index + 1]))
+    : null;
   let companions = 0, legacy = 0, ecology = 0, retainedCount = 0;
   try {
     const bounds = entityContextFor(undefined, context);
     // Validate the context even for empty snapshots.
     bounds.specForDimension(dimension);
-    for (const entry of data.entities) {
-      if (!horseDataRecord(entry, [...entityFields], [...entityFields].filter((key) => key !== "absorbedBlock")) ||
+    for (const [index, entry] of data.entities.entries()) {
+      const required = [...entityFields].filter((key) =>
+        key !== "absorbedBlock" && (data.version !== 1 || key !== "life"));
+      if (!horseDataRecord(entry, [...entityFields], required) ||
         !horseDataRecord(entry.position, ["x", "y", "z"])) return null;
       const spec =
         record(entry) &&
@@ -163,6 +175,8 @@ function normalizeMobSnapshotData(
           spec.ecology ? ++ecology > MAX_ECOLOGY_RESIDENTS : ++legacy > MAX_MOBS) ||
         !isMobId(entry.id) ||
         ids.has(entry.id) ||
+        (data.version === 2 && (!Number.isSafeInteger(entry.life) ||
+          entry.life < 1 || entry.life >= data.nextLife || lives.has(entry.life))) ||
         // Turtle age is owned by the paired ecology sidecar. Base preflight
         // admits its smallest collider; host link validation checks actual age.
         !validMobPosition(entry.position, collider, bounds, dimension) ||
@@ -183,8 +197,10 @@ function normalizeMobSnapshotData(
       )
         return null;
       ids.add(entry.id);
+      lives.add(data.version === 1 ? legacyLives.get(entry.id) : entry.life);
       entities.push({
         id: entry.id,
+        life: data.version === 1 ? legacyLives.get(entry.id) : entry.life,
         kind: entry.kind,
         position: {
           x: entry.position.x,
@@ -209,11 +225,12 @@ function normalizeMobSnapshotData(
   if ([...retained.values()].some((entry) =>
     entry.alive && entry.dimension === dimension && !ids.has(entry.id))) return null;
   return {
-    version: 1,
+    version: 2,
     seed: data.seed,
     dimension,
     randomState: data.randomState,
     nextId: data.nextId,
+    nextLife: data.version === 1 ? entities.length + 1 : data.nextLife,
     killed,
     entities,
   };

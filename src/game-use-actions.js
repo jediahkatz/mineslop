@@ -144,13 +144,20 @@ export class GameUseActions {
         return game.openStation(game.target);
     }
 
-    // Entity interactions take priority over eating the same food.
+    // Resolve each nonempty hand's item/entity intent in hand order, then empty
+    // mount fallbacks. Thus food/saddle precede an opposite-hand empty mount,
+    // while main splash precedes an empty offhand mount. Refusal consumes use.
     if (game.mobTarget) {
       const actions = (game.mobActions ??= new GameMobActions(game));
-      const owned = actions.interact(game.mobTarget.entity, { held });
-      if (owned !== null) return this.finishVehicleAction(owned);
       for (const hand of hands) {
         const stack = game.gameplay.getHandStack(hand);
+        if (stack === null) continue;
+        const owned = actions.interactHand(game.mobTarget.entity, hand, { held });
+        if (owned !== null) return this.finishVehicleAction(owned);
+        if (stack && getItem(stack.id)?.potionForm === "splash") {
+          const result = game.progressionIntegration?.throwPotion(hand);
+          return result?.ok === true;
+        }
         if (!stack || stack.count < 1) continue;
         if (game.wildlife.interact?.(game.mobTarget.entity, stack.id)) {
           game.gameplay.consumeHand(hand, 1);
@@ -159,6 +166,12 @@ export class GameUseActions {
           return true;
         }
       }
+      for (const hand of hands) {
+        if (game.gameplay.getHandStack(hand) !== null) continue;
+        const owned = actions.interactHand(game.mobTarget.entity, hand, { held });
+        if (owned !== null) return this.finishVehicleAction(owned);
+      }
+      if (actions.owns(game.mobTarget.entity)) return false;
     }
     for (const hand of hands) {
       const stack = game.gameplay.getHandStack(hand);

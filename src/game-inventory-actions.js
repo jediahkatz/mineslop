@@ -146,7 +146,55 @@ export class GameInventoryActions {
       dimension,
       options
     );
+    return this._bindPreparedDrops(participant, { world, overflow, pickups, gameplay,
+      dimension, epoch });
+  }
+
+  /** One overflow owner participant for bounded, independently positioned deaths. */
+  prepareDropItemGroups(groups) {
+    const game = this.game;
+    const { world, overflow, pickups, gameplay } = game;
+    if (
+      !world ||
+      !overflow ||
+      !gameplay ||
+      overflow.coordinator !== gameplay.coordinator ||
+      (pickups && pickups.coordinator !== gameplay.coordinator) ||
+      !Array.isArray(groups) ||
+      !groups.length ||
+      groups.length > 28
+    )
+      return null;
+    const dimension = world.dimension;
+    const epoch = world.epoch;
+    const entries = [];
+    for (const group of groups) {
+      const { drops, position, options = {} } = group ?? {};
+      if (!Array.isArray(drops) || !position ||
+        !Number.isFinite(position.x) || !Number.isFinite(position.y) ||
+        !Number.isFinite(position.z) || options.data !== undefined ||
+        options.durability !== undefined)
+        return null;
+      for (const drop of drops) entries.push({
+        ...drop,
+        x: position.x,
+        y: position.y,
+        z: position.z,
+        dimension,
+        pickupDelay: options.pickupDelay,
+        velocity: options.velocity,
+      });
+    }
+    const participant = overflow.prepareAddBatch(entries);
+    return this._bindPreparedDrops(participant, { world, overflow, pickups, gameplay,
+      dimension, epoch });
+  }
+
+  _bindPreparedDrops(participant, {
+    world, overflow, pickups, gameplay, dimension, epoch,
+  }) {
     if (!participant) return null;
+    const game = this.game;
     return Object.freeze({
       ...participant,
       validate: () =>

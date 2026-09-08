@@ -26,6 +26,8 @@ import { normalizeProgressStack } from "./progression-items.js";
 import { encodedBytes } from "./save-budget.js";
 import { TransactionCoordinator } from "./transactions.js";
 
+const preparedExplorationRecords = new WeakMap();
+
 export const EXPLORATION_VERSION = 1;
 export const MAX_EXPLORATION_CONTAINERS = 131072;
 export const MAX_EXPLORATION_ENCOUNTERS = 32768;
@@ -254,13 +256,20 @@ export class ExplorationState {
       !Number.isSafeInteger(revision + 1)
     )
       return null;
-    let used = false;
-    return Object.freeze({
+    const token = { used: false };
+    const install = () => {
+      for (const { store, key, next, bytes, position } of records) {
+        store.set(key, next);
+        this._recordBytes.set(key, bytes);
+        if (position !== null) this._positions.set(position, key);
+      }
+    };
+    const participant = Object.freeze({
       owner: this,
       beforeBytes,
       afterBytes,
       validate: () =>
-        !used &&
+        !token.used &&
         !this._busy &&
         !this._disposed &&
         this.context === context &&
@@ -274,11 +283,76 @@ export class ExplorationState {
         ) &&
         validate() === true,
       publish: () => {
+        token.used = true;
+        install();
+        this._bytes = afterBytes;
+        this._revision++;
+      },
+      ...(this.onChange ? { notify: () => this.onChange() } : {}),
+    });
+    preparedExplorationRecords.set(participant, {
+      token, install, records, beforeBytes, afterBytes, revision, context, coordinator, stores,
+    });
+    return participant;
+  }
+
+  /** Combine disjoint prepared exploration records in one ledger publication. */
+  prepareParticipantBatch(parts) {
+    if (!Array.isArray(parts) || parts.length < 2 ||
+      parts.length > MAX_EXPLORATION_BATCH)
+      return null;
+    const intents = parts.map((part) => preparedExplorationRecords.get(part));
+    const first = intents[0];
+    if (!first || intents.some((intent) => !intent ||
+      intent.beforeBytes !== first.beforeBytes || intent.revision !== first.revision ||
+      intent.context !== first.context || intent.coordinator !== first.coordinator ||
+      intent.stores[0] !== first.stores[0] || intent.stores[1] !== first.stores[1]))
+      return null;
+    const beforeBytes = first.beforeBytes;
+    if (intents.reduce((count, intent) => count + intent.records.length, 0) >
+      MAX_EXPLORATION_BATCH)
+      return null;
+    const records = intents.flatMap((intent) => intent.records);
+    const sizes = first.stores.map((store) => store.size);
+    const nextSizes = [...sizes];
+    const identities = new Set(), positions = new Set();
+    let cost = beforeBytes + sizes.filter(Boolean).length;
+    for (const { store, key, previous, bytes, position } of records) {
+      const index = store === first.stores[0] ? 0 :
+        store === first.stores[1] ? 1 : -1;
+      if (index < 0 || identities.has(key) ||
+        first.stores[index].get(key) !== previous ||
+        first.stores[1 - index].get(key) !== undefined)
+        return null;
+      identities.add(key);
+      if (position !== null) {
+        const owner = this._positions.get(position);
+        if (positions.has(position) || (owner !== undefined && owner !== key))
+          return null;
+        positions.add(position);
+      }
+      if (previous) {
+        const previousBytes = this._recordBytes.get(key);
+        if (!Number.isSafeInteger(previousBytes)) return null;
+        cost -= previousBytes;
+      } else nextSizes[index]++;
+      cost += bytes;
+    }
+    if (nextSizes[0] > MAX_EXPLORATION_CONTAINERS ||
+      nextSizes[1] > MAX_EXPLORATION_ENCOUNTERS)
+      return null;
+    const afterBytes = cost - nextSizes.filter(Boolean).length;
+    if (!Number.isSafeInteger(afterBytes) || afterBytes < 0) return null;
+    let used = false;
+    return Object.freeze({
+      owner: this, beforeBytes, afterBytes,
+      validate: () => !used && intents.every((intent, index) =>
+        parts[index].validate() && !intent.token.used),
+      publish: () => {
         used = true;
-        for (const { store, key, next, bytes, position } of records) {
-          store.set(key, next);
-          this._recordBytes.set(key, bytes);
-          if (position !== null) this._positions.set(position, key);
+        for (const intent of intents) {
+          intent.token.used = true;
+          intent.install();
         }
         this._bytes = afterBytes;
         this._revision++;

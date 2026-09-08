@@ -332,6 +332,24 @@ for (const patch of [{ blockLight: 1 }, { skyLight: 8 }, { biomeId: "plains" }])
     assert.deepEqual(f.ownership(), before);
   });
 
+test("habitat hooks receive optional species/time hints without changing legacy results", (t) => {
+  const calls = [];
+  const habitat = { biomeId: "ocean", blockLight: 0, skyLight: 7 };
+  const f = ecologyHostFixture(t, { hooks: {
+    readHabitat: (position, world, kind, spawn) => {
+      calls.push({ position, world, kind, spawn });
+      return habitat;
+    },
+  } });
+  const position = { x: -15.5, y: 2, z: 12.5 };
+  assert.deepEqual(f.host.habitat(position), { ...habitat, homeBeach: undefined });
+  assert.ok(f.host.prepareAdmission("drowned", position));
+  assert.equal(calls[0].kind, undefined);
+  assert.equal(calls.at(-1).kind, "drowned");
+  assert.equal(calls.at(-1).world, f.world);
+  assert.equal(calls.at(-1).spawn.timeOfDay, f.wildlife.context.timeOfDay);
+});
+
 for (const [label, readHabitat] of [
   ["refusal", () => null],
   ["missing reading", () => undefined],

@@ -95,6 +95,7 @@ function moveHorse(world, initial, displacement, mounted, mayStep) {
  */
 export function stepHorse(world, base, motion, dt, controls = {}, {
   mounted = true, controlled = true, jumpVelocity = 0, sampleFluid,
+  movementMultiplier = 1,
 } = {}) {
   const position = horsePoint(base.position), yaw = base.yaw ?? base.root?.rotation.y ?? 0;
   const frozen = (reason, environment = null) => ({
@@ -103,7 +104,8 @@ export function stepHorse(world, base, motion, dt, controls = {}, {
     water: environment?.water ?? null, supportBlock: environment?.supportBlock ?? null,
     requestExit: reason === "deep-water" || reason === "hazard",
   });
-  if (!Number.isFinite(dt) || dt <= 0) return frozen("idle");
+  if (!Number.isFinite(dt) || dt <= 0 || !Number.isFinite(movementMultiplier) ||
+    movementMultiplier < 0 || movementMultiplier > 4) return frozen("idle");
   if (!horseClear(world, position, mounted))
     return frozen(loadedAquaticArea(world, horseBounds(position, mounted)) ? "obstructed" : "frontier");
   const environment = horseEnvironment(world, position, sampleFluid);
@@ -122,7 +124,8 @@ export function stepHorse(world, base, motion, dt, controls = {}, {
     const turn = horseHeading(controls.yaw + Math.PI - yaw);
     nextYaw = horseHeading(yaw + clamp(turn, -3.5 * dt, 3.5 * dt));
   }
-  const speed = HORSE_RIDE_SPEED * (environment.water === "shallow" ? HORSE_SHALLOW_SPEED_FACTOR : 1);
+  const speed = HORSE_RIDE_SPEED * movementMultiplier *
+    (environment.water === "shallow" ? HORSE_SHALLOW_SPEED_FACTOR : 1);
   const desired = {
     x: Math.sin(nextYaw) * forward * speed - Math.cos(nextYaw) * strafe * speed * 0.55,
     z: Math.cos(nextYaw) * forward * speed + Math.sin(nextYaw) * strafe * speed * 0.55,

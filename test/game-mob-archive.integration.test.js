@@ -57,8 +57,13 @@ test("legacy base archives preserve ordinary horses and inactive mobs in every s
 
 test("all compatibility locations agree on complete base poses and RNG/corpse metadata", () => {
   const saved = archive(), normalized = normalizeGameMobArchive(saved, context);
-  assert.deepEqual(normalized.mobStates, saved.mobStates);
-  assert.deepEqual(normalized.ecology.mobsByDimension, saved.mobStates);
+  assert.deepEqual(normalized.ecology.mobsByDimension, normalized.mobStates);
+  for (const snapshot of Object.values(normalized.mobStates)) {
+    assert.equal(snapshot.version, 2);
+    assert.equal(snapshot.nextLife, snapshot.entities.length + 1);
+    assert.deepEqual(snapshot.entities.map((mob) => mob.life),
+      snapshot.entities.map((_, index) => index + 1));
+  }
   for (const key of ["mobs", "mobStates", "mobsByDimension", "ecology"]) {
     for (const mutate of [
       (value) => { value.entities[0].position.x += 0.25; },

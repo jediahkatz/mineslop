@@ -113,6 +113,7 @@ export function normalizeWorldComponents(saved, { normalizers = {} } = {}) {
   delete descriptors.mobs;
   delete descriptors.mobStates;
   delete descriptors.mobsByDimension;
+  delete descriptors.mobStatusEffects;
   delete descriptors.weather;
   const input = structuredClone(Object.defineProperties({}, descriptors));
   const world =

@@ -12,6 +12,7 @@ import {
   TRADING_PROFESSIONS,
 } from "../src/trading-offers.js";
 import { Trading } from "../src/trading.js";
+import { MAX_TRADERS } from "../src/trading-state.js";
 import {
   inventoryStacks,
   progressionContext,
@@ -330,6 +331,63 @@ test("death or a destroyed jobsite can release the claim without erasing persist
     id: nextId, profession: "farmer", jobsite: f.jobsite,
   }, { ...restockOptions(f, 3100), validate: () => true })).ok, true);
   assert.ok(f.trading.get(f.id), "the original NPC record is retained");
+});
+
+test("two villager releases publish through one canonical trading participant", () => {
+  const f = traderFixture("farmer");
+  const otherId = "fixture:village/npc/batched-release";
+  const otherJobsite = {
+    ...f.jobsite,
+    id: "fixture:village/jobsite/batched-release",
+    position: { x: 10, y: 64, z: 8 },
+  };
+  assert.equal(f.trading.commit(f.trading.prepareRegister({
+    id: otherId, profession: "farmer", jobsite: otherJobsite,
+  }, { ...restockOptions(f, 2000), validate: () => true })).ok, true);
+  const prepared = [f.id, otherId].map((id) =>
+    f.trading.prepareReleaseJobsite(id, {
+      clock: { day: 0, time: 3000 },
+      validate: () => true,
+    }).participants[0]);
+  const participant = f.trading.prepareParticipantBatch(prepared);
+  assert.ok(participant);
+  assert.equal(participant.owner, f.trading);
+  assert.equal(f.coordinator.commit([participant, veto(f.coordinator)]).ok, false);
+  assert.ok([f.id, otherId].every((id) => f.trading.get(id).jobsite));
+  assert.equal(f.coordinator.commit([participant]).ok, true);
+  assert.ok([f.id, otherId].every((id) => f.trading.get(id).jobsite === null));
+});
+
+test("combined trader records recheck capacity and jobsite uniqueness", () => {
+  const capacity = traderFixture("farmer");
+  for (let index = capacity.trading._npcs.size; index < MAX_TRADERS - 1; index++)
+    capacity.trading._npcs.set(`aggregate:trader:${index}`, {
+      id: `aggregate:trader:${index}`,
+      jobsite: null,
+    });
+  const over = ["a", "b"].map((suffix) =>
+    capacity.trading.prepareRegister({
+      id: `aggregate:capacity:${suffix}`,
+      profession: "unemployed",
+      jobsite: null,
+    }, { ...restockOptions(capacity, 2000), validate: () => true }).participants[0]);
+  assert.ok(over.every(Boolean));
+  assert.equal(capacity.trading.prepareParticipantBatch(over), null);
+
+  const conflict = traderFixture("farmer");
+  const shared = {
+    ...conflict.jobsite,
+    id: "aggregate:shared-jobsite",
+    position: { x: 16, y: 64, z: 16 },
+  };
+  const duplicate = ["a", "b"].map((suffix) =>
+    conflict.trading.prepareRegister({
+      id: `aggregate:jobsite:${suffix}`,
+      profession: "farmer",
+      jobsite: shared,
+    }, { ...restockOptions(conflict, 2000), validate: () => true }).participants[0]);
+  assert.ok(duplicate.every(Boolean));
+  assert.equal(conflict.trading.prepareParticipantBatch(duplicate), null);
 });
 
 test("registered enchantment metadata transfers once and decorated book inputs are not silently spent", () => {

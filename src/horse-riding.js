@@ -263,6 +263,8 @@ export function updateHorses(domain, dt, { viewer, controls = {}, frameId } = {}
           mounted: entry.rider !== null,
           controlled: entry.rider !== null && entry.tamed && entry.saddle !== null && !pendingHorseBuck(entry),
           jumpVelocity: input.jumpVelocity, sampleFluid: domain.hooks.sampleFluid,
+          movementMultiplier:
+            domain.wildlife.context.mobStatusModifiers?.(mob)?.movementMultiplier ?? 1,
         });
         if (!guard() || physics.frontier) break;
         const plan = prepareAdvance(domain, mob, entry, physics, step, input.input);

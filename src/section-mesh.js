@@ -10,6 +10,7 @@ import {
   snapshotSection,
 } from "./mesh-snapshot.js";
 import { createRangeMesher } from "./resolved-mesh.js";
+import { NativeBoundaryProfile } from "./native-boundary-profile.js";
 
 export const SECTION_MESH_LIMITS = Object.freeze({
   ...MESH_PART_LIMITS,
@@ -75,6 +76,7 @@ export class SectionMeshJob {
     const mesher = this.mesher;
     const context = mesher.context;
     const before = mesher.cursor;
+    let boundaryWork = 0;
     try {
       while (
         !mesher.done &&
@@ -86,8 +88,16 @@ export class SectionMeshJob {
       if (!this.current()) {
         this.status = "stale";
       } else if (mesher.done) {
-        this.result = context.finish();
-        this.status = this.current() ? "ready" : "stale";
+        if (!this.result) {
+          this.result = context.finish();
+          this.boundary = new NativeBoundaryProfile(this.result.parts);
+        }
+        boundaryWork = this.boundary.step(
+          Math.max(0, limit - (mesher.cursor - before)), started + budget);
+        if (this.boundary.done) {
+          this.result.nativeBoundary = this.boundary.data.some(Number.isFinite) ? this.boundary.data : null;
+          this.status = this.current() ? "ready" : "stale";
+        }
       }
     } catch (error) {
       if (!(error instanceof MeshBudgetError)) {
@@ -97,7 +107,7 @@ export class SectionMeshJob {
       this.status = "budget";
     } finally {
       this.lastSlice = {
-        cells: mesher.cursor - before,
+        cells: mesher.cursor - before + boundaryWork,
         ms: performance.now() - started,
       };
       this.bytes = context.bytes + context.partBytes;
@@ -115,6 +125,7 @@ export class SectionMeshJob {
 
   releaseCpu() {
     this.mesher?.context.dispose();
+    this.boundary = null;
     this.snapshot = null;
     this.mesher = null;
     this.snapshotBytes = 0;

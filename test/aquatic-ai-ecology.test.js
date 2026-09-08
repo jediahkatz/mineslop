@@ -4,6 +4,7 @@ import {
   admitEcologySpawn,
   ecologyBodySample,
   ecologyCanOccupy,
+  ecologyEye,
   ecologySupportAt,
   ecologyWaterColumn,
   findDolphinGuide,
@@ -332,6 +333,31 @@ test("spikes retaliate only once per dealt melee hit when actually extended", ()
   assert.equal(guardianRetaliation(mob, { ...hit, dealt: 0 }, f.ctx), null);
   assert.equal(guardianRetaliation(mob, hit, f.ctx).kind, "thorns");
   assert.equal(guardianRetaliation(mob, hit, f.ctx), null);
+});
+
+test("weakness modifies drowned melee at actual damage creation", () => {
+  const world = ecologyWorld();
+  const state = ecologyState(world, "drowned", "weak-drowned", { x: 0, y: 2, z: 0 });
+  const f = ecologyFixture({ world, entries: [state] });
+  const mob = f.mobs.get(state.id);
+  f.ctx.player = { x: 0.5, y: 2, z: 0 };
+  f.ctx.playerEye = { ...ecologyEye(mob), x: 0.5 };
+  f.ctx.mobStatusModifiers = () => ({ movementMultiplier: 1, meleeDamageBonus: -4 });
+  for (let index = 0; index < 6; index++)
+    stepAquaticMob(mob, 0.1, f.ctx, f.owner.state(mob.id));
+  assert.equal(f.damage.length, 0, "Weakness I suppresses drowned's four-damage melee");
+
+  const partial = ecologyFixture({ world, entries: [
+    ecologyState(world, "drowned", "partly-weak-drowned", { x: 0, y: 2, z: 0 }),
+  ] });
+  const attacker = partial.mobs.get("partly-weak-drowned");
+  partial.ctx.player = { x: 0.5, y: 2, z: 0 };
+  partial.ctx.playerEye = { ...ecologyEye(attacker), x: 0.5 };
+  partial.ctx.mobStatusModifiers = () => ({ movementMultiplier: 1, meleeDamageBonus: -3 });
+  for (let index = 0; index < 6; index++)
+    stepAquaticMob(attacker, 0.1, partial.ctx, partial.owner.state(attacker.id));
+  assert.equal(partial.damage[0][0], 1);
+  assert.equal(partial.damage[0][3].kind, "melee");
 });
 
 test("unloaded residents freeze, huge dt stays bounded and pose targets stay finite", () => {

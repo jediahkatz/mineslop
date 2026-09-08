@@ -54,8 +54,12 @@ test("default preflight normalizes all entity dimensions without allocating mode
   t.mock.method(Wildlife.prototype, "load", forbidden);
   t.mock.method(Fuses.prototype, "load", forbidden);
   const normalized = normalizeWorldComponents(saved);
-  assert.deepEqual(normalized.mobs, saved.mobs);
-  assert.deepEqual(normalized.mobStates, saved.mobStates);
+  assert.deepEqual(normalized.mobs, normalized.mobStates.overworld);
+  for (const snapshot of Object.values(normalized.mobStates)) {
+    assert.equal(snapshot.version, 2);
+    assert.equal(snapshot.nextLife, 2);
+    assert.equal(snapshot.entities[0].life, 1);
+  }
   assert.deepEqual(normalized.fuses, saved.fuses);
   assert.deepEqual(
     normalized.experienceOrbs.orbs.map(({ amount }) => amount),

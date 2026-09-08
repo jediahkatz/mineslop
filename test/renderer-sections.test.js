@@ -2,13 +2,68 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
 import { BLOCK } from "../src/blocks.js";
+import { DistantTerrain } from "../src/distant-terrain.js";
+import { publishedNativeBoundaries } from "../src/native-boundary-profile.js";
+import { registerTotalSurface } from "../src/surface-availability.js";
+import { WORLD_MIN, WORLD_MAX } from "../src/terrain.js";
 import { detailMeshResources } from "../src/section-renderer.js";
+import { NATIVE_BOUNDARY_SLOTS } from "../src/native-boundary-profile.js";
 import { partitionGeometries } from "./mesh-partition-fixture.js";
 import {
   authoredColumns,
   disposeShapeRenderer,
   shapeRenderer,
 } from "./shape-fixture.js";
+
+const PROFILE_BYTES = NATIVE_BOUNDARY_SLOTS * 3 * Float32Array.BYTES_PER_ELEMENT;
+
+function physicalSources(renderer, geometryBytes, profileBytes) {
+  const geometry = new Set(), profiles = new Set(), staging = new Set();
+  const collect = (target, value) => {
+    if (!value?.attributes) return;
+    for (const attribute of Object.values(value.attributes))
+      target.add(attribute.array.buffer);
+    if (value.index) target.add(value.index.array.buffer);
+  };
+  for (const column of renderer.chunks.values()) {
+    for (const section of column.userData.sections.values()) {
+      const profile = section.group.userData.nativeBoundary;
+      if (profile) {
+        profiles.add(profile.buffer);
+        assert.equal(column.userData.nativeBoundarySources.get(section.stamp.sy), profile);
+        assert.ok(column.userData.nativeBoundaryOwners.has(profile.buffer));
+      }
+      section.group.traverse(mesh => {
+        if (!mesh.userData.sectionSource) return;
+        collect(geometry, mesh.geometry);
+      });
+    }
+  }
+  for (const job of renderer.sectionJobs?.values() ?? []) {
+    for (const part of job.result?.parts ?? job.mesher?.context.parts ?? [])
+      for (const value of Object.values(part)) collect(staging, value);
+    const profile = job.result?.nativeBoundary ?? job.boundary?.data;
+    if (profile) staging.add(profile.buffer);
+    if (job.result?.nativeBoundary && job.boundary)
+      assert.equal(job.result.nativeBoundary.buffer, job.boundary.data.buffer);
+    for (const buffer of [job.nativeSeamPlan?.chunk, job.nativeSeamPlan?.edge])
+      if (buffer) staging.add(buffer.buffer);
+  }
+  for (const buffer of staging) {
+    assert.equal(geometry.has(buffer), false, "staged geometry is not installed");
+    assert.equal(profiles.has(buffer), false, "staged profile is not installed");
+  }
+  const bytes = buffers => [...buffers].reduce((n, buffer) => n + buffer.byteLength, 0);
+  assert.equal(bytes(geometry), geometryBytes, "actual distinct geometry backing capacity");
+  assert.equal(bytes(profiles), profileBytes, "actual distinct installed profile backing capacity");
+  const actual = detailMeshResources(renderer);
+  assert.deepEqual(detailMeshResources(renderer, true), actual, "cached/uncached census parity");
+  assert.equal(actual.geometrySourceBytes, geometryBytes);
+  assert.equal(actual.nativeBoundaryBytes, profileBytes);
+  assert.equal(actual.sourceBytes, geometryBytes + profileBytes + (actual.distant?.cpuBytes ?? 0));
+  assert.equal(actual.stagingSourceBytes, bytes(staging) + (actual.distant?.stagingBytes ?? 0));
+  return actual;
+}
 
 function fixture(t, entries = [[0, 0, 0, BLOCK.STONE]]) {
   t.mock.method(performance, "now", () => 0);
@@ -47,6 +102,7 @@ test("a completely authored empty column becomes intentional coverage only when 
   assert.equal(renderer.detailCoverage().has("0,0"), true);
   assert.equal(detailMeshResources(renderer).gpuBytes, 0);
   assert.equal(detailMeshResources(renderer).drawCalls, 0);
+  physicalSources(renderer, 0, 0);
 });
 
 test("yielded replacements and stale retries keep old geometry attached until a valid replacement installs", (t) => {
@@ -107,6 +163,7 @@ test("GPU/draw admission is bounded, observable, and preserves old buffers plus 
   for (const mesh of old.group.children)
     mesh.geometry.addEventListener("dispose", () => disposed++);
   const bytes = detailMeshResources(renderer).gpuBytes;
+  physicalSources(renderer, old.bytes, PROFILE_BYTES);
   renderer.meshLimits = { maxGpuBytes: bytes, maxDrawCalls: old.draws };
   world.put(3, 0, 0, BLOCK.WATER);
   const ticket = world.dirtySectionRevisions.get("0,0,0");
@@ -116,6 +173,7 @@ test("GPU/draw admission is bounded, observable, and preserves old buffers plus 
   assert.equal(renderer.meshStats.gpuBytes, bytes);
   assert.equal(renderer.meshStats.drawCalls, old.draws);
   assert.equal(disposed, 0);
+  physicalSources(renderer, old.bytes, PROFILE_BYTES);
   assert.equal(renderer.meshStats.materials, 6);
   assert.ok(renderer.meshStats.budgetRejections > 0);
   const rejected = renderer.meshStats.budgetRejections;
@@ -132,6 +190,7 @@ test("GPU/draw admission is bounded, observable, and preserves old buffers plus 
   assert.equal(renderer.meshStats.drawCalls, 0);
   assert.equal(disposed, old.draws);
   assert.equal(world.dirtySectionRevisions.has("0,0,0"), false);
+  physicalSources(renderer, 0, 0);
 });
 
 test("a smaller replacement releases capacity for previously rejected sections without a new cell edit", (t) => {
@@ -179,14 +238,18 @@ test("freeing CPU-only source bytes retries untouched refusals even when GPU usa
     [0, 32, 0, BLOCK.STONE],
     [0, 64, 0, BLOCK.STONE],
   ]);
-  renderer.meshLimits = { maxGpuBytes: 3100 };
+  // Reserve three profiles, but insufficient geometry capacity for three
+  // opaque sections. Replacing one with water must release CPU-only capacity.
+  const capacity = 3100 + 3 * PROFILE_BYTES;
+  renderer.meshLimits = { maxGpuBytes: capacity };
   renderer.rebuildDirty(Infinity);
   const column = renderer.chunks.get("0,0");
   assert.equal(column.userData.sections.has(4), false);
   assert.ok(renderer.sectionRejections.has("0,0,4"));
   const ticket = world.dirtySectionRevisions.get("0,0,4");
   const before = detailMeshResources(renderer);
-  assert.equal(before.sourceBytes, 2256);
+  assert.equal(before.sourceBytes, 2256 + 2 * PROFILE_BYTES);
+  physicalSources(renderer, 2256, 2 * PROFILE_BYTES);
   const revision = renderer.meshResourceRevision;
   const oldBytes = column.userData.sections.get(0).bytes;
 
@@ -202,11 +265,113 @@ test("freeing CPU-only source bytes retries untouched refusals even when GPU usa
     ({ sy, ticket: done }) => sy === 4 && done === ticket));
   const after = detailMeshResources(renderer);
   assert.equal(after.gpuBytes, 2952);
-  assert.equal(after.sourceBytes, 2256);
+  assert.equal(after.sourceBytes, 2256 + 3 * PROFILE_BYTES);
+  physicalSources(renderer, 2256, 3 * PROFILE_BYTES);
   assert.ok(after.gpuBytes > before.gpuBytes);
   assert.ok(after.drawCalls > before.drawCalls);
-  assert.equal(renderer.meshLimits.maxGpuBytes, 3100);
+  assert.equal(renderer.meshLimits.maxGpuBytes, capacity);
   assert.equal(renderer.detailCoverage().has("0,0"), true);
+});
+
+test("retiring only a profile invalidates refusals and funds the next publication in the same slice", t => {
+  const { world, renderer } = fixture(t, [
+    [0, 0, 0, BLOCK.STONE],
+    [8, 32, 8, BLOCK.STONE],
+  ]);
+  renderer.rebuildDirty(Infinity);
+  const before = physicalSources(renderer, 2256, PROFILE_BYTES);
+  const capacity = before.sourceBytes + 1128;
+  renderer.meshLimits = { maxGpuBytes: capacity };
+  world.put(0, 64, 0, BLOCK.STONE);
+  const ticket = world.dirtySectionRevisions.get("0,0,4");
+  renderer.rebuildDirty(Infinity);
+  assert.ok(renderer.sectionRejections.has("0,0,4"));
+  const rejections = renderer.meshStats.budgetRejections;
+  renderer.rebuildDirty(Infinity);
+  assert.equal(renderer.meshStats.budgetRejections, rejections);
+  const revision = renderer.meshResourceRevision;
+  world.put(0, 0, 0, BLOCK.AIR);
+  world.put(8, 0, 8, BLOCK.STONE);
+  renderer.rebuildDirty(Infinity);
+  assert.ok(renderer.meshResourceRevision > revision);
+  assert.equal(world.dirtySectionRevisions.has("0,0,4"), false);
+  assert.equal(renderer.chunks.get("0,0").userData.sections.get(4).stamp.ticket, ticket);
+  physicalSources(renderer, 3384, PROFILE_BYTES);
+  assert.equal(renderer.meshStats.sourceBytes, capacity);
+  assert.equal(renderer.meshLimits.maxGpuBytes, capacity);
+});
+
+test("non-regional real LOD borrows installed profiles and preserves accounting through refusal and empty replacement", t => {
+  const { world, renderer } = fixture(t);
+  world.generator = {
+    terrainHeight: () => 31,
+    getBiome: () => ({ id: "plains", color: "#83ac52" }),
+  };
+  registerTotalSurface(world.generator, {
+    minX: WORLD_MIN, maxX: WORLD_MAX, minZ: WORLD_MIN, maxZ: WORLD_MAX,
+  });
+  renderer.camera.position.set(8, 80, 8);
+  const lod = renderer.distant = new DistantTerrain(renderer.scene, world);
+  t.after(() => lod.dispose());
+  const update = () => {
+    const owners = new Set(), batches = renderer.detailBatchCoverage();
+    lod.update(renderer.camera.position, {
+      radius: 12, quality: "medium", outdoors: true, budgetMs: 4,
+      detailBatches: batches,
+      nativeBoundaries: publishedNativeBoundaries(renderer.chunks, batches, undefined, owners),
+      nativeBoundaryOwners: owners,
+    });
+  };
+  for (let i = 0; i < 2000; i++) update();
+  assert.ok(lod._active, "real drawable LOD, not a stub");
+  let witnessedStaging = false;
+  const prepare = lod.prepareNativePublication;
+  t.mock.method(lod, "prepareNativePublication", function(...args) {
+    const result = prepare.apply(this, args);
+    if (args[0].result?.nativeBoundary && args[0].nativeSeamPlan &&
+        !result.ready && !result.capacity) {
+      physicalSources(renderer, 0, 0);
+      witnessedStaging = true;
+    }
+    return result;
+  });
+  renderer.sectionMeshLimits.maxVertices = 4;
+  renderer.meshLimits = { maxCellsPerSlice: 64 };
+  for (let i = 0; i < 4000 && world.dirtySectionRevisions.size; i++) {
+    renderer.rebuildDirty(2);
+    update();
+  }
+  assert.equal(world.dirtySectionRevisions.size, 0);
+  assert.ok(witnessedStaging, "real incremental seam packing carries separately metered staging");
+  update();
+  const column = renderer.chunks.get("0,0"), old = column.userData.sections.get(0);
+  const profile = old.group.userData.nativeBoundary;
+  assert.ok(lod._seams.columns.get("0,0").profiles.some(p => p.data === profile));
+  assert.ok(lod._nativeBoundaryOwners.has(profile.buffer));
+  physicalSources(renderer, 1128, PROFILE_BYTES);
+  // The seam borrows this exact installed backing, rather than charging it
+  // again. Losing that owner must add precisely its capacity to LOD's census.
+  const lodBytes = lod.resources().cpuBytes;
+  lod._nativeBoundaryOwners.delete(profile.buffer);
+  assert.equal(lod.resources().cpuBytes, lodBytes + PROFILE_BYTES);
+  lod._nativeBoundaryOwners.add(profile.buffer);
+  renderer.meshLimits = { maxDrawCalls: old.draws };
+  world.put(3, 0, 0, BLOCK.WATER);
+  renderer.rebuildDirty(Infinity);
+  assert.equal(column.userData.sections.get(0), old);
+  const refused = renderer.meshStats.budgetRejections;
+  assert.ok(refused > 0);
+  renderer.rebuildDirty(Infinity);
+  assert.equal(renderer.meshStats.budgetRejections, refused);
+  physicalSources(renderer, 1128, PROFILE_BYTES);
+  world.put(0, 0, 0, BLOCK.AIR);
+  world.put(3, 0, 0, BLOCK.AIR);
+  renderer.rebuildDirty(Infinity);
+  assert.equal(world.dirtySectionRevisions.has("0,0,0"), false);
+  physicalSources(renderer, 0, 0);
+  for (let i = 0; i < 20; i++) update();
+  physicalSources(renderer, 0, 0);
+  assert.equal(renderer.sectionJobs.size, 0);
 });
 
 test("emitter/material budgets remain column-wide across sections and disposal releases every geometry", (t) => {
@@ -318,7 +483,7 @@ test("multi-part replacements retain every old draw while pending and dispose ev
 
 for (const [name, limits] of [
   ["draw", { maxDrawCalls: 6 }],
-  ["byte", { maxGpuBytes: 6 * (4 * 11 * 4 + 6 * 2) }],
+  ["byte", { maxGpuBytes: 6 * (4 * 11 * 4 + 6 * 2) + PROFILE_BYTES }],
 ]) {
   test(`global ${name} admission sums all partitions and retries cached refusals only after capacity changes`, (t) => {
     const { world, renderer } = fixture(t, [
@@ -336,7 +501,8 @@ for (const [name, limits] of [
     assert.equal(renderer.meshStats.drawCalls, first.draws);
     const gpuBytes = 6 * (4 * 35 + 6 * 2);
     assert.equal(renderer.meshStats.gpuBytes, gpuBytes);
-    assert.equal(renderer.meshStats.sourceBytes, first.bytes);
+    assert.equal(renderer.meshStats.sourceBytes, first.bytes + PROFILE_BYTES);
+    physicalSources(renderer, first.bytes, PROFILE_BYTES);
     assert.equal(renderer.detailCoverage().has("0,0"), false);
     assert.equal(world.dirtySectionRevisions.get("0,0,1"), ticket);
     const token = renderer.sectionRejections.get("0,0,1");
@@ -355,7 +521,8 @@ for (const [name, limits] of [
     assert.equal(column.userData.sections.get(1).draws, 6);
     assert.equal(renderer.meshStats.drawCalls, 6);
     assert.equal(renderer.meshStats.gpuBytes, gpuBytes);
-    assert.equal(renderer.meshStats.sourceBytes, first.bytes);
+    assert.equal(renderer.meshStats.sourceBytes, first.bytes + PROFILE_BYTES);
+    physicalSources(renderer, first.bytes, PROFILE_BYTES);
     assert.equal(renderer.detailCoverage().has("0,0"), true);
     assert.equal(renderer.sectionRejections.has("0,0,1"), false);
     assert.ok(
@@ -404,6 +571,7 @@ test("a failure constructing a later part disposes the entire replacement but re
   assert.equal(old.group.parent, column);
   assert.equal(world.dirtySectionRevisions.get("0,0,0"), ticket);
   assert.equal(renderer.detailCoverage().has("0,0"), true);
+  physicalSources(renderer, old.bytes, PROFILE_BYTES);
   renderer.rebuildDirty(Infinity);
   assert.notEqual(column.userData.sections.get(0), old);
   assert.equal(
@@ -411,6 +579,7 @@ test("a failure constructing a later part disposes the entire replacement but re
     1
   );
   assert.equal(world.dirtySectionRevisions.has("0,0,0"), false);
+  physicalSources(renderer, old.bytes, PROFILE_BYTES);
 });
 
 test("a budget change during staging disposes old work instead of caching its refusal under the new limits", (t) => {

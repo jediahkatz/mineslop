@@ -30,6 +30,23 @@ test("hostiles really chase and melee attacks obey their cooldown", () => {
   wildlife.dispose();
 });
 
+test("passive navigation consumes slowness at the planned speed boundary", () => {
+  const run = (movementMultiplier) => {
+    const wildlife = ecosystem(flatWorld());
+    wildlife.context.mobStatusModifiers = () => ({ movementMultiplier, meleeDamageBonus: 0 });
+    const cow = wildlife.spawn("cow", { x: 6, y: 9, z: 0 });
+    cow.followTime = 10;
+    const before = cow.position.distanceTo(player);
+    advance(wildlife, 1, player, { isAnimalTempted: () => true });
+    const moved = before - cow.position.distanceTo(player);
+    wildlife.dispose();
+    return moved;
+  };
+  const normal = run(1);
+  const slowed = run(0.15);
+  assert.ok(normal > slowed && slowed >= 0, { normal, slowed });
+});
+
 test("solid cover and vertical separation prevent melee damage", () => {
   const world = flatWorld();
   const attacks = [];

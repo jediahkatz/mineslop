@@ -45,6 +45,12 @@ test("combined final GameRenderer flushes before draw and restores palette/light
   assert.equal(result.firstRestoredLighting.latch, false);
   assert.equal(result.flushFailureBlockedDraw, true);
   assert.equal(result.cpuRetained, true);
+  assert.ok(result.physicalPagesByKind.block > 0);
+  assert.ok(result.physicalPagesByKind.surface > 0);
+  assert.deepEqual(result.lostDraws, [
+    { phase: "before-loss-event", lossEventSeen: false, returned: false, flushes: 0, draws: 0, latch: true },
+    { phase: "after-loss-event", lossEventSeen: true, returned: false, flushes: 0, draws: 0, latch: true },
+  ]);
   assert.equal(result.lighting.pendingRequired, 0);
   assert.ok(result.afterPrograms.every(program => program.linked));
   assert.ok(result.afterPrograms.some(program =>

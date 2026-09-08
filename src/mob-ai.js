@@ -42,6 +42,7 @@ export const mobEye = (mob) => ({
 });
 
 function steer(mob, yaw, speed, dt, ctx, dy = 0) {
+  speed *= ctx.mobStatusModifiers?.(mob)?.movementMultiplier ?? 1;
   if (speed <= 0 && dy === 0) return;
   for (const offset of [0, 0.8, -0.8, 1.5, -1.5]) {
     const angle = yaw + offset;
@@ -161,10 +162,13 @@ function animalMotion(mob, dt, ctx, lineOfSight) {
   }, dt);
   mob.animalBehavior = decision.state;
   mob.animalIntent = decision.intent.mode;
-  mob.grazing = decision.intent.mode === "graze";
-  mob.walking = decision.intent.speed > 0;
+  const movementMultiplier = ctx.mobStatusModifiers?.(mob)?.movementMultiplier ?? 1;
+  const intent = movementMultiplier === 1 ? decision.intent
+    : { ...decision.intent, speed: decision.intent.speed * movementMultiplier };
+  mob.grazing = intent.mode === "graze";
+  mob.walking = intent.speed > 0;
   mob.targetYaw = decision.intent.yaw;
-  stepAnimalNavigation(ctx.world, mob, mob.animalNavigation, decision.intent, dt);
+  stepAnimalNavigation(ctx.world, mob, mob.animalNavigation, intent, dt);
   // Optional post-decision observation. The audio owner supplies voices, range
   // attenuation and a global voice budget; AI never creates audio or items.
   observeAnimalEvent(mob, decision.event, ctx);
@@ -182,7 +186,9 @@ function wolfCompanion(mob, dt, ctx, distance, toward, canAttack) {
     ) {
       if (mob.attackCooldown <= 0) {
         mob.attackCooldown = mob.spec.cooldown;
-        ctx.hurt(target, mob.spec.damage, { x: dx, y: 0.2, z: dz }, true);
+        const damage = Math.max(0, mob.spec.damage +
+          (ctx.mobStatusModifiers?.(mob)?.meleeDamageBonus ?? 0));
+        if (damage > 0) ctx.hurt(target, damage, { x: dx, y: 0.2, z: dz }, true);
       }
     } else steer(mob, Math.atan2(dx, dz), mob.spec.speed * 1.6, dt, ctx);
   } else if (distance > 3.2) {
@@ -228,7 +234,9 @@ function fight(mob, dt, ctx, distance, toward, lineOfSight) {
     if (mob.attackCooldown <= 0 &&
       (mob.kind !== "enderman" || (mob.restoreAttackCooldown ?? 0) <= 0)) {
       mob.attackCooldown = spec.cooldown;
-      ctx.damagePlayer(spec.damage, spec.name, mob);
+      const damage = Math.max(0, spec.damage +
+        (ctx.mobStatusModifiers?.(mob)?.meleeDamageBonus ?? 0));
+      if (damage > 0) ctx.damagePlayer(damage, spec.name, mob);
     }
   } else {
     const previousDistance = Math.hypot(

@@ -154,6 +154,30 @@ test("blazes visibly charge a bounded non-explosive burst and cancel invalid tar
   assert.ok(!ecologyDeathReward("drowned", true).drops.some((drop) => drop.name === "TRIDENT"));
 });
 
+test("weakness reduces Blaze contact melee without changing fireball damage", () => {
+  const world = ecologyWorld({ dimension: "nether", water: () => -1 });
+  const state = ecologyState(world, "blaze", "weak-blaze", { x: 0, y: 2, z: 0 },
+    { structureId: "fortress" });
+  const f = ecologyFixture({ world, entries: [state] });
+  const mob = f.mobs.get(state.id), damage = [], shots = [];
+  f.ctx.player = { x: 1, y: 2, z: 0 };
+  f.ctx.playerEye = { x: 1, y: 3.62, z: 0 };
+  f.ctx.damagePlayer = (...args) => damage.push(args);
+  f.ctx.mobStatusModifiers = () => ({ movementMultiplier: 1, meleeDamageBonus: -3 });
+  for (let index = 0; index < 20 && !damage.length; index++)
+    f.owner.update(mob, 0.1, f.ctx);
+  assert.ok(damage.length > 0);
+  assert.equal(damage[0][0], Math.max(0, mob.spec.damage - 3));
+  assert.equal(damage[0][3].kind, "melee");
+
+  f.ctx.player = { x: 8, y: 2, z: 0 };
+  f.ctx.playerEye = { x: 8, y: 3.62, z: 0 };
+  f.ctx.shootBlaze = (_mob, shot) => { shots.push(shot); return true; };
+  for (let index = 0; index < 50; index++) f.owner.update(mob, 0.1, f.ctx);
+  assert.ok(shots.length > 0);
+  assert.ok(shots.every((shot) => shot.damage === mob.spec.damage));
+});
+
 test("suspended blazes discard partial attacks and require a fresh visible telegraph", () => {
   for (const reason of ["dormant", "unloaded", "distant", "outer-loop"]) {
     let loaded = true;

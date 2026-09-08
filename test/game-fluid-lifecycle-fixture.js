@@ -469,6 +469,7 @@ export function disposeFluidStage(staged) {
   staged.progressionIntegration?.dispose();
   for (const name of [
     "vehicleServices",
+    "mobIntegration",
     "projectileServices",
     "fluidServices",
     "buildingServices",
