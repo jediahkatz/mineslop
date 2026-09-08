@@ -48,9 +48,10 @@ test("retained entrance pages restore alongside partial lost-context topology wo
       const tick = () => {
         g.rebuildDirty(Infinity);
         g.update(0, 0, f.position(4.5));
-        // Continue CPU topology work during loss; the production draw barrier
-        // deliberately rejects GPU publication until the context is restored.
-        if (!g.renderer.getContext().isContextLost()) g.render();
+        // CPU work continues while the production renderer skips lost GPU work.
+        const lost = g.renderer.getContext().isContextLost();
+        if (g.render() !== !lost)
+          throw new Error("Production draw availability must match the real context");
       };
       // The public update initializes lazy daylight state before the fixture
       // captures its surface field; publication still goes through tick/render.

@@ -189,7 +189,12 @@ export async function runCombinedContextProbe() {
       .flatMap((store) => [...store.pages.values()].filter(page => page.values).map(page => ({
         array: page.values, checksum: hash(page.values), store, index: page.ticket.index,
       })));
-    check(canonical.length > 0, "Non-vacuity: context recovery needs physical, nonconstant lighting pages");
+    const physicalPagesByKind = {
+      block: canonical.filter(item => item.store === g.blockLight.store).length,
+      surface: canonical.filter(item => item.store === g.skyColumns.surfaceLight.store).length,
+    };
+    check(Object.values(physicalPagesByKind).every(count => count > 0),
+      "Non-vacuity: context recovery needs physical, nonconstant block AND surface pages");
     check(paletteUploads.length > 0 && references > 0, "Non-vacuity: real regional palette data must be uploaded and referenced");
     const programInfo = () => g.renderer.info.programs.map(({ program }) => {
       const names = [];
@@ -208,9 +213,29 @@ export async function runCombinedContextProbe() {
     const extension = gl.getExtension("WEBGL_lose_context");
     check(extension, "WEBGL_lose_context is required, not skipped");
     stage = "lose-context";
+    g.update(0, 10, g.camera.position);
+    check(g.lightingNeedsFlush === true, "Normal CPU update must leave lighting publication pending");
+    let lossEventSeen = false;
+    g.renderer.domElement.addEventListener("webglcontextlost", () => { lossEventSeen = true; }, { once: true });
+    const lostDraws = [];
+    const skippedDraw = (phase) => {
+      check(gl.isContextLost(), `${phase}: the real context must be lost`);
+      const flushesBefore = flushCalls, drawsBefore = engineDraws;
+      const returned = g.render();
+      const observation = { phase, lossEventSeen, returned,
+        flushes: flushCalls - flushesBefore, draws: engineDraws - drawsBefore,
+        latch: g.lightingNeedsFlush };
+      lostDraws.push(observation);
+      check(returned === false && observation.flushes === 0 && observation.draws === 0 && observation.latch === true,
+        `${phase}: lost-context render must skip flush/draw and retain the retry latch`);
+    };
     let event = waitEvent("webglcontextlost");
     extension.loseContext();
+    check(!lossEventSeen, "The immediate draw must precede the context-loss event");
+    skippedDraw("before-loss-event");
     await event;
+    check(lossEventSeen, "The second draw must follow the real loss handler");
+    skippedDraw("after-loss-event");
     const lost = {
       cpuRetained: cpuRetained(), pendingPaletteBytes: palette.pendingUploadBytes,
       handlesClosed: [g.blockLight.store, g.skyColumns.surfaceLight.store].every(store => store.mapping.every(v => v === 0)),
@@ -261,6 +286,7 @@ export async function runCombinedContextProbe() {
       shadowOffDifferences, distinctColors, pixelDifferences, repeatedPixelDifferences,
       engineDraws, flushCalls, flushFailureBlockedDraw: true, cpuRetained: cpuRetained(),
       palette: palette.resources(), paletteUploads, physicalLightingPages: canonical.length,
+      physicalPagesByKind, lostDraws,
       lost, lighting: g.daylightMaterial.resources(), beforePrograms, afterPrograms: programInfo(),
       ordering: ordering.slice(-24), budgets, radius: g.renderRadius, worldColumns: world.chunks.size,
       gpu: {
