@@ -20,6 +20,9 @@ import { visualHorizon } from "./end-visual-policy.js";
 import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
 import { noise, seedHash } from "./noise.js";
 import { getBiomeTint } from "./mesh-palette.js";
+import { MAX_RENDER_RADIUS } from "./render-distance.js";
+import { certifySurfaceRegion, surfaceIdentity, SurfaceRegionValidation } from "./surface-availability.js";
+import { NativeBoundaryPacking, NativeTerrainSeams, NATIVE_SEAM_BYTES, sceneBoundarySources } from "./native-terrain-seams.js";
 import { CHUNK_SIZE, WORLD_MAX, WORLD_MIN } from "./terrain.js";
 
 export const DISTANT_TERRAIN_LIMITS = Object.freeze({
@@ -70,6 +73,7 @@ function disposeLayer(layer) {
   if (!layer) return;
   layer.terrain.geometry.dispose();
   layer.water?.geometry.dispose();
+  layer.heightTexture?.dispose();
   layer.group.removeFromParent();
 }
 
@@ -80,7 +84,7 @@ function geometry(positions, normals, colors, indices, bounds) {
   result.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   const Index = positions.length / 3 > 65536 ? Uint32Array : Uint16Array;
   result.setIndex(
-    new THREE.BufferAttribute(new Index(indices), 1).setUsage(
+    new THREE.BufferAttribute(ArrayBuffer.isView(indices) ? indices : new Index(indices), 1).setUsage(
       THREE.DynamicDrawUsage
     )
   );
@@ -132,6 +136,24 @@ export class DistantTerrain {
     this._colors = new Map();
     this._fogDistance = 0;
     this._disposed = false;
+    this.publication = { state: "empty", reason: null, request: null };
+    this._availabilityCache = new Map();
+    this._sceneRevision = 0;
+    this._sceneChanged = event => { if (event.child !== this.group) this._sceneRevision++; };
+    scene.addEventListener("childadded", this._sceneChanged);
+    scene.addEventListener("childremoved", this._sceneChanged);
+    this._beforeSceneRender = scene.onBeforeRender;
+    this._sceneRender = (...args) => {
+      this._beforeSceneRender.apply(scene, args);
+      if (this.group.visible && this._active && this._lastRequest && this._nativeBoundaries === undefined) {
+        const work = this._updateNativeSeams(this._lastRequest,
+          performance.now() + DISTANT_TERRAIN_LIMITS.maxBudgetMs,
+          DISTANT_TERRAIN_LIMITS.workPerUpdate - this.lastWork.units);
+        this.lastWork.units += work.units;
+        this.lastWork.copyBytes = (this.lastWork.copyBytes ?? 0) + work.copyBytes;
+      }
+    };
+    scene.onBeforeRender = this._sceneRender;
   }
 
   get ready() {
@@ -152,6 +174,54 @@ export class DistantTerrain {
     // Vegetation uses the same terrain material, including future LOD jobs.
   }
 
+  resources() {
+    const cpu = new Set(), gpu = new Set(), staging = new Set();
+    const retain = (target, value) => { if (ArrayBuffer.isView(value)) target.add(value.buffer); };
+    const fields = (target, object) => Object.values(object ?? {}).forEach(value => retain(target, value));
+    const mesh = object => {
+      if (!object?.geometry) return;
+      for (const attribute of Object.values(object.geometry.attributes)) {
+        retain(cpu, attribute.array); retain(gpu, attribute.array);
+      }
+      retain(cpu, object.geometry.index?.array); retain(gpu, object.geometry.index?.array);
+    };
+    fields(cpu, this._active?.data);
+    fields(cpu, this._active?.data.terraces);
+    mesh(this._active?.terrain); mesh(this._active?.water);
+    retain(gpu, this._active?.data.seamHeights);
+    mesh(this._vegetation?.layer.mesh);
+    retain(cpu, this._vegetation?.layer._sourceIndices);
+    for (const layer of this._seams?.layers ?? []) mesh(layer.mesh);
+    retain(staging, this._seams?.stageChunk);
+    retain(staging, this._seams?.stageEdge);
+    const nativeOwners = this._nativeBoundaryOwners ?? new Set(
+      [...(this._nativeBoundaries?.values() ?? [])].flatMap(profiles => profiles.map(p => p.data.buffer)));
+    // A yielded replacement can retain an old immutable profile after native
+    // publication retired it. Count that backing here, but never count a
+    // currently native-owned buffer twice (including hidden native sections).
+    for (const profiles of [
+      ...[...(this._seams?.columns.values() ?? [])].map(column => column.profiles),
+      ...(this._seams?.queue.values() ?? []),
+      ...(this._seams?.input?.values() ?? []),
+    ])
+      for (const profile of profiles)
+        if (!nativeOwners.has(profile.data.buffer)) retain(cpu, profile.data);
+    if (this._nativeBoundaries === undefined)
+      for (const profiles of this._legacyBoundaryColumns?.values() ?? [])
+        for (const profile of profiles) retain(cpu, profile.data);
+    retain(staging, this._legacyBoundaryState?.profile?.data);
+    fields(staging, this._job);
+    fields(staging, this._job?.terraces);
+    fields(staging, this._job?.terraceBuilder);
+    for (const buffer of cpu) staging.delete(buffer);
+    const bytes = buffers => [...buffers].reduce((sum, buffer) => sum + buffer.byteLength, 0);
+    return { cpuBytes: bytes(cpu), gpuBytes: bytes(gpu), stagingBytes: bytes(staging),
+      // JS array capacity is engine-owned; this is a logical element count,
+      // deliberately separate from exact typed backing capacities.
+      pendingCanopyElements: ["_positions", "_normals", "_colors", "_detailBatches", "_indices"]
+        .reduce((sum, key) => sum + (this._vegetationJob?.job[key]?.length ?? 0), 0) };
+  }
+
   _sameIdentity(identity) {
     return (
       identity &&
@@ -159,6 +229,7 @@ export class DistantTerrain {
       identity.seed === this.world.seed &&
       identity.version === this.world.generatorVersion &&
       identity.epoch === geometryEpoch(this.world) &&
+      identity.surface === surfaceIdentity(this.world) &&
       identity.heightSource === this.world.generator.terrainHeight &&
       identity.biomeSource === this.world.generator.getBiome &&
       identity.columnSource === this.world.generator.sampleColumn &&
@@ -168,6 +239,19 @@ export class DistantTerrain {
   }
 
   _clear() {
+    this._seams?.dispose();
+    this._seams = null;
+    this._legacyBoundaryJob = null;
+    this._legacyBoundaryState = null;
+    this._legacyBoundaryColumns = null;
+    this._nativeBoundaries = null;
+    this._nativeBoundaryOwners = null;
+    this._nativePreparation = null;
+    this._seamBlocked = null;
+    this._legacyBoundaryKey = null;
+    this._lastRequest = null;
+    this._availabilityCache.clear();
+    this.publication = { state: "empty", reason: null, request: null };
     this._landmarks?.dispose();
     this._landmarks = null;
     this._job = null;
@@ -186,10 +270,13 @@ export class DistantTerrain {
     this.group.visible = false;
   }
 
-  _request(position, radius, quality, dimension, coverage) {
+  _request(position, radius, quality, dimension, coverage, bootstrap = false) {
     const cx = Math.floor(position.x / CHUNK_SIZE);
     const cz = Math.floor(position.z / CHUNK_SIZE);
-    const horizon = visualHorizon(dimension, quality);
+    const fullHorizon = dimension === "overworld"
+      ? Math.max(visualHorizon(dimension, quality), radius * CHUNK_SIZE)
+      : visualHorizon(dimension, quality);
+    const horizon = bootstrap ? Math.min(192, fullHorizon) : fullHorizon;
     const extent = horizon + REBUILD_MARGIN;
     return {
       cx,
@@ -197,6 +284,7 @@ export class DistantTerrain {
       radius,
       quality,
       dimension,
+      bootstrap,
       horizon,
       key: `${cx},${cz}:${radius}:${quality}`,
       coverage,
@@ -217,12 +305,21 @@ export class DistantTerrain {
   }
 
   _canCover(data, request) {
+    // A startup surface may be smaller than the requested detail square after
+    // movement. Retain it while the camera is inside; edgeDistance still caps
+    // fog to the actually drawn bounds, without inventing any outside coverage.
+    if (data.request.bootstrap)
+      return contains(data.bounds, {
+        minX: request.cx * CHUNK_SIZE, maxX: (request.cx + 1) * CHUNK_SIZE,
+        minZ: request.cz * CHUNK_SIZE, maxZ: (request.cz + 1) * CHUNK_SIZE,
+      });
     return contains(data.bounds, request.hole);
   }
 
   _needsJob(previous, request) {
     return (
       !previous ||
+      (previous.bootstrap && !request.bootstrap) ||
       previous.quality !== request.quality ||
       previous.horizon !== request.horizon ||
       previous.radius !== request.radius ||
@@ -241,7 +338,7 @@ export class DistantTerrain {
         : null;
     const originX = request.cx * CHUNK_SIZE;
     const originZ = request.cz * CHUNK_SIZE;
-    const native = request.dimension === "overworld" &&
+    const native = !request.bootstrap && request.dimension === "overworld" &&
       (typeof this.world.generator.getEndPillars === "function" ||
        typeof this.world.generator.sampleColumn === "function");
     const pillars = request.dimension === "end"
@@ -251,6 +348,11 @@ export class DistantTerrain {
       : [];
     const limits = native || pillars.length ? DISTANT_NATIVE_GRID_LIMITS : DISTANT_GRID_LIMITS;
     const refinement = new Map();
+    const certificate = request.dimension === "overworld" && request.radius > 8
+      ? certifySurfaceRegion(this.world, request.bounds) : null;
+    const validation = request.dimension === "overworld" && request.radius > 8 && !certificate
+      ? new SurfaceRegionValidation(this.world, request.bounds, request, spec.minY, this._availabilityCache)
+      : null;
     // Keep interior vertices too: rows restore immediately using index changes,
     // even when generation or meshing is stalled and the player reverses.
     return {
@@ -261,6 +363,9 @@ export class DistantTerrain {
       originZ,
       limits,
       refinement,
+      certificate,
+      validation,
+      chunkOwnership: request.dimension === "overworld" && request.radius > 8,
       planCursor: 0,
       landmarkPlan: landmarkGridRefinement(pillars),
       landmarkReachSquared: pillars.length
@@ -270,14 +375,16 @@ export class DistantTerrain {
         request.cz,
         request.bounds,
         request.quality,
-        refinement
+        refinement,
+        request.bootstrap
       ),
       points: [],
       pointIds: new Map(),
       cells: [],
       wetCells: 0,
       wet: [],
-      unknownChunks: new Set(),
+      unknownChunks: validation?.unknown ?? new Set(),
+      geometryUnknown: new Set(),
       indices: new Uint16Array(limits.indices),
       indexCount: 0,
       count: 0,
@@ -343,6 +450,7 @@ export class DistantTerrain {
     });
     job.indices.set(indices, job.indexCount);
     job.indexCount += indices.length;
+    job.minCellStep = Math.min(job.minCellStep ?? Infinity, job.cells.at(-1).step);
   }
 
   _palette(biome, surfaceId) {
@@ -431,8 +539,10 @@ export class DistantTerrain {
     for (let i = cell.start; i < end; i++) {
       const vertex = job.indices[i];
       if (!job.valid[vertex]) {
-        if (job.request.dimension === "overworld")
+        if (job.request.dimension === "overworld") {
           job.unknownChunks.add(cell.key);
+          job.geometryUnknown.add(cell.key);
+        }
         return;
       }
     }
@@ -451,6 +561,9 @@ export class DistantTerrain {
       const sorted = cell.ring.toSorted((a, b) => job.heights[a] - job.heights[b]);
       cell.anchor = sorted[Math.floor((sorted.length - 1) / 2)];
     }
+    cell.height = job.heights[cell.anchor];
+    cell.x = job.positions[cell.ring[0] * 3];
+    cell.z = job.positions[cell.ring[0] * 3 + 2];
     cell.wet =
       job.waterSurface !== null &&
       job.heights[cell.anchor] < job.waterSurface;
@@ -517,7 +630,13 @@ export class DistantTerrain {
     const waterIndices = layer.water?.geometry.index.array;
     // Cell refinement must not multiply coverage/publication work. Emission
     // keeps each chunk's terrain indices contiguous, so copy whole ranges.
-    for (const range of data.terraces.ranges) {
+    if (data.chunkOwnership) {
+      // The shader resolves unit-edge raster ownership, including fragments
+      // crossing the ideal coarse boundary. Borrow the immutable source index
+      // buffer; coverage changes must not recopy a full terrain prefix.
+      terrainCount = data.terraces.ranges.every(range => request.coverage.has(range.key))
+        ? 0 : data.terraces.indices.length;
+    } else for (const range of data.terraces.ranges) {
       if (request.coverage.has(range.key)) continue;
       terrainIndices.set(data.terraces.indices.subarray(range.start, range.start + range.count), terrainCount);
       terrainCount += range.count;
@@ -530,7 +649,7 @@ export class DistantTerrain {
       }
     }
     layer.terrain.geometry.setDrawRange(0, terrainCount);
-    layer.terrain.geometry.index.needsUpdate = true;
+    if (!data.chunkOwnership) layer.terrain.geometry.index.needsUpdate = true;
     layer.terrain.visible = terrainCount > 0;
     if (layer.water) {
       layer.water.geometry.setDrawRange(0, waterCount);
@@ -539,10 +658,22 @@ export class DistantTerrain {
     }
     layer.viewKey = request.coverageKey;
     layer.group.userData.coveredChunks = request.coverage.size;
+    this._workCopyBytes = (this._workCopyBytes ?? 0) +
+      (data.chunkOwnership ? 0 : terrainCount * terrainIndices.BYTES_PER_ELEMENT) +
+      waterCount * (waterIndices?.BYTES_PER_ELEMENT ?? 0);
   }
 
   _publish(job, request) {
     if (this._job !== job || !this._sameIdentity(job.identity)) return;
+    if (job.request.bootstrap && job.validation && !job.validation.done &&
+        !job.validation.invalid.size) return;
+    // Keep the drawn coarse surface until the refined surface can satisfy the
+    // normal canopy gate. Never replace it with an invisible layer.
+    if (this._active?.data.request.bootstrap && !job.request.bootstrap &&
+        request.dimension === "overworld" &&
+        typeof this.world.generator.getTrees === "function" &&
+        (!this._vegetation || !contains(this._vegetation.bounds, request.hole)))
+      return;
     const attributes = job.count * 3;
     const bounds = new THREE.Box3(
       new THREE.Vector3(
@@ -561,13 +692,15 @@ export class DistantTerrain {
         job.terraces.positions,
         job.terraces.normals,
         job.terraces.colors,
-        job.terraces.indices.length,
+        job.chunkOwnership ? job.terraces.indices : job.terraces.indices.length,
         bounds
       ),
       this._terrainMaterial
     );
     terrain.name = "Distant terrain surface";
     terrain.geometry.setAttribute("lodSurface", new THREE.BufferAttribute(job.terraces.surfaceData, 3));
+    if (job.terraces.chunkData)
+      terrain.geometry.setAttribute("lodDetailChunk", new THREE.BufferAttribute(job.terraces.chunkData, 2));
     if (job.terraces.blockData)
       terrain.geometry.setAttribute("lodBlocks", new THREE.BufferAttribute(job.terraces.blockData, 3));
     const layerGroup = new THREE.Group();
@@ -613,10 +746,14 @@ export class DistantTerrain {
       water,
       data: job,
       viewKey: null,
+      heightTexture: new THREE.DataTexture(job.seamHeights, job.seamWidth, job.seamHeight,
+        THREE.RedFormat, THREE.FloatType),
     };
+    layer.heightTexture.needsUpdate = true;
     this._cutout(layer, request);
     disposeLayer(this._active);
     this._active = layer;
+    this._seams?.setSurface(job, layer.heightTexture);
     this.group.add(layerGroup);
     job.pointIds.clear();
     job.points.length = 0;
@@ -624,6 +761,154 @@ export class DistantTerrain {
     job.terraceBuilder = null;
     job.waterPositions = job.waterColors = null;
     this._job = null;
+    const rejected = this._vegetationRejected && !this._needsJob(this._vegetationRejected, request);
+    this.publication = job.request.bootstrap && rejected
+      ? { state: "degraded", reason: "vegetation-budget", request }
+      : { state: job.request.bootstrap ? "coarse" : job.validation?.unknown.size ? "validating" : "complete",
+        reason: null, request };
+  }
+
+  _updateNativeSeams(request, deadline, maxUnits = DISTANT_TERRAIN_LIMITS.workPerUpdate) {
+    const result = { units: 0, copyBytes: 0, allocatedBytes: 0, reservedBytes: 0 };
+    if (!this._seams && (this._nativeBoundaries ? !this._nativeBoundaries.size : !request.coverage.size))
+      return result;
+    if (maxUnits < 32 || performance.now() >= deadline) {
+      if (this._nativeBoundaries && this._nativeBoundaries !== this._seams?.input)
+        this._seamBlocked = this._nativeBoundaries.changedKeys ?? this._nativeBoundaries;
+      return result;
+    }
+    let columns = this._nativeBoundaries;
+    if (columns === undefined) {
+      const key = `${this._sceneRevision}:${[...request.coverage].sort().join("|")}`;
+      if (key !== this._legacyBoundaryKey) {
+        this._legacyBoundaryKey = key;
+        this._legacyBoundaryColumns = new Map();
+        this._legacyBoundaryState = { profile: null };
+        this._legacyBoundaryJob = request.coverage.size
+          ? sceneBoundarySources(this.scene, this.group, request.coverage, this._legacyBoundaryState) : null;
+      }
+      while (this._legacyBoundaryJob && result.units + 32 <= maxUnits && performance.now() < deadline) {
+        const next = this._legacyBoundaryJob.next();
+        if (next.done) this._legacyBoundaryJob = null;
+        else {
+          result.units += next.value?.units ?? 1;
+          if (next.value?.profile?.some(Number.isFinite))
+            this._legacyBoundaryColumns = new Map(this._legacyBoundaryColumns)
+              .set(next.value.key, [{ data: next.value.profile, bits: 15 }]);
+        }
+      }
+      columns = this._legacyBoundaryColumns;
+    }
+    if (!columns?.size && !this._seams) return result;
+    // Snapshot admission has its own bounded metadata pass. Defer it intact
+    // if legacy profiling already spent this update's work allowance.
+    const snapshotUnits = Math.ceil(((columns?.size ?? 0) * 129 +
+      (this._seams?.columns.size ?? 0)) / 256);
+    const allocationUnits = this._seams ? 0 : Math.ceil((NATIVE_SEAM_BYTES + 3072) / 65536);
+    if (columns !== this._seams?.input &&
+        result.units + snapshotUnits + allocationUnits > maxUnits) {
+      this._seamBlocked = columns.changedKeys ?? columns;
+      return result;
+    }
+    if (!this._seams) {
+      const reservation = NATIVE_SEAM_BYTES + 3072;
+      result.reservedBytes = reservation;
+      if (this._allocationBudget && (reservation > this._allocationBudget.cpu ||
+          NATIVE_SEAM_BYTES > this._allocationBudget.gpu)) {
+        this._seamBlocked = columns;
+        return result;
+      }
+      this._seams = new NativeTerrainSeams(this.group, this.detailMask);
+      this._seamBlocked = null;
+      result.allocatedBytes = this._seams.allocatedBytes;
+      result.units += Math.ceil(result.allocatedBytes / 65536);
+    }
+    const packed = this._seams.update(columns ?? new Map(),
+      { maxUnits: maxUnits - result.units, deadline });
+    this._seamBlocked = this._seams.input === columns ? null : (columns?.changedKeys ?? columns);
+    result.units += packed.units;
+    result.copyBytes += packed.copyBytes;
+    if (this._active) this._seams.setSurface(this._active.data, this._active.heightTexture);
+    this._seams.group.visible = !!this._active;
+    return result;
+  }
+
+  prepareNativePublication(job, column, { deadline, maxUnits, copyBudget, cpuBudget, gpuBudget, stagingBudget, snapshotReserve = 0, force = false }) {
+    const nothing = { ready: true, units: 0, copyBytes: 0 };
+    if (!this._active || this._lastRequest?.dimension !== "overworld" || column?.visible === false) return nothing;
+    const key = `${job.stamp.cx},${job.stamp.cz}`, profiles = [];
+    for (const [sy, data] of column?.userData.nativeBoundarySources ?? [])
+      if (sy !== job.stamp.sy) profiles.push({ data, bits: 9 });
+    if (job.result?.nativeBoundary) profiles.push({ data: job.result.nativeBoundary, bits: 9 });
+    const oldProfiles = this._seams?.columns.get(key)?.profiles ?? [];
+    const noSeam = list => list.every(p => p.data.minimumTop === Infinity ||
+      (this._active.data.minHeight === this._active.data.maxHeight &&
+        p.data.minimumTop === this._active.data.minHeight && p.data.maximumTop === this._active.data.maxHeight));
+    if (noSeam(profiles) && noSeam(oldProfiles)) return nothing;
+    const ledger = this._nativePreparation ??= {
+      units: 0, copyBytes: 0, allocatedBytes: 0, reservedBytes: 0, elapsedMs: 0,
+    };
+    const allowance = Math.min(maxUnits, force ? Infinity :
+      DISTANT_TERRAIN_LIMITS.workPerUpdate - ledger.units - snapshotReserve);
+    if (allowance < 64 || copyBudget < 3072) return { ready: false, units: 0, copyBytes: 0 };
+    const started = performance.now();
+    deadline = Math.min(deadline, force ? Infinity : started + (this._lastRequest?.quality === "high" ? 2 : 1));
+    if (started >= deadline) return { ready: false, units: 0, copyBytes: 0 };
+    let units = 1;
+    const reservation = (this._seams ? 0 : NATIVE_SEAM_BYTES + 3072) + (job.nativeSeamPlan ? 0 : 3072);
+    ledger.reservedBytes = Math.max(ledger.reservedBytes, reservation);
+    const capacity = {
+      cpuBytes: reservation,
+      gpuBytes: this._seams ? 0 : NATIVE_SEAM_BYTES,
+      stagingBytes: job.nativeSeamPlan ? 0 : 3072,
+    };
+    const refuse = (slots = false) => {
+      ledger.units += units;
+      ledger.elapsedMs += performance.now() - started;
+      return { ready: false, units, copyBytes: 0, capacity: { ...capacity, slots } };
+    };
+    if (capacity.cpuBytes > cpuBudget || capacity.gpuBytes > gpuBudget ||
+        capacity.stagingBytes > stagingBudget)
+      return refuse();
+    if (!this._seams) {
+      this._seams = new NativeTerrainSeams(this.group, this.detailMask);
+      this._seams.setSurface(this._active.data, this._active.heightTexture);
+      ledger.allocatedBytes += this._seams.allocatedBytes;
+      units += Math.ceil(this._seams.allocatedBytes / 65536);
+    }
+    if (!this._seams.columns.has(key) && !this._seams.free.length)
+      return refuse(true);
+    if (!job.nativeSeamPlan || job.nativeSeamPlan.revision !== job.pagePlan.revision ||
+        job.nativeSeamPlan.column !== job.pagePlan.column) {
+      job.nativeSeamPlan = new NativeBoundaryPacking(job.stamp.cx, job.stamp.cz);
+      job.nativeSeamPlan.revision = job.pagePlan.revision;
+      job.nativeSeamPlan.column = job.pagePlan.column;
+      ledger.allocatedBytes += job.nativeSeamPlan.bytes;
+      units++;
+    }
+    const packing = job.nativeSeamPlan;
+    units += packing.step(profiles, Math.max(0, allowance - units - 48), deadline);
+    const ready = packing.done && units + 48 <= allowance;
+    if (ready) units += 48;
+    ledger.units += units;
+    ledger.elapsedMs += performance.now() - started;
+    return { ready, units, copyBytes: 0, key, profiles, oldProfiles, packing, ledger };
+  }
+
+  commitNativePublication(prepared, column) {
+    if (!prepared?.packing) return 0;
+    const before = performance.now();
+    const bytes = this._seams.publishPacked(prepared.key, prepared.profiles, prepared.packing);
+    prepared.ledger.copyBytes += bytes;
+    prepared.ledger.elapsedMs += performance.now() - before;
+    // Native install and this 3 KiB publication are one synchronous commit.
+    // Keep the ownership census exact even before the next renderer update.
+    for (const p of prepared.oldProfiles)
+      if (!column.userData.nativeBoundaryOwners?.has(p.data.buffer))
+        this._nativeBoundaryOwners?.delete(p.data.buffer);
+    for (const buffer of column.userData.nativeBoundaryOwners ?? [])
+      this._nativeBoundaryOwners?.add(buffer);
+    return bytes;
   }
 
   _updateVegetation(request, budgetMs) {
@@ -675,6 +960,13 @@ export class DistantTerrain {
       this.vegetationRejections++;
       pending.job.dispose();
       this._vegetationJob = null;
+      // Rejection is a terminal state for this view, not a publish-phase wait.
+      // Keep the installed horizon, release refinement, and retry only for a
+      // changed view/quality/identity.
+      if (this._active?.data.request.bootstrap && !this._job?.request.bootstrap) {
+        this._job = null;
+        this.publication = { state: "degraded", reason: "vegetation-budget", request: pending.request };
+      }
       return;
     }
     const layer = pending.job.build(this._terrainMaterial);
@@ -689,6 +981,7 @@ export class DistantTerrain {
     let distance = Infinity;
     // Invalid Overworld samples are unknown frontiers, not End-style void.
     // Only actual drawn detail can supply coverage for an unknown LOD chunk.
+    for (const key of data.geometryUnknown) data.unknownChunks.add(key);
     for (const key of data.unknownChunks) {
       if (request.coverage.has(key)) continue;
       const [cx, cz] = key.split(",").map(Number);
@@ -704,6 +997,29 @@ export class DistantTerrain {
       );
       distance = Math.min(distance, Math.hypot(dx, dz) - EDGE_MARGIN);
     }
+    // Pending boundary publications are not drawable certificates. Only their
+    // near frontier contracts; already reconciled distant regions stay intact.
+    for (const pending of [this._seamBlocked, this._seams?.queue])
+      for (const key of pending?.keys() ?? []) {
+        const profiles = this._seams?.queue.get(key) ??
+          (this._nativeBoundaries ?? this._legacyBoundaryColumns)?.get(key);
+        const packed = this._seams?.columns.get(key)?.profiles ?? [];
+        const actual = (this._nativeBoundaries ?? this._legacyBoundaryColumns)?.get(key) ?? [];
+        if (packed.length === actual.length &&
+            packed.every((p, i) => p.data === actual[i].data && p.bits === actual[i].bits))
+          continue;
+        // A proven coplanar boundary needs no vertical reconciliation. Its
+        // actual profile already proves safety while the upload is staged.
+        const noSeam = list => list.every(p => p.data.minimumTop === Infinity ||
+          (data.minHeight === data.maxHeight &&
+            p.data.minimumTop === data.minHeight && p.data.maximumTop === data.maxHeight));
+        if (noSeam(profiles ?? []) && noSeam(packed))
+          continue;
+        const [cx, cz] = key.split(",").map(Number);
+        const dx = Math.max(cx * 16 - position.x, 0, position.x - (cx + 1) * 16);
+        const dz = Math.max(cz * 16 - position.z, 0, position.z - (cz + 1) * 16);
+        distance = Math.min(distance, Math.hypot(dx, dz) - EDGE_MARGIN);
+      }
     return distance;
   }
 
@@ -716,7 +1032,7 @@ export class DistantTerrain {
     if (
       !layer ||
       !this._canCover(layer.data, request) ||
-      (needsVegetation &&
+      (needsVegetation && !layer.data.request.bootstrap &&
         (!vegetation || !contains(vegetation.bounds, request.hole)))
     ) {
       this.group.visible = false;
@@ -745,6 +1061,8 @@ export class DistantTerrain {
     const data = layer.data;
     const knownDistance = this._knownTerrainDistance(data, request, position);
     this._terrainCoverageComplete = knownDistance === Infinity;
+    if (this.publication.state === "validating" && this._terrainCoverageComplete)
+      this.publication = { state: "complete", reason: null, request };
     this._fogDistance = Math.max(
       0,
       Math.min(
@@ -773,16 +1091,31 @@ export class DistantTerrain {
       coverage = new Set(),
       detailSections = new Set(),
       detailBatches = new Map(),
+      nativeBoundaries,
+      nativeBoundaryOwners,
+      nativeBoundaryWork = { units: 0, elapsedMs: 0 },
+      allocationBudget,
       budgetMs = 2,
     } = {}
   ) {
     if (this._disposed) return false;
     this.lastWork = { units: 0, samples: 0 };
-    const started = performance.now();
+    this._workCopyBytes = 0;
+    this._workAllocatedBytes = 0;
+    const prepared = this._nativePreparation ?? { units: 0, copyBytes: 0, allocatedBytes: 0, reservedBytes: 0, elapsedMs: 0 };
+    this._nativePreparation = null;
+    nativeBoundaryWork = { units: nativeBoundaryWork.units + prepared.units,
+      elapsedMs: nativeBoundaryWork.elapsedMs + prepared.elapsedMs };
+    if (prepared.units) Object.assign(this.lastWork, {
+      units: prepared.units, copyBytes: prepared.copyBytes,
+      allocatedBytes: prepared.allocatedBytes, reservedBytes: prepared.reservedBytes,
+    });
+    const started = performance.now() - nativeBoundaryWork.elapsedMs;
     const budget = Number.isFinite(budgetMs)
       ? Math.max(0, Math.min(DISTANT_TERRAIN_LIMITS.maxBudgetMs, budgetMs))
       : 2;
     const generator = this.world.generator;
+    this._allocationBudget = allocationBudget;
     this._surfaceVersion.value = this.world.generatorVersion ?? 3;
     const targetDimension = dimension ?? this.world.dimension ?? "overworld";
     if (
@@ -812,6 +1145,7 @@ export class DistantTerrain {
         seed: this.world.seed,
         version: this.world.generatorVersion,
         epoch: geometryEpoch(this.world),
+        surface: surfaceIdentity(this.world),
         heightSource: generator.terrainHeight,
         biomeSource: generator.getBiome,
         columnSource: generator.sampleColumn,
@@ -820,6 +1154,8 @@ export class DistantTerrain {
         styleSeed: seedHash(String(this.world.seed ?? "")) ^ 0x735ca,
       };
     }
+    this._nativeBoundaries = nativeBoundaries;
+    this._nativeBoundaryOwners = nativeBoundaryOwners;
     const biome = generator.getBiome(
       Math.floor(position.x),
       Math.floor(position.z)
@@ -843,7 +1179,7 @@ export class DistantTerrain {
       ? quality
       : "medium";
     const resolvedRadius = Number.isFinite(radius)
-      ? Math.max(0, Math.min(8, Math.floor(radius)))
+      ? Math.max(0, Math.min(MAX_RENDER_RADIUS, Math.floor(radius)))
       : 2;
     const request = this._request(
       position,
@@ -852,6 +1188,18 @@ export class DistantTerrain {
       targetDimension,
       coverage
     );
+    this._lastRequest = request;
+    this._lastPosition = position;
+    if (nativeBoundaries === undefined && coverage.size) {
+      const mask = new Map(detailBatches);
+      const spec = geometryWorldSpec(this.world, targetDimension);
+      for (const key of coverage)
+        for (let sy = Math.floor(spec.minY / 16); sy < Math.ceil(spec.maxY / 16); sy++)
+          mask.set(`${key},${sy}`, 15);
+      this.detailMask.update(position, spec, mask);
+    }
+    const seamWork = this._updateNativeSeams(request, started + budget,
+      Math.max(0, DISTANT_TERRAIN_LIMITS.workPerUpdate - nativeBoundaryWork.units));
     this._show(request, position);
     if (
       this._job &&
@@ -860,19 +1208,43 @@ export class DistantTerrain {
         !this._canCover(this._job, request))
     )
       this._job = null;
+    const refreshCoarse = this._active?.data.request.bootstrap &&
+      (!this._canCover(this._active.data, request) ||
+        edgeDistance(this._active.data.bounds, position) < Math.min(192, request.horizon) * 0.75);
     if (
       !this._job &&
       this._needsJob(this._active?.data.request, request) &&
+      (refreshCoarse || this.publication.state !== "degraded" || this._needsJob(this.publication.request, request)) &&
       budget > 0
     ) {
-      this._job = this._startJob(request);
+      // Large-distance startup must not wait for thousands of fine-grid
+      // samples and every canopy. Publish a complete, chunk-aligned coarse
+      // surface first, then refine with the same one-active/one-pending budget.
+      const firstSurface = (!this._active || refreshCoarse) && resolvedRadius > 8 &&
+        targetDimension === "overworld";
+      this._job = this._startJob(firstSurface
+        ? this._request(position, resolvedRadius, resolvedQuality, targetDimension, coverage, true)
+        : request);
+      for (const value of Object.values(this._job))
+        if (ArrayBuffer.isView(value)) this._workAllocatedBytes += value.byteLength;
+      this.publication = { state: this._active ? "refining" : "building", reason: null, request };
     }
-    let work = 0,
+    let work = seamWork.units + nativeBoundaryWork.units,
       samples = 0;
     const job = this._job;
+    // Share the existing sample/work budget with interior validation. Active
+    // coverage progresses first; cached validated chunks feed later refinement.
+    const validationLimit = job?.phase === "publish" || !job ? 128 : 64;
+    for (const data of [this._active?.data, job]) {
+      if (!data?.validation || data.validation.done || samples >= validationLimit) continue;
+      const n = data.validation.step(Math.min(validationLimit - samples,
+        DISTANT_TERRAIN_LIMITS.workPerUpdate - work), started + budget * 0.25);
+      samples += n;
+      work += n;
+    }
     const terrainBudget =
       targetDimension === "overworld" &&
-      typeof generator.getTrees === "function"
+      typeof generator.getTrees === "function" && !job?.request.bootstrap
         ? budget * 0.5
         : budget;
     while (
@@ -924,11 +1296,18 @@ export class DistantTerrain {
       } else if (job.phase === "shade") {
         this._shade(job);
         if (++job.cursor === job.count) {
-          job.terraceBuilder.begin();
+          job.terraceAllocation = job.terraceBuilder.allocate();
+          job.phase = "terrace-allocate";
+        }
+      } else if (job.phase === "terrace-allocate") {
+        const allocation = job.terraceAllocation.next();
+        if (!allocation.done) this._workAllocatedBytes += allocation.value;
+        else {
+          job.terraceAllocation = null;
           job.cursor = 0;
           if (job.terraceBuilder.flat) {
             job.terraces = job.terraceBuilder.finish();
-            job.phase = "publish";
+            job.phase = "height-map";
           } else job.phase = "terrace";
         }
       } else if (job.phase === "terrace") {
@@ -938,14 +1317,36 @@ export class DistantTerrain {
         }
       } else if (job.phase === "terrace-finalize") {
         job.terraces = job.terraceBuilder.finish();
-        if (job.terraces) job.phase = "publish";
+        if (job.terraces) job.phase = "height-map";
+      } else if (job.phase === "height-map") {
+        if (!job.seamHeights) {
+          job.seamStep = job.minCellStep;
+          job.seamWidth = (job.bounds.maxX - job.bounds.minX) / job.seamStep;
+          job.seamHeight = (job.bounds.maxZ - job.bounds.minZ) / job.seamStep;
+          job.seamHeights = new Float32Array(job.seamWidth * job.seamHeight);
+          this._workAllocatedBytes += job.seamHeights.byteLength;
+          job.cursor = 0;
+        }
+        const cell = job.cells[job.cursor++];
+        {
+          const x = (cell.x + job.originX - job.bounds.minX) / job.seamStep;
+          const z = (cell.z + job.originZ - job.bounds.minZ) / job.seamStep;
+          const span = cell.step / job.seamStep;
+          for (let row = z; row < z + span; row++)
+            job.seamHeights.fill(cell.valid ? cell.height : NaN,
+              row * job.seamWidth + x, row * job.seamWidth + x + span);
+        }
+        if (job.cursor === job.cells.length) job.phase = "publish";
       } else {
         this._publish(job, request);
         break;
       }
       work++;
     }
-    this.lastWork = { units: work, samples };
+    this.lastWork = { units: work, samples, copyBytes: prepared.copyBytes + seamWork.copyBytes + this._workCopyBytes,
+      allocatedBytes: prepared.allocatedBytes + seamWork.allocatedBytes + this._workAllocatedBytes,
+      reservedBytes: Math.max(prepared.reservedBytes, seamWork.reservedBytes),
+      pendingSeamColumns: this._seams?.queue.size ?? 0 };
     this._updateVegetation(
       request,
       Math.max(0, budget - (performance.now() - started))
@@ -958,6 +1359,7 @@ export class DistantTerrain {
       });
     }
     this._show(request, position);
+    this.lastWork.copyBytes = prepared.copyBytes + seamWork.copyBytes + this._workCopyBytes;
     return this.ready;
   }
 
@@ -967,6 +1369,9 @@ export class DistantTerrain {
     this._terrainMaterial.dispose();
     this._waterMaterial.dispose();
     this.detailMask.dispose();
+    this.scene.removeEventListener("childadded", this._sceneChanged);
+    this.scene.removeEventListener("childremoved", this._sceneChanged);
+    if (this.scene.onBeforeRender === this._sceneRender) this.scene.onBeforeRender = this._beforeSceneRender;
     this.group.removeFromParent();
     this._disposed = true;
   }

@@ -3,6 +3,7 @@ import test from "node:test";
 import * as THREE from "three";
 import { BLOCK } from "../src/blocks.js";
 import { DistantTerrain } from "../src/distant-terrain.js";
+import { registerTotalSurface } from "../src/surface-availability.js";
 import {
   GameRenderer,
   hasTerrainRoof,
@@ -159,6 +160,36 @@ function assertGround(sample) {
   assert.equal(sample.graphics.distant.group.visible, true);
 }
 
+test("R12 actual complete outdoor ground remains clear until the horizon band", () => {
+  const sample = fixture();
+  const { graphics, world } = sample;
+  registerTotalSurface(world.generator,
+    { minX: WORLD_MIN, maxX: WORLD_MAX, minZ: WORLD_MIN, maxZ: WORLD_MAX });
+  try {
+    graphics.renderDistanceOverride = 12;
+    graphics.camera.rotation.set(0, 0, 0);
+    assert.equal(world.chunks.size, 0);
+    sample.step();
+    assert.ok(graphics.scene.fog.far <= 8, "startup cannot claim unbuilt ground");
+    sample.warm();
+    for (let i = 0; i < 1000 && graphics.distant._active.data.request.bootstrap; i++)
+      sample.step();
+    assert.equal(graphics.distant._active.data.request.bootstrap, false);
+    for (let i = 0; i < 60; i++) sample.step();
+    assert.ok(graphics.scene.fog.far > 319);
+    assert.ok(graphics.scene.fog.near > graphics.scene.fog.far * 0.84);
+    assert.equal(graphics.detailCoverage().size, 0, "LOD is not native R12 readiness");
+    assertGround(sample);
+    sample.add(0, 0);
+    world.get = () => BLOCK.WATER;
+    sample.step();
+    assert.equal(graphics.distant.group.visible, false);
+    assert.ok(graphics.scene.fog.far <= 20);
+  } finally {
+    sample.dispose();
+  }
+});
+
 for (const quality of ["low", "medium", "high"]) {
   test(`${quality}: movement, missing/refilled rows and reversals keep drawn ground at normal and high altitude`, () => {
     const sample = fixture(quality);
@@ -287,7 +318,7 @@ test("quality changes reuse current fallback while a different detail radius fil
   }
 });
 
-test("high ground covers the partially fogged horizon before its low canopy upgrades", (t) => {
+test("high ground covers the visible horizon before its low canopy upgrades", (t) => {
   t.mock.method(performance, "now", () => 0);
   const sample = fixture("low");
   const { graphics, world } = sample;
@@ -348,7 +379,7 @@ test("high ground covers the partially fogged horizon before its low canopy upgr
     assert.equal(point.inView, true);
     assert.equal(point.horizontalDistance, 208);
     assert.equal(point.fogByHorizontalDistance, 1);
-    assert.ok(point.fogByViewDepth > 0 && point.fogByViewDepth < 1);
+    assert.ok(point.fogByViewDepth >= 0 && point.fogByViewDepth < 1);
     assert.ok(Math.abs(point.viewDepth - 109.49729873059492) < 0.00001);
     assert.equal(point.source, "distant");
     assert.ok(Math.abs(point.renderedHeight - 61) < 0.00001);

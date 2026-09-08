@@ -40,7 +40,7 @@ export function* landmarkGridRefinement(pillars) {
 // Yields one cell at a time so topology construction shares the sampling frame
 // budget. Chunk-aligned bounds and 2:1 transitions make every shared edge exact:
 // a coarse edge includes the fine neighbor's midpoint, not a T-junction/skirt.
-export function* distantGridCells(cx, cz, bounds, quality = "medium", refinement = new Map()) {
+export function* distantGridCells(cx, cz, bounds, quality = "medium", refinement = new Map(), coarse = false) {
   if (
     !Number.isSafeInteger(cx) ||
     !Number.isSafeInteger(cz) ||
@@ -64,7 +64,7 @@ export function* distantGridCells(cx, cz, bounds, quality = "medium", refinement
   const maxCZ = Math.ceil(bounds.maxZ / CHUNK_SIZE);
   const desiredStep = (x, z) => {
     const distance = Math.max(Math.abs(x - cx), Math.abs(z - cz));
-    const base = distance <= settings.nearRadius
+    const base = coarse ? CHUNK_SIZE : distance <= settings.nearRadius
       ? 4
       : distance <= settings.middleRadius
         ? 8

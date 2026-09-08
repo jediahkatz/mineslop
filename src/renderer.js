@@ -9,6 +9,7 @@ import { DaylightMaterial } from "./daylight-material.js";
 import { DistantTerrain } from "./distant-terrain.js";
 import { landmarkDetailSections } from "./distant-landmarks.js";
 import { distantDetailBatches } from "./distant-detail-mask.js";
+import { publishedNativeBoundaries } from "./native-boundary-profile.js";
 import { endVisualFog } from "./end-visual-policy.js";
 import { geometryEpoch, geometryWorldSpec } from "./geometry-world.js";
 import { refreshRegionalPaletteMaterials } from "./geometry-palette-material.js";
@@ -23,6 +24,7 @@ import { createMiningTextures } from "./mining-art.js";
 import { playerWaterFogFar } from "./player-visual-effects.js";
 import { raycast } from "./raycast.js";
 import { RenderScaleController } from "./render-scale.js";
+import { prepareArrivalMeshes } from "./renderer-arrival.js";
 import { validateRenderDistanceOverride } from "./render-distance.js";
 import {
   cancelSectionColumn,
@@ -382,6 +384,10 @@ export class GameRenderer {
     this.viewCenter = center;
   }
 
+  prepareArrival(pose, validate) {
+    return prepareArrivalMeshes(this, pose, { validate });
+  }
+
   rebuildDirty(maxChunks = 2) {
     reconcileSectionPackingMode(this);
     for (const key of this.world.removedChunks ?? []) {
@@ -618,13 +624,34 @@ export class GameRenderer {
           !hasTerrainRoof(this.world, this.camera.position);
     const coverage = this.detailCoverage();
     const nearFog = this.streamingFogDistance(this.camera.position, coverage);
+    const detailBatches = this.detailBatchCoverage();
+    const nativeBoundaryWork = { units: 0, elapsedMs: 0 };
+    // The batch cache is a publication snapshot, replaced on every relevant
+    // mesh/coverage revision. Reuse its read-only boundary snapshot while idle.
+    if (this.nativeBoundaryCache?.batches !== detailBatches ||
+        this.nativeBoundaryCache?.chunks !== this.chunks) {
+      const owners = new Set();
+      const boundaryStart = performance.now();
+      this.nativeBoundaryCache = { batches: detailBatches, chunks: this.chunks, owners,
+        value: publishedNativeBoundaries(this.chunks, detailBatches, this.nativeBoundaryCache?.value, owners, nativeBoundaryWork) };
+      nativeBoundaryWork.elapsedMs = performance.now() - boundaryStart;
+    }
     this.distant.update(this.camera.position, {
       radius: this.renderRadius,
       quality: this.quality,
       dimension: this.world.dimension,
       outdoors,
       coverage,
-      detailBatches: this.detailBatchCoverage(),
+      detailBatches,
+      nativeBoundaries: this.nativeBoundaryCache.value,
+      nativeBoundaryOwners: this.nativeBoundaryCache.owners,
+      nativeBoundaryWork,
+      allocationBudget: {
+        cpu: Math.max(0, (this.meshStats?.limits?.maxCpuBytes ?? Infinity) -
+          (this.meshStats?.combinedCpuBytes ?? 0)),
+        gpu: Math.max(0, (this.meshStats?.limits?.maxGpuBytes ?? Infinity) -
+          (this.meshStats?.gpuBytes ?? 0)),
+      },
       detailSections: this.world.dimension === "end"
         ? landmarkDetailSections(this.chunks, this.camera) : undefined,
       budgetMs: this.quality === "high" ? 2 : 1,
@@ -648,10 +675,17 @@ export class GameRenderer {
           );
     const horizontalFar = this.expandedFog;
     const dimensionScale = this.biome?.dimension === "nether" ? 0.8 : 1;
-    const horizontalNear = Math.min(
-      horizontalFar * 0.38,
-      (horizonVisible ? qualityFogDistance(this.renderRadius) : nearFog) * 0.9
-    );
+    // A complete outdoor surface already supplies the horizon. Starting fog at
+    // 38% of that distance obscures most of the paid-for view. Keep the existing
+    // conservative ramp for unknown terrain, caves, fluids and other dimensions.
+    const horizontalNear =
+      this.world.dimension === "overworld" && outdoors && horizonVisible &&
+      this.distant.terrainCoverageComplete
+        ? horizontalFar * 0.85
+        : Math.min(
+            horizontalFar * 0.38,
+            (horizonVisible ? qualityFogDistance(this.renderRadius) : nearFog) * 0.9
+          );
     const columnX = Math.floor(this.camera.position.x);
     const columnZ = Math.floor(this.camera.position.z);
     // A ravine can remove the generator's nominal roof. Use the loaded ground
