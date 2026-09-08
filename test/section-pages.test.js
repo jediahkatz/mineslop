@@ -5,6 +5,7 @@ import { BLOCK } from "../src/blocks.js";
 import { releaseLostContextResources } from "../src/context-resources.js";
 import { landmarkDetailSections } from "../src/distant-landmarks.js";
 import { geometryBytes } from "../src/mesh-palette.js";
+import { NATIVE_BOUNDARY_SLOTS } from "../src/native-boundary-profile.js";
 import { SectionPagePlan, sectionSourceGroup } from "../src/section-pages.js";
 import { detailMeshResources, DETAIL_MESH_LIMITS } from "../src/section-renderer.js";
 import { createSectionMeshJob } from "../src/section-mesh.js";
@@ -29,7 +30,15 @@ test("24 logical sections consolidate to three bounded vertical pages with exact
   assert.equal(stats.drawCalls, 3);
   assert.equal(stats.visibleDrawCalls, 3);
   assert.equal(stats.gpuBytes, 24 * (24 * 35 + 36 * 2));
-  assert.equal(stats.sourceBytes, 24 * (24 * 44 + 36 * 2));
+  const certificates = [...column.userData.nativeBoundarySources.values()];
+  assert.equal(certificates.length, 24);
+  assert.equal(new Set(certificates.map((data) => data.buffer)).size, 24);
+  assert.ok(certificates.every((data) =>
+    data instanceof Float32Array && data.length === NATIVE_BOUNDARY_SLOTS * 3));
+  assert.equal(stats.geometrySourceBytes, 24 * (24 * 44 + 36 * 2));
+  assert.equal(stats.nativeBoundaryBytes, 24 * NATIVE_BOUNDARY_SLOTS * 3 * Float32Array.BYTES_PER_ELEMENT);
+  assert.equal(stats.nativeBoundaryBytes, certificates.reduce((sum, data) => sum + data.byteLength, 0));
+  assert.equal(stats.sourceBytes, stats.geometrySourceBytes + stats.nativeBoundaryBytes);
   assert.equal(stats.stagingPageBytes, 0);
   assert.equal(stats.stagingSourceBytes, 0);
   assert.equal(renderer.detailCoverage().size, 1);

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import {
   createSectionMeshJob,
@@ -11,6 +12,7 @@ import {
 import {
   assertPartLimits,
   denseFenceColumn,
+  partitionGeometries,
   partitionTotals,
 } from "./mesh-partition-fixture.js";
 import {
@@ -18,6 +20,23 @@ import {
   shapeAtlas,
   shapeRenderer,
 } from "./shape-fixture.js";
+
+function geometryDigest(result) {
+  const hash = createHash("sha256");
+  for (const geometry of partitionGeometries(result))
+    for (const [name, attribute] of Object.entries({
+      ...geometry.attributes,
+      index: geometry.index,
+    })) {
+      hash.update(JSON.stringify([
+        name, attribute.itemSize, attribute.normalized, attribute.array.constructor.name,
+      ]));
+      hash.update(new Uint8Array(
+        attribute.array.buffer, attribute.array.byteOffset, attribute.array.byteLength
+      ));
+    }
+  return hash.digest("hex");
+}
 
 // A full dense section is intentional: the isolated runtime failure needs more
 // than one default-sized part. Small fixtures exercise the same mechanics in units.
@@ -36,14 +55,37 @@ test("the reproduced 4096-fence section finishes in bounded parts without losing
     assert.ok(job.lastSlice.cells <= 128);
     if (!job.done) {
       sawStagedPart ||= mesher.context.parts.length > 0;
-      assert.equal(job.result, null);
+      // Finished geometry may be private while its boundary scan is pending.
+      // Test the publication API; dumping a million-index private result on an
+      // obsolete null assertion can exhaust the test runner's heap.
+      if (!mesher.done) assert.ok(job.result === null, "unfinished geometry stays private");
       assert.equal(job.takeResult(), null);
       assert.equal(world.dirtySectionRevisions.get("0,0,0"), ticket);
     }
   }
   assert.equal(sawStagedPart, true);
   assert.equal(mesher.cursor, 4096);
+  assert.equal(job.status, "pending", "voxel completion does not bypass boundary work");
+  assert.ok(job.boundary && !job.boundary.done);
+  assert.ok(job.result !== null, "assembled geometry waits for its certificate");
+  const privateResult = job.result;
+  const beforeBoundary = geometryDigest(privateResult);
+  const triangleWork = 1207296 / 3;
+  const maxBoundarySlices = Math.ceil(triangleWork / 128) + 1;
+  let boundaryWork = 0, boundarySlices = 0;
+  while (!job.done && boundarySlices < maxBoundarySlices) {
+    job.step({ maxCells: 128 });
+    boundarySlices++;
+    boundaryWork += job.lastSlice.cells;
+    assert.ok(job.lastSlice.cells <= 128, "boundary scan shares the original slice cap");
+    assert.ok(job.result === privateResult, "scan retains the same private geometry");
+    assert.equal(job.acknowledge(), false, "scanning is not publication");
+    assert.equal(world.dirtySectionRevisions.get("0,0,0"), ticket);
+    if (!job.done) assert.equal(job.takeResult(), null);
+  }
+  assert.equal(boundaryWork, triangleWork, "every opaque triangle is accounted for");
   assert.equal(job.status, "ready");
+  assert.equal(geometryDigest(job.result), beforeBoundary, "certificate scan changes no geometry bytes");
   assert.equal(job.snapshotBytes, 0);
   assertPartLimits(job.result, SECTION_MESH_LIMITS);
   const totals = partitionTotals(job.result);
