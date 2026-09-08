@@ -35,7 +35,10 @@ export class SurfaceLightRevisions {
     if (this.cells + event.changes.length > BLOCK_LIGHT_MUTATION_CELLS) return;
     this.cells += event.changes.length;
     const changed = new Map();
-    const transparent = (cell) => cell && (cell.id === BLOCK.AIR || cell.id === BLOCK.WATER);
+    // Bamboo's crossed sprite has no occlusion or support, like air. Keep
+    // this proof explicit: transparent cubes can still connect nearby fences.
+    const transparent = (cell) => cell &&
+      (cell.id === BLOCK.AIR || cell.id === BLOCK.WATER || cell.id === BLOCK.BAMBOO);
     for (const change of event.changes) {
       const key = `${Math.floor(change.x / 16)},${Math.floor(change.z / 16)}`;
       const benign = benignBlockLightChange(change) ||

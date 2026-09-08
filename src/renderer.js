@@ -756,7 +756,7 @@ export class GameRenderer {
   }
 
   onWorldMutation(world, event) {
-    if (world === this.world) this.blockLight?.observeMutation(world, event);
+    if (world === this.world) (this.daylightMaterial ?? this.blockLight)?.observeMutation(world, event);
   }
 
   updateDaylight() {
