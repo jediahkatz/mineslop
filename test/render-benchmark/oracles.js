@@ -1,5 +1,6 @@
 import { summarize } from "../realtime/statistics.js";
 import { fixedRasterEvidence } from "./raster.js";
+import { positivePixelControl } from "./recovery.js";
 
 export const DEFAULT_CONSTRAINTS = Object.freeze({
   radius: 12, frameP95Ms: 16.7, editMs: 1000, usefulMs: 5000,
@@ -107,7 +108,9 @@ export function evaluateRun(run, constraints = DEFAULT_CONSTRAINTS) {
     gate("post-timing control errors", run.controlErrors?.length, 0),
     gate("sampled visible missing surfaces", checkedSurfaces.length ? surfaces.filter(s => s.status === "missing-surface").length : null, 0),
     gate("sampled duplicate native/LOD surfaces", checkedSurfaces.length ? surfaces.filter(s => s.status === "duplicate-ownership").length : null, 0),
-    { name: "A/B/A native-hidden pixel control", status: run.pixelControl?.status ?? "unavailable" },
+    { name: "A/B/A native-hidden pixel control",
+      status: !run.pixelControl || run.pixelControl.status === "unavailable" ? "unavailable" :
+        positivePixelControl(run.pixelControl) ? "pass" : "fail" },
     { name: "context loss/recovery and disposal", status: run.lifecycle?.status ?? "unavailable" },
     { name: "immutable source provenance", status: run.provenanceStable === true ? "pass" : "fail" },
     { name: "verified fetched frozen modules", status: run.provenance?.servedVerified === true ? "pass" : "fail" },

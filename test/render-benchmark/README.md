@@ -80,6 +80,27 @@ pass because baseline is 6,000 ms. Observer-heavy physical proof uses the separa
 that bound. A 100 ms clean edit plus 1,447 ms physical proof can pass. Missing or
 late physical proof still prevents qualification; it is not an FPS/latency metric.
 
+### Positive pixel proof, version 2
+
+Standalone A/B/A verification now uses the existing paid-edit camera pose after
+timing, then restores the actual route camera position and quaternion. Its
+`poseKind` is `paid-edit-controlled`: the control PNGs are **not** settled-route
+screenshots. No world, generator, input route, budget or timing threshold changes.
+
+Both standalone and recovery pixel controls require a positive native physical
+ray witness, successful normal/hidden/restored renders, nonempty and changed
+pixels, exact restored pixels, positive normal/restored draws, three zero GL
+error observations, no captured errors, and exact camera restoration. Missing
+evidence cannot pass merely by claiming `status: "pass"`.
+
+The old settled-view center ray was bounded to eight blocks. Its missing hit
+can coexist with native pixels elsewhere in the image; it is **missing probe
+evidence**, not a new visible-hole classification. Old captures are immutable:
+do not relabel them or add inferred positive witnesses. Pixel `proofVersion: 2`
+is mandatory in the new gate. Links retain the raw proof, and comparisons reject
+old prelinked records without it. The timing measurement version and optimization
+metrics remain unchanged; new harness hashes/bundles must be frozen for new runs.
+
 ## Freeze before comparing concurrent changes
 
 Live Vite/independent unverified URLs are rejected. Freeze each revision:

@@ -3,6 +3,7 @@ import { fixedSourceGroups } from "./provenance.mjs";
 import { fixedRasterEvidence } from "./raster.js";
 import { cleanEditGates, sameConstraints, validatedConstraints } from "./oracles.js";
 import { timingQualified } from "./acceptance.js";
+import { positivePixelControl } from "./recovery.js";
 
 const metric = (run, key) => ({
   frameP95: run.statistics?.frames.p95,
@@ -23,6 +24,9 @@ export function compareTrials(before, after, { minimumPairs = 3, improvementFrac
   for (const [label, rows] of [["baseline", before], ["candidate", after]])
     if (new Set(rows.map(r => r.configurationLabel)).size !== 1)
       reasons.push(`${label}: configuration changed across trials`);
+  for (const row of [...before, ...after])
+    if (!positivePixelControl(row.correctnessEvidence?.pixelControl))
+      reasons.push("Missing current positive physical/pixel proof in linked correctness evidence");
   if (before.length !== after.length || before.length < minimumPairs)
     reasons.push(`Need at least ${minimumPairs} alternating paired trials with equal counts`);
   const environment = r => JSON.stringify({

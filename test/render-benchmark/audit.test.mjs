@@ -7,7 +7,7 @@ import { recoveryGate } from "./recovery.js";
 import { evaluateRun, DEFAULT_CONSTRAINTS } from "./oracles.js";
 import { timingQualified, linkCaptures, exitCodeFor } from "./acceptance.js";
 import { compareTrials } from "./comparison.js";
-import { correctnessFixture, performanceFixture, linkedFixture } from "./audit-fixtures.js";
+import { correctnessFixture, performanceFixture, linkedFixture, pixelFixture } from "./audit-fixtures.js";
 import { digest, sealManifest, fetchVerifiedBundle } from "./provenance.mjs";
 import { RenderScaleController } from "../../src/render-scale.js";
 import { pinRaster, fixedRasterEvidence } from "./raster.js";
@@ -148,8 +148,7 @@ test("transaction clock includes real prepare and commit, excludes inventory set
 });
 
 test("CPU meshes plus restored context cannot pass a broken GPU republish", () => {
-  const pixels = { status: "pass", positiveSurface: true, draws: 2, nonzeroChannels: 30,
-    changedChannels: 20, restoredChannels: 0, poseKey: "fixed-pose", glError: 0 };
+  const pixels = pixelFixture();
   const make = () => ({ sawLost: true, contextRestored: true, recoveryDisposals: 2, retired: true,
     before: { ...pixels }, after: { ...pixels }, errors: [] });
   assert.equal(recoveryGate(make()), true);

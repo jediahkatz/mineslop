@@ -1,6 +1,16 @@
 // Deliberately synthetic oracle/CLI controls, never performance evidence.
 import { DEFAULT_CONSTRAINTS, evaluateRun } from "./oracles.js";
 import { linkCaptures, timingQualified } from "./acceptance.js";
+import { PIXEL_PROOF_VERSION } from "./recovery.js";
+
+export function pixelFixture() {
+  return { proofVersion: PIXEL_PROOF_VERSION, status: "pass", positiveSurface: true,
+    draws: 2, restoredDraws: 2, nonzeroChannels: 30, changedChannels: 20, restoredChannels: 0,
+    glError: 0, glErrors: [0, 0, 0], errors: [],
+    rendered: { normal: true, nativeHidden: true, restored: true },
+    poseKind: "paid-edit-controlled", poseKey: "fixed-paid-pose",
+    originalPoseKey: "route-pose", restoredPoseKey: "route-pose", poseRestored: true };
+}
 
 export function correctnessFixture(source = "baseline") {
   const run = {
@@ -14,7 +24,7 @@ export function correctnessFixture(source = "baseline") {
     frameIntervals: [16, 16, 16], errors: [], controlErrors: [],
     visibilityEvents: [], contextLossEvents: [], copy: { maxBytes: 1 },
     edit: { visibleMs: 100, farStillLoading: true, transactionMs: 10, publicationMs: null },
-    pixelControl: { status: "pass" }, lifecycle: { status: "pass" },
+    pixelControl: pixelFixture(), lifecycle: { status: "pass" },
     samples: [{
       ms: 1000, position: [0, 10, 0], yaw: 0, pitch: 0, hidden: false, contextLost: false,
       raster: { width: 800, height: 500, pixelRatio: 1 },

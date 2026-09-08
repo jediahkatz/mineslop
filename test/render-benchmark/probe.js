@@ -15,7 +15,7 @@ import { SCENES, captureConfiguration } from "./scenes.js";
 import { cameraRegionProfile } from "./scene-preconditions.js";
 import { paidTransaction, publicationObserved, farLoadingWitness } from "./edit-observation.js";
 import { combinedBackingResources } from "./resources.js";
-import { recoveryGate } from "./recovery.js";
+import { PIXEL_PROOF_VERSION, positivePixelControl, recoveryGate } from "./recovery.js";
 import { pinRaster, rasterState } from "./raster.js";
 import { ownershipWitness } from "./ownership-witness.js";
 
@@ -423,24 +423,30 @@ state.inspectMachine = () => {
 
 // These explicit negative controls run AFTER the timing window. They never
 // advance generation or mesh readiness. A/B/A is one synchronous scene snapshot.
-state.pixelControl = (controlled = false) => {
+state.pixelControl = (controlled = true) => {
   if (state.recording) throw new Error("Pixel controls are post-timing only");
   const r = game.graphics, gl = r.renderer.getContext();
   const savedPose = { position: r.camera.position.clone(), quaternion: r.camera.quaternion.clone() };
+  const cameraKey = () => JSON.stringify([r.camera.position.toArray(), r.camera.quaternion.toArray()]);
+  const originalPoseKey = cameraKey(), errors = [];
+  const onError = event => { errors.push(event.message || String(event.error)); };
+  window.addEventListener("error", onError);
+  let result;
+  try {
   if (controlled) {
-    if (!state.edit) throw new Error("Recovery requires a paid native surface, not an empty scene");
+    if (!state.edit) throw new Error("Pixel verification requires a paid native surface, not an empty scene");
     const at = state.edit.at;
     r.camera.position.set(at.x + 0.5, at.y + 2.5, at.z + 3);
     r.camera.lookAt(at.x + 0.5, at.y + 0.5, at.z + 0.5);
     r.camera.updateMatrixWorld(true);
   }
-  try {
-  const poseKey = JSON.stringify([r.camera.position.toArray(), r.camera.quaternion.toArray()]);
+  const poseKey = cameraKey();
   const capture = () => {
     const rendered = r.render();
     const bytes = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
     gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
-    return { bytes, rendered, draws: r.renderer.info.render.calls, png: r.renderer.domElement.toDataURL("image/png") };
+    const png = r.renderer.domElement.toDataURL("image/png");
+    return { bytes, rendered, draws: r.renderer.info.render.calls, glError: gl.getError(), png };
   };
   const roots = [...r.chunks.values(), ...(r.sectionRegions?.values() ?? [])];
   const visibility = roots.map(root => root.visible);
@@ -462,18 +468,32 @@ state.pixelControl = (controlled = false) => {
     ["x", "y", "z"].every(axis => hit.point[axis] >= at[axis] - 0.01 && hit.point[axis] <= at[axis] + 1.01)));
   const difference = (a, b) => a.reduce((n, v, i) => n + Number(v !== b[i]), 0);
   const changedChannels = difference(a.bytes, b.bytes), restoredChannels = difference(a.bytes, restored.bytes);
-  const glError = gl.getError(), nonzeroChannels = a.bytes.filter((v, i) => i % 4 < 3 && v > 0).length;
-  return {
-    scope: "frozen real-scene native-hidden negative control; not proof of no temporal flicker",
-    changedChannels, restoredChannels, glError, nonzeroChannels, positiveSurface, poseKey, draws: a.draws,
-    status: a.rendered !== false && a.draws > 0 && nonzeroChannels > 0 &&
-      changedChannels > 0 && restoredChannels === 0 && glError === 0 ? "pass" : "fail",
+  const glErrors = [a.glError, b.glError, restored.glError];
+  const glError = glErrors.find(code => code !== 0) ?? 0;
+  const nonzeroChannels = a.bytes.filter((v, i) => i % 4 < 3 && v > 0).length;
+  result = {
+    proofVersion: PIXEL_PROOF_VERSION,
+    scope: controlled
+      ? "post-timing paid-edit controlled pose; not the settled route view or proof of no temporal flicker"
+      : "post-timing settled route pose; absent center-ray evidence is not a visible-hole classification",
+    poseKind: controlled ? "paid-edit-controlled" : "settled-route",
+    changedChannels, restoredChannels, glError, glErrors, nonzeroChannels, positiveSurface,
+    poseKey, originalPoseKey, draws: a.draws, restoredDraws: restored.draws, errors,
+    rendered: { normal: a.rendered, nativeHidden: b.rendered, restored: restored.rendered },
+    status: "pass",
     images: { normal: a.png, nativeHidden: b.png, restored: restored.png },
   };
   } finally {
     r.camera.position.copy(savedPose.position); r.camera.quaternion.copy(savedPose.quaternion);
     r.camera.updateMatrixWorld(true);
+    window.removeEventListener("error", onError);
+    if (result) {
+      result.restoredPoseKey = cameraKey();
+      result.poseRestored = result.restoredPoseKey === originalPoseKey;
+      result.status = positivePixelControl(result) ? "pass" : "fail";
+    }
   }
+  return result;
 };
 
 state.lifecycleControl = async () => {

@@ -65,6 +65,7 @@ export function linkCaptures(performance, correctness) {
     correctnessEvidence: {
       sourceIdentity: correctness.provenance?.sourceIdentity,
       constraints: proofLimits,
+      pixelControl: correctness.pixelControl,
       hardStatus: correctnessEvaluation?.hardStatus,
       evaluation: correctnessEvaluation,
     },

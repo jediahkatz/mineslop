@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { bufferUploadBytes, DEFAULT_CONSTRAINTS, evaluateRun, ringCensus, visibilityAt } from "./oracles.js";
 import { classifySurface } from "./surface-oracle.js";
+import { pixelFixture } from "./audit-fixtures.js";
 
 const sample = (ms = 1000) => ({
   ms, native: { fullRadius: 12, fullDetailBlocks: 192,
@@ -17,7 +18,7 @@ const passing = () => ({
   samples: [sample()], frameIntervals: [16, 16, 16], copy: { maxBytes: 1 },
   edit: { visibleMs: 100, farStillLoading: true }, errors: [], controlErrors: [], provenanceStable: true,
   provenance: { servedVerified: true }, visibilityEvents: [], contextLossEvents: [],
-  pixelControl: { status: "pass" }, lifecycle: { status: "pass" }, machine: { softwareRenderer: true },
+  pixelControl: pixelFixture(), lifecycle: { status: "pass" }, machine: { softwareRenderer: true },
 });
 
 test("empty, detached and missing telemetry never produce success", () => {
