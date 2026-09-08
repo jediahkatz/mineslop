@@ -43,6 +43,7 @@ import {
 import { createTerrainV6 } from "./terrain-v6.js";
 import { getNativeV6Decorators, V6_GENERATION_MANIFEST } from "./terrain-v6-manifest.js";
 import { createNativeTerrainV7 } from "./terrain-v7.js";
+import { registerTotalSurface } from "./surface-availability.js";
 
 export { BIOMES, getBiomeById } from "./biomes.js";
 export const WORLD_MIN = -30000000;
@@ -65,6 +66,19 @@ export function createGenerator(
   seed = "cedar-valley",
   dimension = "overworld",
   generatorVersion = GENERATOR_VERSION
+) {
+  const generator = createGeneratorField(seed, dimension, generatorVersion);
+  // These frozen Overworld fields define a finite top for every in-bounds
+  // integer column. End void and arbitrary/replaced samplers have no certificate.
+  return dimension === "overworld" ? registerTotalSurface(generator, {
+    minX: WORLD_MIN, maxX: WORLD_MAX, minZ: WORLD_MIN, maxZ: WORLD_MAX,
+  }) : generator;
+}
+
+function createGeneratorField(
+  seed,
+  dimension,
+  generatorVersion
 ) {
   const seedString = String(seed).slice(0, 80);
   if (!["overworld", "nether", "end"].includes(dimension))

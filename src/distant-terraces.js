@@ -23,7 +23,7 @@ export class DistantTerraces {
     this.source = source;
     // Material IDs cannot interpolate across biome boundaries, even when the
     // lattice is flat. Atlas caps use the same bounded owner slots as risers.
-    this.flat = !source.blockData && source.allValid && source.minHeight === source.maxHeight;
+    this.flat = !source.chunkOwnership && !source.blockData && source.allValid && source.minHeight === source.maxHeight;
     this.edges = new Map();
     this.tops = null;
     this.walls = null;
@@ -65,6 +65,10 @@ export class DistantTerraces {
   }
 
   begin() {
+    for (const _bytes of this.allocate()) { /* synchronous callers explicitly drain */ }
+  }
+
+  *allocate() {
     if (this.flat) return;
     // Emit only referenced vertices; the native sample lattice is input data,
     // not an unused prefix in the rendered terrain buffer.
@@ -77,17 +81,23 @@ export class DistantTerraces {
       throw new RangeError("Distant terraces exceeded their topology budget");
     // Allocate bounded typed storage once instead of growing boxed-number
     // arrays or copying every vertex during the final publication frame.
-    this.positions = new Float32Array(capacity * 3);
-    this.colors = new Float32Array(capacity * 3);
-    this.surfaceData = new Float32Array(capacity * 3);
-    this.blockData = this.source.blockData ? new Uint16Array(capacity * 3) : null;
-    this.normals = new Float32Array(capacity * 3);
-    this.indices = new Uint32Array(indices);
+    for (const [key, Type, length] of [
+      ["positions", Float32Array, capacity * 3],
+      ["colors", Float32Array, capacity * 3],
+      ["surfaceData", Float32Array, capacity * 3],
+      ["blockData", Uint16Array, this.source.blockData ? capacity * 3 : 0],
+      ["normals", Float32Array, capacity * 3],
+      ["chunkData", Float32Array, this.source.chunkOwnership ? capacity * 2 : 0],
+      ["indices", Uint32Array, indices],
+      ["tops", Int32Array, this.source.count * 4],
+      ["walls", Int32Array, this.source.count * 16],
+    ]) {
+      this[key] = length ? new Type(length) : null;
+      yield this[key]?.byteLength ?? 0;
+    }
     // At a grid point at most four rectangular cells meet. For any wall
     // normal, at most two segments meet (four endpoint/owner combinations).
     // Fixed slots avoid a per-vertex Map while retaining hard normals and owners.
-    this.tops = new Int32Array(this.source.count * 4);
-    this.walls = new Int32Array(this.source.count * 16);
   }
 
   vertex(point, y, normal, wall = false, owner = point) {
@@ -111,6 +121,7 @@ export class DistantTerraces {
     this.surfaceData.set(source.surfaceData.subarray(owner * 3, owner * 3 + 3), target);
     if (this.blockData)
       this.blockData.set(source.blockData.subarray(owner * 3, owner * 3 + 3), target);
+    if (this.chunkData) this.chunkData.set(this.chunk, at * 2);
     return at;
   }
 
@@ -121,6 +132,8 @@ export class DistantTerraces {
         const at = existing * 3, from = owner * 3;
         if (
           this.positions[at + 1] === y &&
+          (!this.chunkData || (this.chunkData[existing * 2] === this.chunk[0] &&
+            this.chunkData[existing * 2 + 1] === this.chunk[1])) &&
           this.surfaceData[at] === this.source.surfaceData[from] &&
           this.surfaceData[at + 1] === this.source.surfaceData[from + 1] &&
           this.surfaceData[at + 2] === this.source.surfaceData[from + 2] &&
@@ -155,6 +168,10 @@ export class DistantTerraces {
     cell.terraceCount = 0;
     if (!cell.valid) return;
     const source = this.source;
+    if (this.chunkData) {
+      const [cx, cz] = cell.key.split(",").map(Number);
+      this.chunk = [cx - source.originX / 16, cz - source.originZ / 16];
+    }
     const owner = cell.anchor ?? cell.ring[0];
     const height = source.heights[owner];
     for (let i = cell.start; i < cell.start + cell.count; i++)
@@ -220,6 +237,7 @@ export class DistantTerraces {
       colors: this.colors.subarray(0, this.vertexCount * 3),
       surfaceData: this.surfaceData.subarray(0, this.vertexCount * 3),
       blockData: this.blockData?.subarray(0, this.vertexCount * 3) ?? null,
+      chunkData: this.chunkData?.subarray(0, this.vertexCount * 2) ?? null,
       indices,
       ranges: this.ranges,
     };
