@@ -94,8 +94,8 @@ export class DistantDetailMask {
   // coordinates and upper/lower or cross-column canopy boundaries.
   owns(point, normal, batch = 0) {
     if (!this.data) return false;
-    const p = point.clone().addScaledVector(normal, -0.001).divideScalar(16).floor()
-      .sub(this.origin.value);
+    const p = point.clone().addScaledVector(this.origin.value, -16)
+      .addScaledVector(normal, -0.001).divideScalar(16).floor();
     const size = this.size.value;
     if (p.x < 0 || p.y < 0 || p.z < 0 || p.x >= size.x || p.y >= size.y || p.z >= size.z)
       return false;
@@ -113,26 +113,30 @@ export class DistantDetailMask {
         uLodDetailMask: this.texture, uLodDetailOrigin: this.origin, uLodDetailSize: this.size,
       });
       shader.vertexShader = `
+        uniform vec3 uLodDetailOrigin;
         attribute float lodDetailBatch;
         varying float vDetailBatch;
         varying vec3 vDetailPosition;
         varying vec3 vDetailNormal;
         ${shader.vertexShader}`.replace("#include <begin_vertex>", `
           #include <begin_vertex>
-          vDetailPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+          // LOD objects have chunk-aligned translations. Subtract the equally
+          // aligned mask origin before adding local vertices: a large world
+          // position would already have lost sub-block and inward-face offsets.
+          vec3 detailTranslation = modelMatrix[3].xyz - uLodDetailOrigin * 16.0;
+          vDetailPosition = mat3(modelMatrix) * position + detailTranslation;
           vDetailNormal = mat3(modelMatrix) * normal;
           vDetailBatch = lodDetailBatch;
         `);
       shader.fragmentShader = `
         uniform sampler2D uLodDetailMask;
-        uniform vec3 uLodDetailOrigin;
         uniform vec3 uLodDetailSize;
         varying float vDetailBatch;
         varying vec3 vDetailPosition;
         varying vec3 vDetailNormal;
         ${shader.fragmentShader}`.replace("#include <clipping_planes_fragment>", `
           #include <clipping_planes_fragment>
-          vec3 detailCell = floor((vDetailPosition - normalize(vDetailNormal) * 0.001) / 16.0) - uLodDetailOrigin;
+          vec3 detailCell = floor((vDetailPosition - normalize(vDetailNormal) * 0.001) / 16.0);
           if (all(greaterThanEqual(detailCell, vec3(0.0))) && all(lessThan(detailCell, uLodDetailSize))) {
             vec2 detailUV = (vec2(detailCell.x, detailCell.y * uLodDetailSize.z + detailCell.z) + 0.5)
               / vec2(uLodDetailSize.x, uLodDetailSize.y * uLodDetailSize.z);
@@ -143,7 +147,7 @@ export class DistantDetailMask {
           }
         `);
     };
-    material.customProgramCacheKey = () => `${cacheKey}/detail-volume-v1/${defaultBatch}`;
+    material.customProgramCacheKey = () => `${cacheKey}/detail-volume-v2/${defaultBatch}`;
   }
 
   resources() {
