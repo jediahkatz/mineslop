@@ -10,6 +10,7 @@ import {
   FLUID_DIRECTIONS,
   HORIZONTAL_FLUID_DIRECTIONS,
 } from "./fluid-constants.js";
+import { planKelpExtension } from "./fluid-kelp.js";
 import {
   canReceiveWater,
   FluidReadLimitError,
@@ -99,8 +100,8 @@ function coralDelay(x, y, z) {
  * publication, preventing a queue's iteration order from spreading a wave more
  * than one cell per five game ticks. Reads include shape-derived prerequisites.
  *
- * This slice is gravity-first with level attenuation. Vanilla's four-block
- * shortest-drop direction search, lava interaction and kelp growth are separate.
+ * This slice is gravity-first with level attenuation and bounded kelp renewal.
+ * Vanilla's four-block shortest-drop direction search and lava are separate.
  */
 export function planFluidCell(world, entry, clock, stats) {
   const { x, y, z } = entry;
@@ -115,6 +116,8 @@ export function planFluidCell(world, entry, clock, stats) {
     retryAt: null,
     coralId: null,
     coralDue: null,
+    kelp: null,
+    kelpNext: null,
     reason: "water",
   };
   if (!isEditablePosition(x, y, z, world.generatorVersion, world.dimension))
@@ -128,6 +131,8 @@ export function planFluidCell(world, entry, clock, stats) {
       result.plants.push(removal.plant);
       result.drops.push(...removal.drops);
       result.reason = "kelp-support";
+    } else if (before?.id === BLOCK.KELP) {
+      Object.assign(result, planKelpExtension(world, scope, entry, clock));
     } else if (
       before &&
       BLOCKS[before.id]?.coralFamily &&
@@ -174,6 +179,7 @@ export function planFluidCell(world, entry, clock, stats) {
     }
     result.reads = scope.reads();
     result.waiting = scope.unloaded();
+    if (result.waiting.length) result.change = null;
     if (!result.waiting.length && before && !cellsEqual(before, after))
       result.change = { x, y, z, before, after };
     return result;

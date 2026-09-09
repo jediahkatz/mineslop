@@ -2,8 +2,12 @@ import { BLOCKS } from "./blocks.js";
 import {
   FLUID_HARD_LIMITS,
   FLUID_STEP_SECONDS,
+  KELP_GROW_TICKS,
+  KELP_MAX_AGE,
+  kelpTimerLimit,
   MAX_FLUID_CLOCK,
   MAX_FLUID_WAIT_COLUMNS,
+  MAX_KELP_TIMERS,
 } from "./fluid-constants.js";
 import { FluidWork } from "./fluid-work.js";
 import {
@@ -60,7 +64,7 @@ function normalizeDimension(data, generatorVersion) {
     const [x, y, z, due, expand, coralId, coralDue] = entry;
     if (
       !inWorldBounds(x, y, z, spec) ||
-      !integer(due, 0, MAX_FLUID_CLOCK + 32) ||
+      !integer(due, 0, MAX_FLUID_CLOCK + KELP_GROW_TICKS) ||
       typeof expand !== "boolean" ||
       (coralId === null) !== (coralDue === null) ||
       (coralId !== null &&
@@ -74,6 +78,44 @@ function normalizeDimension(data, generatorVersion) {
     if (seen.has(key)) return null;
     seen.add(key);
     result.queue.push([...entry]);
+  }
+  // The original seven-tuple queue remains unchanged. Only absent marine state
+  // migrates to empty; a present but malformed/unsupported projection rejects.
+  if (Object.hasOwn(data, "marine")) {
+    const marine = data.marine;
+    if (
+      !record(marine) ||
+      marine.version !== 1 ||
+      Object.keys(marine).some((key) => key !== "version" && key !== "kelp") ||
+      !list(marine.kelp, MAX_KELP_TIMERS)
+    )
+      return null;
+    const queued = new Map(result.queue.map((entry) => [
+      entry.slice(0, 3).join(","), entry,
+    ]));
+    const kelp = new Map();
+    for (const entry of marine.kelp) {
+      if (!tuple(entry, 5)) return null;
+      const [x, y, z, age, due] = entry;
+      const key = `${x},${y},${z}`;
+      const cell = queued.get(key);
+      if (
+        !inWorldBounds(x, y, z, spec) ||
+        !cell ||
+        cell[5] !== null ||
+        kelp.has(key) ||
+        !integer(age, 0, KELP_MAX_AGE) ||
+        !integer(due, 0, MAX_FLUID_CLOCK + KELP_GROW_TICKS)
+      )
+        return null;
+      kelp.set(key, [...entry]);
+    }
+    if (kelp.size)
+      result.marine = {
+        version: 1,
+        kelp: [...queued.keys()].filter((key) => kelp.has(key))
+          .map((key) => kelp.get(key)),
+      };
   }
   seen = new Set();
   for (const entry of data.sections) {
@@ -177,10 +219,22 @@ export function normalizeFluidSnapshot(data, context) {
   }
 }
 
-/** A smaller runtime pool may conservatively coarsen a valid larger queue,
- * never truncate it. Restarting an interrupted scan is safe and bounded.
+/** A smaller runtime pool may coarsen ordinary water work, never truncate it.
+ * Timed work cannot be replaced by a scan without losing deadlines/age. Reject
+ * a pool too small for those exact records, before touching the live scheduler.
+ * Restarting an interrupted ordinary scan is safe and bounded.
  */
 export function restoreFluidWork(data, generatorVersion, limits) {
+  const kelp = new Map((data.marine?.kelp ?? []).map(([x, y, z, age, due]) => [
+    `${x},${y},${z}`, { age, due },
+  ]));
+  const timed = (entry) =>
+    entry[5] !== null || kelp.has(entry.slice(0, 3).join(","));
+  if (
+    kelp.size > kelpTimerLimit(limits) ||
+    data.queue.filter(timed).length > limits.maxQueued
+  )
+    return null;
   const work = new FluidWork(data.dimension, generatorVersion, limits);
   work.clock = data.clock;
   work.accumulator = data.accumulator;
@@ -215,7 +269,15 @@ export function restoreFluidWork(data, generatorVersion, limits) {
     const entry = work.scans.get(`${cx},${cz}`);
     if (entry) entry.again = again;
   }
-  for (const [x, y, z, due, expand, coralId, coralDue] of data.queue)
+  // Normal/default loads retain every tuple and its original order verbatim.
+  const queue = data.queue.length <= limits.maxQueued
+    ? data.queue
+    : [...data.queue.filter(timed), ...data.queue.filter((entry) => !timed(entry))];
+  for (const [x, y, z, due, expand, coralId, coralDue] of queue) {
     work.offer(x, y, z, { due, expand, coralId, coralDue });
+    const timer = kelp.get(`${x},${y},${z}`);
+    if (timer)
+      work.keepKelp({ x, y, z }, { ...timer, checkAt: due, expand });
+  }
   return work;
 }

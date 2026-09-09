@@ -34,6 +34,31 @@ test("food requires a complete held-use cycle and does not repeat before another
   assert.equal(use.active, false);
 });
 
+test("dried kelp honors its registered 0.8-second cycle; apples retain 1.6 seconds", () => {
+  for (const hand of ["main", "offhand"]) {
+    const use = new ItemUse();
+    const stack = { id: ITEM.DRIED_KELP, count: 3 };
+    assert.equal(use.start("food", hand, stack, 4), true);
+    assert.equal(getItem(ITEM.DRIED_KELP).useSeconds, 0.8);
+    assert.equal(advance(use, 0.4), false);
+    assert.ok(Math.abs(use.progress - 0.5) < 1e-9);
+    assert.equal(use.start("food", hand, { ...stack, count: 2 }, 4), false);
+    assert.equal(advance(use, 0.35), false);
+    assert.equal(use.completeFoodCycle(), false);
+    assert.equal(use.advance(0.05), true);
+    assert.equal(use.completeFoodCycle(), true);
+    assert.equal(use.completeFoodCycle(), false);
+    assert.equal(advance(use, 0.8), true);
+    assert.equal(use.completeFoodCycle(), true);
+    use.cancel();
+    assert.equal(use.start("food", hand, { id: ITEM.APPLE, count: 1 }, 5), true);
+    assert.equal(use.foodDuration, FOOD_USE_SECONDS);
+    assert.equal(advance(use, 0.8), false);
+    assert.ok(Math.abs(use.progress - 0.5) < 1e-9);
+    assert.equal(advance(use, 0.8), true);
+  }
+});
+
 test("repeated starts do not restart use, while another hand or stack does", () => {
   const use = new ItemUse();
   use.start("food", "offhand", 285);

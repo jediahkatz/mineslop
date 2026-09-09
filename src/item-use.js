@@ -1,5 +1,6 @@
 import { isValidStack } from "./inventory-slots.js";
 import { stackIdentity } from "./item-stack-data.js";
+import { getItem } from "./items.js";
 import { POTION_DRINK_SECONDS } from "./potion-rules.js";
 
 export const FOOD_USE_SECONDS = 1.6;
@@ -45,13 +46,18 @@ export class ItemUse {
     return this.kind === "shield" && this.elapsed >= SHIELD_RAISE_SECONDS;
   }
 
+  get foodDuration() {
+    const seconds = getItem(this.itemId)?.useSeconds;
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : FOOD_USE_SECONDS;
+  }
+
   get progress() {
     if (!this.active) return 0;
     const duration =
       this.kind === "drink"
         ? POTION_DRINK_SECONDS
         : this.kind === "food"
-        ? FOOD_USE_SECONDS
+        ? this.foodDuration
         : this.kind === "bow"
           ? BOW_DRAW_SECONDS
           : SHIELD_RAISE_SECONDS;
@@ -112,13 +118,13 @@ export class ItemUse {
   advance(dt) {
     if (!this.active || !Number.isFinite(dt) || dt <= 0) return false;
     const maximum = this.kind === "drink" ? POTION_DRINK_SECONDS :
-      this.kind === "food" ? FOOD_USE_SECONDS : BOW_DRAW_SECONDS;
+      this.kind === "food" ? this.foodDuration : BOW_DRAW_SECONDS;
     this.elapsed = Math.min(maximum, this.elapsed + Math.min(dt, 0.25));
     return ["food", "drink"].includes(this.kind) && this.elapsed >= maximum - 1e-9;
   }
 
   completeFoodCycle() {
-    if (this.kind !== "food" || this.elapsed < FOOD_USE_SECONDS - 1e-9)
+    if (this.kind !== "food" || this.elapsed < this.foodDuration - 1e-9)
       return false;
     this.elapsed = 0;
     return true;

@@ -1,9 +1,12 @@
+import { BLOCK } from "./blocks.js";
+import { cellsEqual } from "./block-state.js";
 import {
   FLUID_GAME_TICKS,
   FLUID_LIMITS,
   FLUID_STEP_SECONDS,
   fluidLimits,
   fluidReservedBytes,
+  KELP_GROW_TICKS,
   MAX_FLUID_CLOCK,
   MAX_FLUID_DROP_PARTICIPANTS,
 } from "./fluid-constants.js";
@@ -42,6 +45,8 @@ const counters = () => ({
   changedCells: 0,
   rejected: 0,
   blockedDrops: 0,
+  kelpDeferred: 0,
+  kelpGrown: 0,
   observerErrors: 0,
   discardedSeconds: 0,
 });
@@ -55,7 +60,7 @@ const detachedChange = ({ x, y, z, before, after }) =>
   });
 
 /**
- * Bounded active-water simulation. No subscriptions are installed implicitly.
+ * Bounded active-water and kelp simulation. No implicit subscriptions.
  *
  * Parent hooks:
  *   World.onMutation(event) -> fluids.onMutation(event), after publication;
@@ -76,7 +81,8 @@ const detachedChange = ({ x, y, z, before, after }) =>
  * recovery visits/update. World prerequisite validation adds at most two reads
  * per captured read plus one per changed cell. Caller-provided drop work is not
  * included in these bounds. External mutation intake is O(25 * changes.length),
- * capped by the World's MAX_EDITS; it never scans terrain.
+ * capped by the World's MAX_EDITS; it never scans terrain. A removed timed
+ * kelp cell adds one non-generating read to confirm its published replacement.
  *
  * Each dimension has its own clock and bounded queues. Excess dt beyond one
  * second is discarded, not converted into an unbounded catch-up loop. Pending
@@ -167,8 +173,22 @@ export class FluidSystem {
         return false;
     if (!changes.length) return true;
     const work = this._dimension(dimension);
-    for (const { x, y, z } of changes)
+    for (const change of changes) {
+      const { x, y, z, before, after } = change;
+      // A paid break/replant between ticks is a new plant, not the old tip's
+      // nearly completed opportunity. Coordinate-only/repeated wakeups cannot
+      // clear this state; require an actual published kelp replacement.
+      if (
+        dimension === this.world.dimension &&
+        before?.id === BLOCK.KELP &&
+        after &&
+        after.id !== BLOCK.KELP &&
+        work.queue.get(`${x},${y},${z}`)?.kelpAge != null &&
+        cellsEqual(this.world.getCell(x, y, z), after)
+      )
+        work.clearKelp(change);
       work.wake(x, y, z, this._updating ? this._last : this._total);
+    }
     return true;
   }
 
@@ -239,6 +259,42 @@ export class FluidSystem {
     }
   }
 
+  _marineParticipants(work, plans, epoch) {
+    const timed = plans.filter((plan) => plan.entry.kelpAge !== null)
+      .map(({ entry, kelpNext }) => ({
+        entry,
+        next: kelpNext ? {
+          x: kelpNext.x, y: kelpNext.y, z: kelpNext.z,
+          due: kelpNext.due, expand: false, coralId: null, coralDue: null,
+          kelpAge: kelpNext.age, kelpDue: kelpNext.due,
+        } : null,
+      }));
+    if (!timed.length) return [];
+    return [{
+      owner: this,
+      beforeBytes: this.reservedBytes,
+      afterBytes: this.reservedBytes,
+      validate: () =>
+        this._matchesWorld() &&
+        this.world.epoch === epoch &&
+        this.world.dimension === work.dimension &&
+        this._work.get(work.dimension) === work &&
+        timed.every(({ entry }) => {
+          const queued = work.queue.get(`${entry.x},${entry.y},${entry.z}`);
+          return queued?.kelpAge === entry.kelpAge &&
+            queued?.kelpDue === entry.kelpDue;
+        }),
+      publish: () => {
+        for (const { entry, next } of timed) {
+          // A successful extension transfers one pinned slot to its new tip.
+          // No fallible capacity increase, RNG draw or post-publication fixup.
+          if (next) work.moveKelp(entry, next);
+          else work.clearKelp(entry);
+        }
+      },
+    }];
+  }
+
   _tick(work, stats) {
     stats.ticks++;
     work.clock++;
@@ -254,8 +310,15 @@ export class FluidSystem {
     for (const plan of proposals) {
       if (plan.waiting.length) {
         work.defer(plan.entry, plan.waiting);
+        if (plan.entry.kelpAge !== null)
+          work.keepKelp(plan.entry, {
+            age: plan.entry.kelpAge,
+            due: plan.entry.kelpDue,
+            checkAt: work.clock + KELP_GROW_TICKS,
+          }, stats);
         stats.deferred++;
       } else if (plan.retryAt !== null) {
+        if (plan.coralId !== null) work.clearKelp(plan.entry);
         work.offer(
           plan.entry.x,
           plan.entry.y,
@@ -271,6 +334,8 @@ export class FluidSystem {
         );
         if (plan.reason === "read-limit") stats.readLimitRetries++;
       } else if (!plan.change) {
+        if (plan.kelp) work.keepKelp(plan.entry, plan.kelp, stats);
+        else work.clearKelp(plan.entry, { remove: true });
         if (plan.entry.expand) work.expand(plan.entry, stats);
       } else if (plan.plants.length && !synchronous(this.prepareDrops)) {
         stats.blockedDrops++;
@@ -280,11 +345,21 @@ export class FluidSystem {
       }
     }
     if (!accepted.length) return;
-    const changes = accepted.map((plan) => plan.change);
+    // Growth targets the water ABOVE a tip; that cell can also have a water
+    // proposal this tick. Prefer the valid aquatic replacement, never submit
+    // duplicate coordinates (which would veto/retry both forever).
+    const byCell = new Map();
+    for (const plan of accepted) {
+      const { x, y, z } = plan.change;
+      const key = `${x},${y},${z}`;
+      if (!byCell.has(key) || plan.kelpNext) byCell.set(key, plan);
+    }
+    const selected = [...byCell.values()];
+    const changes = selected.map((plan) => plan.change);
     // Fixed reservation makes conservative replay infallible under capacity
     // pressure. If preparation/commit rejects, these extra checks recompute
     // against unchanged cells; they are not speculative World publications.
-    for (const { entry } of accepted) {
+    for (const { entry, change } of selected) {
       work.offer(
         entry.x,
         entry.y,
@@ -293,10 +368,10 @@ export class FluidSystem {
         true,
         stats
       );
-      work.wake(entry.x, entry.y, entry.z, stats);
+      work.wake(change.x, change.y, change.z, stats);
     }
     const prerequisites = new Map();
-    for (const plan of accepted)
+    for (const plan of selected)
       for (const read of plan.reads)
         prerequisites.set(`${read.x},${read.y},${read.z}`, read);
     stats.prepares++;
@@ -306,23 +381,25 @@ export class FluidSystem {
     });
     if (!worldPlan) {
       stats.rejected++;
-      this._retry(work, accepted, stats);
+      this._retry(work, selected, stats);
       return;
     }
-    const drops = this._dropParticipants(accepted, changes, epoch);
+    const drops = this._dropParticipants(selected, changes, epoch);
     if (!drops) {
       stats.blockedDrops++;
-      this._retry(work, accepted, stats);
+      this._retry(work, selected, stats);
       return;
     }
     stats.commits++;
-    const result = this.coordinator.commit([worldPlan, ...drops]);
+    const marine = this._marineParticipants(work, selected, epoch);
+    const result = this.coordinator.commit([worldPlan, ...drops, ...marine]);
     if (!result.ok) {
       stats.rejected++;
-      this._retry(work, accepted, stats);
+      this._retry(work, selected, stats);
       return;
     }
     stats.changedCells += changes.length;
+    stats.kelpGrown += selected.filter((plan) => plan.kelpNext).length;
     stats.observerErrors += result.observerErrors.length;
   }
 
@@ -340,7 +417,6 @@ export class FluidSystem {
     work.accumulator = Math.min(maxDebt, work.accumulator + admitted);
     this._updating = true;
     try {
-      work.scan(this.world, stats);
       while (
         stats.ticks < this.limits.maxTicksPerUpdate &&
         work.accumulator + 1e-10 >= FLUID_STEP_SECONDS &&
@@ -351,6 +427,11 @@ export class FluidSystem {
         work.accumulator = Math.max(0, work.accumulator - FLUID_STEP_SECONDS);
         this._tick(work, stats);
       }
+      // Admit recovery AFTER consuming ready work. Otherwise an external wake
+      // flood can refill a small queue before every scan and pin its cursor
+      // forever, even though each update drains ordinary water work afterward.
+      if (this._matchesWorld() && this.world.dimension === work.dimension)
+        work.scan(this.world, stats);
     } finally {
       this._updating = false;
       for (const key of Object.keys(stats)) this._total[key] += stats[key];
@@ -374,6 +455,7 @@ export class FluidSystem {
     const replacement = new Map();
     for (const entry of snapshot.dimensions) {
       const work = restoreFluidWork(entry, this.generatorVersion, this.limits);
+      if (!work) return false;
       if (entry.dimension === this.world.dimension)
         for (const section of work.sections.values())
           section.waiting = section.waiting.filter(
@@ -387,12 +469,14 @@ export class FluidSystem {
 
   diagnostics() {
     let queued = 0,
+      kelpTimers = 0,
       dirtySections = 0,
       deferredSections = 0,
       scanJobs = 0,
       recoveryRegions = 0;
     for (const work of this._work.values()) {
       queued += work.queue.size;
+      kelpTimers += work.kelpCount;
       dirtySections += work.sections.size;
       scanJobs += work.scans.size;
       recoveryRegions += work.regions.length;
@@ -403,6 +487,7 @@ export class FluidSystem {
       disposed: this._disposed,
       contextMatches: this._matchesWorld(),
       queued,
+      kelpTimers,
       dirtySections,
       deferredSections,
       scanJobs,

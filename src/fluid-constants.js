@@ -8,6 +8,19 @@ export const MAX_SPONGE_WATER = 65;
 export const MAX_SPONGE_DISTANCE = 7;
 export const MAX_SPONGE_READS = 1024;
 
+// Bounded equivalent of Java's ~487.6-second mean random-tick extension.
+// These are ACTIVE dimension ticks, not wall time or a one-second farm.
+export const KELP_GROW_TICKS = 1950;
+export const KELP_MAX_AGE = 25;
+export const KELP_MAX_HEIGHT = 26;
+export const MAX_KELP_TIMERS = 1024;
+export const kelpTimerLimit = (limits) =>
+  Math.min(
+    MAX_KELP_TIMERS,
+    limits.maxQueued - 1,
+    Math.max(1, Math.floor(limits.maxQueued / 4))
+  );
+
 export const FLUID_LIMITS = Object.freeze({
   maxQueued: 4096,
   maxDirtySections: 256,
@@ -50,6 +63,8 @@ export function fluidLimits(options = {}) {
 // Reserve the entire bounded scheduler at construction. Postcommit work cannot
 // need a fallible budget increase after the World edit has already published.
 // Tuples include bounded signed coordinates, clocks, flags and <=8 wait columns.
+// A kelp timer belongs to an existing queue cell, not an extra queued cell.
+// Its optional projection plus that cell's seven-tuple still fits 128 bytes.
 export function fluidReservedBytes(limits) {
   return (
     4096 +

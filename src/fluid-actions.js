@@ -2,7 +2,6 @@ import { BLOCK, BLOCKS } from "./blocks.js";
 import {
   cellsEqual,
   FLUID,
-  isSourceWater,
   isValidCell,
   isWaterFluid,
   normalizeCell,
@@ -14,6 +13,7 @@ import {
   MAX_SPONGE_READS,
   MAX_SPONGE_WATER,
 } from "./fluid-constants.js";
+import { isKelpWater } from "./fluid-kelp.js";
 import {
   FluidReadScope,
   plantRemoval,
@@ -70,7 +70,8 @@ export function planWaterlogging(world, position, filled = true) {
 
 /** https://minecraft.wiki/w/Kelp — manual placement accepts source/falling
  * water, not lateral levels. Placement converts falling water to an aquatic
- * source. No growth/age simulation is implemented by this slice.
+ * source (including replacement of source-like bubble columns).
+ * FluidSystem owns later saved, active-time growth; this helper does not tick.
  * The caller composes the proposed World change with its item consumption.
  */
 export function planKelpPlacement(world, position) {
@@ -79,10 +80,7 @@ export function planKelpPlacement(world, position) {
   const { x, y, z } = position;
   const before = scope.get(x, y, z);
   if (!before) return failed("unloaded", scope);
-  if (
-    before.id !== BLOCK.WATER ||
-    (!isSourceWater(before.fluid) && before.fluid !== FLUID.WATER_FALLING)
-  )
+  if (!isKelpWater(before))
     return failed("requires-source-or-falling-water", scope);
   if (!supportsKelp(scope, x, y - 1, z))
     return failed(

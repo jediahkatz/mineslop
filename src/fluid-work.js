@@ -4,6 +4,7 @@ import {
   fluidCellKey,
   fluidColumnKey,
   fluidSectionKey,
+  kelpTimerLimit,
   MAX_FLUID_CLOCK,
   MAX_FLUID_WAIT_COLUMNS,
 } from "./fluid-constants.js";
@@ -29,6 +30,8 @@ export class FluidWork {
     this.accumulator = 0;
     this.generation = 0;
     this.queue = new Map();
+    this.kelpCount = 0;
+    this.maxKelp = kelpTimerLimit(limits);
     this.sections = new Map();
     this.scans = new Map();
     this.regions = [];
@@ -76,8 +79,61 @@ export class FluidWork {
       expand: options.expand === true,
       coralId: options.coralId ?? null,
       coralDue: options.coralDue ?? null,
+      kelpAge: null,
+      kelpDue: null,
     });
     return true;
+  }
+
+  /** Timers occupy existing queue slots, with most capacity left for water.
+   * Once admitted they are pinned until a real read/removal retires them:
+   * coarsening a cooldown into a scan would lose its age and remaining time.
+   */
+  keepKelp(entry, kelp, stats) {
+    const { x, y, z } = entry;
+    const key = fluidCellKey(x, y, z);
+    let queued = this.queue.get(key);
+    if (
+      (queued?.kelpAge == null && this.kelpCount >= this.maxKelp) ||
+      (!queued && this.queue.size >= this.limits.maxQueued)
+    ) {
+      this.markSection(Math.floor(x / 16), Math.floor(z / 16), Math.floor(y / 16));
+      if (stats) stats.kelpDeferred++;
+      return false;
+    }
+    if (!queued) {
+      this.offer(x, y, z, entry, false, stats);
+      queued = this.queue.get(key);
+    }
+    if (queued.kelpAge === null) this.kelpCount++;
+    queued.kelpAge = kelp.age;
+    queued.kelpDue = kelp.due;
+    queued.due = kelp.checkAt ?? kelp.due;
+    queued.expand = kelp.expand === true;
+    queued.coralId = null;
+    queued.coralDue = null;
+    return true;
+  }
+
+  clearKelp(entry, { remove = false } = {}) {
+    const key = fluidCellKey(entry.x, entry.y, entry.z);
+    const queued = this.queue.get(key);
+    if (queued?.kelpAge == null) return;
+    this.kelpCount--;
+    queued.kelpAge = null;
+    queued.kelpDue = null;
+    if (remove) this.queue.delete(key);
+  }
+
+  /** Publication-only transfer of a preallocated tip record. The old timer is
+   * pinned and validated by the FluidSystem participant, so its freed slot is
+   * sufficient even at total capacity. No overflow/coarsening path is allowed.
+   */
+  moveKelp(entry, next) {
+    this.clearKelp(entry, { remove: true });
+    const key = fluidCellKey(next.x, next.y, next.z);
+    if (this.queue.get(key)?.kelpAge == null) this.kelpCount++;
+    this.queue.set(key, next);
   }
 
   wake(x, y, z, stats) {
@@ -102,9 +158,21 @@ export class FluidWork {
     for (const [key, entry] of this.queue) {
       stats.queueVisits++;
       if (entry.due > this.clock) continue;
-      this.queue.delete(key);
-      entries.push(entry);
+      // Keep timer capacity reserved during planning and fallible preparation.
+      // Detached proposals cannot accidentally edit their live saved deadline.
+      if (entry.kelpAge === null) this.queue.delete(key);
+      entries.push({ ...entry });
       if (entries.length >= this.limits.maxUpdatesPerTick) break;
+    }
+    // Rotate only after traversal: mutating Map order inside that iterator can
+    // visit an entry twice. Even continuously woken/rejected tips cannot starve
+    // the water behind them, and visits still never exceed maxQueued per tick.
+    for (const entry of entries) {
+      if (entry.kelpAge === null) continue;
+      const key = fluidCellKey(entry.x, entry.y, entry.z);
+      const queued = this.queue.get(key);
+      this.queue.delete(key);
+      this.queue.set(key, queued);
     }
     return entries;
   }
@@ -386,6 +454,18 @@ export class FluidWork {
           coralDue,
         ]
       ),
+      ...(this.kelpCount
+        ? {
+            marine: {
+              version: 1,
+              kelp: [...this.queue.values()]
+                .filter((entry) => entry.kelpAge !== null)
+                .map(({ x, y, z, kelpAge, kelpDue }) => [
+                  x, y, z, kelpAge, kelpDue,
+                ]),
+            },
+          }
+        : {}),
       sections: [...this.sections.values()].map(
         ({ cx, cz, sy, cursor, again, waiting }) => [
           cx,
