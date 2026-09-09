@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, open, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -119,31 +119,47 @@ export function readConfig(args = process.argv.slice(2), env = process.env) {
   };
 }
 
-/** Filesystem discovery, never shelling out or using a shared browser profile. */
+/** Refuse shell launchers; identity/profile/pipe checks still belong to the launch guard. */
 export async function chromeExecutable(configured) {
   const candidates = configured
     ? [configured]
     : [
-        "/usr/local/bin/google-chrome",
+        "/opt/google/chrome/chrome",
+        "/opt/chromium/chrome",
+        "/usr/lib/chromium/chromium",
         "/usr/bin/google-chrome",
         "/usr/bin/google-chrome-stable",
-        "/opt/google/chrome/chrome",
         "/usr/bin/chromium",
         "/usr/bin/chromium-browser",
-        "/opt/chromium/chrome",
       ];
   for (const candidate of candidates) {
     try {
-      await access(candidate, constants.X_OK);
-      return candidate;
+      const path = await realpath(candidate);
+      await access(path, constants.X_OK);
+      const file = await open(path, "r");
+      try {
+        if (!(await file.stat()).isFile()) continue;
+        const header = Buffer.alloc(4);
+        if ((await file.read(header, 0, 4, 0)).bytesRead !== 4) continue;
+        const magic = header.readUInt32BE();
+        const native = process.platform === "win32"
+          ? header[0] === 0x4d && header[1] === 0x5a
+          : process.platform === "darwin"
+            ? [0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe,
+              0xcafebabe, 0xbebafeca, 0xcafebabf, 0xbfbafeca].includes(magic)
+            : magic === 0x7f454c46;
+        if (native) return path;
+      } finally {
+        await file.close();
+      }
     } catch {
       // Try the next documented installation location.
     }
   }
   throw new Error(
     configured
-      ? `CHROME_BIN is not executable: ${configured}`
-      : "Installed Chrome not found. Set CHROME_BIN to its executable path."
+      ? `CHROME_BIN must be an executable direct native binary: ${configured}`
+      : "No direct Chrome/Chromium binary found. Set CHROME_BIN to the distribution binary."
   );
 }
 
