@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { BLOCK, BLOCKS } from "./blocks.js";
 import { FLUID, isSourceWater, normalizeCell } from "./block-state.js";
 import { isBuildingBlock } from "./building-placement.js";
+import { observeBowAttack } from "./game-combat-effects.js";
 import { placeFluidBlock } from "./game-fluid-block-actions.js";
 import { GameMobActions } from "./game-mob-actions.js";
 import { GameIngredientMobActions } from "./game-ingredient-mob-actions.js";
@@ -519,6 +520,8 @@ export class GameUseActions {
       !this.hasArrow(hand)
     )
       return false;
+    const attack = observeBowAttack(game, hand, strength);
+    if (!attack) return false;
     const cost = gameplay.prepareBowShot(shot);
     if (!cost) return false;
     const origin = new THREE.Vector3().copy(eye);
@@ -531,7 +534,7 @@ export class GameUseActions {
     const hit = mob && (!block || mob.distance < block.distance) ? mob : null;
     const targetPosition = hit && finiteVector(hit.entity.position)
       ? new THREE.Vector3().copy(hit.entity.position) : null;
-    const targetCurrent = () => current() && !hit.entity.dead && !hit.entity.dormant &&
+    const targetCurrent = () => current() && attack.current() && !hit.entity.dead && !hit.entity.dormant &&
       (!wildlife.byId || wildlife.byId.get(hit.entity.id) === hit.entity) &&
       (!targetPosition || (finiteVector(hit.entity.position) && targetPosition.equals(hit.entity.position))) &&
       (!playerPosition || (finiteVector(player.position) && playerPosition.equals(player.position))) &&
@@ -539,13 +542,13 @@ export class GameUseActions {
       finiteVector(player.forward) && forward.equals(player.forward);
     const paid = {
       ...cost,
-      validate: () => current() && cost.validate(),
+      validate: () => current() && attack.validate() && cost.validate(),
     };
     const ingredientActions = (game.ingredientMobActions ??= new GameIngredientMobActions(game));
     const actions = hit && ingredientActions.owns(hit.entity) ? ingredientActions
       : (game.mobActions ??= new GameMobActions(game));
     const owned = hit && actions.owns(hit.entity);
-    const amount = Math.max(1, Math.round((item.damage ?? 6) * strength));
+    const amount = attack.amount;
     const result = owned
       ? actions.commit(actions.prepareHit(hit.entity, amount, {
           reach: range, participants: [paid],

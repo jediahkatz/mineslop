@@ -17,6 +17,7 @@ import { playerKillExperience } from "./experience-rewards.js";
 import { Fuses } from "./fuses.js";
 import { FrameRate } from "./frame-rate.js";
 import { GameArchive } from "./game-archive.js";
+import { meleeTargetFamily, observeMeleeAttack } from "./game-combat-effects.js";
 import { GameBuildingServices } from "./game-building-services.js";
 import { GameConduitServices, currentConduitServices, gameMiningDuration, updatePlayerVisualEffects } from "./game-conduit-services.js";
 import { bindGameControls } from "./game-controls.js";
@@ -1367,10 +1368,23 @@ export class VoxelGame {
           return;
         }
       } else if (this.mobActions.owns(entity)) {
-        this.mobActions.melee(entity);
+        const result = this.mobActions.melee(entity);
+        if (!result?.ok) {
+          this.lastAction = previousAction;
+          return;
+        }
       } else {
-        const amount = this.gameplay.selectedItem?.tool === "bow" ? 1 : this.gameplay.attack();
-        if (amount) this.hitMob(entity, amount);
+        const kind = entity.kind;
+        const attack = observeMeleeAttack(this, meleeTargetFamily(kind));
+        const validate = () => entity.kind === kind && attack.validate();
+        const paid = attack && attack.amount > 0 &&
+          (attack.item?.tool === "bow" ? validate() : this.gameplay.attack({ validate }));
+        if (!paid) {
+          this.lastAction = previousAction;
+          return;
+        }
+        // The final durability use still hits with its pre-payment projection.
+        if (attack.current() && entity.kind === kind) this.hitMob(entity, attack.amount);
       }
       this.effects.sound("mine", 2);
       this.effects.swing = 1;

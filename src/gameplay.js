@@ -1149,8 +1149,9 @@ export class Gameplay {
     return held?.damage ?? 1;
   }
 
-  attack() {
-    if (this._disposed || this._inventoryBusy || this.dead) return 0;
+  attack({ validate = () => true } = {}) {
+    if (this._disposed || this._inventoryBusy || this.dead ||
+        !synchronous(validate) || validate() !== true) return 0;
     const damage = this.attackDamage();
     const held = this.selectedItem;
     if (!damage) {
@@ -1178,7 +1179,10 @@ export class Gameplay {
         },
         { notify: false, selfUseHands: ["main", "offhand"] }
       );
-      if (!participant || !this.coordinator.commit([participant]).ok) return 0;
+      if (!participant || !this.coordinator.commit([{
+        ...participant,
+        validate: () => validate() === true && participant.validate(),
+      }]).ok) return 0;
       if (broken) this.onToast(`${held.name} broke`);
       this._exhaust(0.1);
     }

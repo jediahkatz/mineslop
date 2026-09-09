@@ -1,5 +1,6 @@
 import { captureEntityContext } from "./entity-context.js";
 import { ECOLOGY_SPECIES } from "./expansion-ecology.js";
+import { meleeTargetFamily, observeMeleeAttack } from "./game-combat-effects.js";
 import { MINING_TOOLS } from "./gameplay-harvest.js";
 import { wearDraftHand, withBrokenToolNotice } from "./gameplay-hand-actions.js";
 import { horseFood, isHorseSaddle } from "./horse-definitions.js";
@@ -141,14 +142,16 @@ export class GameMobActions {
     } : refuse("owned-hit-refused");
   }
 
-  prepareMelee(mob) {
+  prepareMelee(mob, scaling) {
     const { gameplay } = this.game;
-    const stack = gameplay.getHandStack("main"), item = gameplay.selectedItem;
-    const amount = item?.tool === "bow" ? 1 : gameplay.attackDamage();
+    const kind = mob?.kind;
+    const attack = observeMeleeAttack(this.game, meleeTargetFamily(kind), scaling);
+    if (!attack || attack.amount <= 0) return refuse("attack-effects-unavailable");
+    const { amount, stack, item } = attack;
     const selected = gameplay.selected;
     let broken = false;
     // One actual Gameplay state edit pays tool wear and exhaustion together.
-    // A bow melee hit retains the existing no-arrow, one-damage behavior.
+    // Bow melee retains its existing no-arrow/no-wear payment behavior.
     const cost = gameplay._prepareState((state) => {
       if (gameplay.mode === "creative" || item?.tool === "bow") return true;
       if (MINING_TOOLS.has(item?.tool))
@@ -161,8 +164,12 @@ export class GameMobActions {
       }
       return true;
     }, { notify: false, selfUseHands: ["main"] });
+    const paid = cost && {
+      ...cost,
+      validate: () => mob?.kind === kind && attack.validate() && cost.validate(),
+    };
     return cost ? this.prepareHit(mob, amount, {
-      melee: true, participants: [withBrokenToolNotice(cost, gameplay, stack, broken)],
+      melee: true, participants: [withBrokenToolNotice(paid, gameplay, stack, broken)],
     }) : refuse("attack-cost-refused");
   }
 
