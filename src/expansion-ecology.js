@@ -18,6 +18,7 @@ import {
   synchronousEcologyHook,
 } from "./aquatic-ai.js";
 import { captureEntityContext, matchesEntityContext } from "./entity-context.js";
+import { ecologyDeathReward } from "./ecology-loot.js";
 import { finitePosition } from "./mob-navigation.js";
 import { admitNpcSpawn, clearNpcIntent, readVillagerAvailability, stepNpcMob } from "./npc-ai.js";
 import { encodedBytes } from "./save-budget.js";
@@ -105,6 +106,7 @@ export const ECOLOGY_CONTENT_PROPOSALS = freeze({
   },
   unsupported: [
     "Drowned are unarmed: no trident equipment/projectiles, trident loot, or free conversion weapon.",
+    "Drowned have no carried shell trait; nautilus shells are fishing treasure.",
     "No dolphin mounting/taming, turtle kill scutes, villager-generated trade stock, or boss campaign.",
   ],
 });
@@ -884,7 +886,11 @@ export class ExpansionEcology {
     const state = this.state(mob?.id), guard = this._capture(mob, ctx);
     if (!guard || typeof playerKill !== "boolean" || typeof deferRewards !== "boolean")
       return null;
-    const reward = ecologyDeathReward(mob.kind, playerKill);
+    const reward = ecologyDeathReward(mob.kind, playerKill, {
+      seed: this.context.seed, generatorVersion: this.context.generatorVersion,
+      dimension: state.dimension, id: state.id,
+      baby: state.kind === "turtle" && !state.scuteClaimed,
+    });
     const participants = contribution ? [] : [prepareHook(prepareRemoval, mob)];
     if (!deferRewards && reward.drops.length)
       participants.push(prepareHook(prepareDrops, reward.drops, ecologyPoint(mob.position), state.dimension));
@@ -988,20 +994,4 @@ export class ExpansionEcology {
   }
 }
 
-export function ecologyDeathReward(kind, playerKill = false) {
-  let drops = [], experience = 0;
-  if (kind === "guardian") {
-    drops = [{ name: "PRISMARINE_SHARD", count: 2 }, { name: "PRISMARINE_CRYSTALS", count: 1 }];
-    experience = 5;
-  } else if (kind === "elder_guardian") {
-    drops = [
-      { name: "WET_SPONGE", count: 1 }, { name: "PRISMARINE_SHARD", count: 3 },
-      { name: "PRISMARINE_CRYSTALS", count: 2 },
-    ];
-    experience = 10;
-  } else if (kind === "blaze" && playerKill) {
-    drops = [{ name: "BLAZE_ROD", count: 1 }];
-    experience = 10;
-  } else if (kind === "drowned") experience = 5;
-  return freeze({ drops, experience: playerKill ? experience : 0 });
-}
+export { ecologyDeathReward };

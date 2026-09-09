@@ -105,7 +105,7 @@ export const CONTENT_ACQUISITION_HOOKS = Object.freeze(
       ],
       [
         "NAUTILUS_SHELL",
-        "fishing treasure / shell-carrying drowned",
+        "fishing treasure",
         "conduit recipe",
       ],
       [

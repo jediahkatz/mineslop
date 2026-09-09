@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { BLOCK } from "../src/blocks.js";
 import { ecologyEncounterProjection } from "../src/ecology-save.js";
-import { ECOLOGY_SPECIES } from "../src/expansion-ecology.js";
+import { ecologyDeathReward, ECOLOGY_SPECIES } from "../src/expansion-ecology.js";
 import { insertStack } from "../src/inventory-slots.js";
 import { ITEM } from "../src/items.js";
 import { MAX_RESERVED_BYTES } from "../src/save-budget.js";
@@ -208,7 +208,16 @@ test("two real feeds yield a World-owned egg, one retained hatchling and one gro
   const death = again.host.prepareHit(baby.id, 1000, null, { playerKill: true, validate: () => true });
   assert.ok(death);
   assert.equal(again.host.commit(death).ok, true);
-  assert.deepEqual(ecologyTotals(again), { drops: { [ITEM.SCUTE]: 1 }, xp: 0 }, "no turtle death scute or XP");
+  const reward = ecologyDeathReward("turtle", true, {
+    ...again.context, dimension: again.world.dimension, id: baby.id,
+  });
+  assert.ok(reward.experience >= 1 && reward.experience <= 3, "the grown turtle now has ordinary adult XP");
+  assert.equal(reward.drops.some((drop) => drop.name === "SCUTE"), false);
+  assert.deepEqual(ecologyTotals(again), {
+    drops: { [ITEM.SCUTE]: 1, ...Object.fromEntries(reward.drops.map((drop) =>
+      [ITEM[drop.name] ?? BLOCK[drop.name], drop.count])) },
+    xp: reward.experience,
+  }, "adult death retains its resources without duplicating the saved growth scute");
 });
 
 test("egg destruction batches share one World participant and keep broken child identities reserved", (t) => {

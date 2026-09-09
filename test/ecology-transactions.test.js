@@ -239,7 +239,8 @@ test("hatching and one-time growth/scute ownership survive save/reload and sink 
   const secondSave = restored.owner.serialize();
   const again = ecologyFixture({ world, entries: secondSave.entries, eggs: secondSave.eggs });
   assert.equal(again.owner.prepareGrowth(again.mobs.get("baby"), again.ctx, { prepareDrops: () => null }), null);
-  assert.deepEqual(ecologyDeathReward("turtle", true).drops, []);
+  assert.equal(ecologyDeathReward("turtle", true).drops.some((drop) => drop.name === "SCUTE"), false,
+    "ordinary adult death resources cannot replay the one growth scute");
 });
 
 test("broken eggs cannot hatch, and reserved child identities cannot be used by other admissions", () => {
