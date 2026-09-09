@@ -15,6 +15,14 @@ Power precedes existing bow charge and rounding; melee potions do not modify
 arrows. These rules do not introduce a new attack cooldown or critical-hit clock.
 An arrowless bow melee attack remains a melee action, not a Power projectile.
 
+Normal held-bow input also works while aiming at Ecology-owned residents.
+Unsupported feeding intent proceeds to generic item use, while a recognized
+but refused feed remains handled and cannot become an offhand bow or legacy
+interaction. Existing hand/entity, mount, trader and splash priorities remain.
+Drawing and cancellation cost nothing; one accepted release pays its arrow
+and wear once. `test/game-owned-bow-input.integration.test.js` covers 41 input,
+refusal, priority and stale-owner cases without test-only gameplay shortcuts.
+
 ## Ownership and compatibility
 
 The projection is a read observation carried by the existing Gameplay cost

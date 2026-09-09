@@ -27,22 +27,26 @@ function habitatGenerator(biome, water = false) {
   };
 }
 export const combatBeach = habitatGenerator("beach");
-const combatOcean = habitatGenerator("ocean", true);
+export const combatOcean = habitatGenerator("ocean", true);
 
 /**
  * Authored finite gear/status and habitat, not a native acquisition/UI claim.
  * Game, player, victim, status, Gameplay and every reward sink are real owners.
  * The separate field test exercises paid anvil/brewing/drinking prerequisites.
  */
-export async function combatFixture(t, kind = "horse") {
+export async function combatFixture(t, kind = "horse", {
+  seed = "combat-effect-regression", overflowMaxEntries,
+} = {}) {
+  const ocean = ["drowned", "dolphin", "cod", "squid"].includes(kind);
   const f = await gameMobFixture(t, {
-    seed: "combat-effect-regression", generatorVersion: 4,
-    generatorFactory: kind === "drowned" ? combatOcean : combatBeach,
-    ...(kind === "drowned" ? {
-      spawnPosition: { x: 2.5, y: 65, z: 35.5 }, admissionRadius: 3,
+    seed, generatorVersion: 4, overflowMaxEntries,
+    generatorFactory: ocean ? combatOcean : combatBeach,
+    ...(ocean ? {
+      spawnPosition: { x: 2.5, y: 65, z: kind === "drowned" ? 35.5 : 11 },
+      admissionRadius: kind === "drowned" ? 3 : 1,
     } : {}),
   });
-  if (kind === "turtle" || kind === "drowned") {
+  if (["turtle", "drowned", "dolphin"].includes(kind)) {
     const plan = f.ecology.prepareAdmission(kind, targetPosition);
     assert.ok(plan, `actual ${kind} admission: ${JSON.stringify(f.ecology.habitat(targetPosition, kind))}`);
     assert.equal(f.ecology.commit(plan).ok, true);
@@ -52,7 +56,7 @@ export async function combatFixture(t, kind = "horse") {
   }
   assert.ok(f.mob);
   assert.equal(f.mob.health, f.mob.spec.health);
-  f.actions = kind === "spider"
+  f.actions = ["spider", "cod", "squid"].includes(kind)
     ? (f.game.ingredientMobActions ??= new GameIngredientMobActions(f.game))
     : f.game.mobActions;
   approach(f, f.mob);

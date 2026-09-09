@@ -150,17 +150,19 @@ export class GameUseActions {
     // while main splash precedes an empty offhand mount. Refusal consumes use.
     if (game.mobTarget) {
       const actions = (game.mobActions ??= new GameMobActions(game));
+      const { entity } = game.mobTarget;
+      const ownedTarget = actions.owns(entity);
       for (const hand of hands) {
         const stack = game.gameplay.getHandStack(hand);
         if (stack === null) continue;
-        const owned = actions.interactHand(game.mobTarget.entity, hand, { held });
+        const owned = actions.interactHand(entity, hand, { held });
         if (owned !== null) return this.finishVehicleAction(owned);
         if (stack && getItem(stack.id)?.potionForm === "splash") {
           const result = game.progressionIntegration?.throwPotion(hand);
           return result?.ok === true;
         }
         if (!stack || stack.count < 1) continue;
-        if (game.wildlife.interact?.(game.mobTarget.entity, stack.id)) {
+        if (!ownedTarget && game.wildlife.interact?.(entity, stack.id)) {
           game.gameplay.consumeHand(hand, 1);
           game.scheduleSave();
           game.refreshHud();
@@ -169,10 +171,11 @@ export class GameUseActions {
       }
       for (const hand of hands) {
         if (game.gameplay.getHandStack(hand) !== null) continue;
-        const owned = actions.interactHand(game.mobTarget.entity, hand, { held });
+        const owned = actions.interactHand(entity, hand, { held });
         if (owned !== null) return this.finishVehicleAction(owned);
       }
-      if (actions.owns(game.mobTarget.entity)) return false;
+      // Every supported/refused owned interaction already returned. An
+      // unsupported item can use its generic path without legacy interaction.
     }
     for (const hand of hands) {
       const stack = game.gameplay.getHandStack(hand);

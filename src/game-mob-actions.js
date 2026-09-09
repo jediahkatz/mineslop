@@ -1,9 +1,11 @@
+import { BLOCK } from "./blocks.js";
 import { captureEntityContext } from "./entity-context.js";
 import { ECOLOGY_SPECIES } from "./expansion-ecology.js";
 import { meleeTargetFamily, observeMeleeAttack } from "./game-combat-effects.js";
 import { MINING_TOOLS } from "./gameplay-harvest.js";
 import { wearDraftHand, withBrokenToolNotice } from "./gameplay-hand-actions.js";
 import { horseFood, isHorseSaddle } from "./horse-definitions.js";
+import { ITEM } from "./items.js";
 import { raycastMelee } from "./melee-targeting.js";
 import { TransactionInvariantError } from "./transactions.js";
 import { raycast } from "./world.js";
@@ -106,8 +108,14 @@ export class GameMobActions {
       const result = validate() && game.progressionIntegration?.openTrader(mob.id);
       return result ? { ...result, handled: true } : refuse("villager-unavailable");
     }
+    const stack = game.gameplay.getHandStack(hand);
+    const feeding = ECOLOGY_SPECIES[mob.kind]?.foodNames?.some(
+      (name) => (ITEM[name] ?? BLOCK[name]) === stack?.id);
+    if (!feeding) return null;
+    // A recognized feed can be unavailable or fail its guards/payment. Only
+    // unsupported items may continue to generic use; refusal consumes use.
     const plan = host.prepareInteraction(mob.id, { hand, validate });
-    return plan ? this.commit(plan) : null;
+    return plan ? this.commit(plan) : refuse("entity-interaction-unavailable");
   }
 
   prepareHit(mob, amount, {
