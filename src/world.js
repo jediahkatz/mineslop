@@ -88,6 +88,30 @@ function area(position, radius) {
   return { cx, cz, radius, chunks };
 }
 
+function areaUnion(footprints, dimension) {
+  if (
+    !Array.isArray(footprints) ||
+    footprints.length === 0 ||
+    footprints.length > MAX_CHUNKS
+  )
+    throw new RangeError(`Expected 1–${MAX_CHUNKS} area footprints`);
+  let first;
+  const chunks = new Map();
+  for (const footprint of footprints) {
+    if (footprint?.dimension !== undefined && footprint.dimension !== dimension)
+      throw new RangeError("Area footprint belongs to another dimension");
+    const target = area(footprint, footprint?.radius);
+    first ??= target;
+    for (const chunk of target.chunks) {
+      chunks.set(chunk.key, chunk);
+      if (chunks.size > MAX_CHUNKS)
+        throw new RangeError("Too many concurrent chunk loads");
+    }
+  }
+  // The first footprint supplies queue priority, never a bounding-box demand.
+  return { ...first, chunks: [...chunks.values()], keys: new Set(chunks.keys()) };
+}
+
 export class World {
   constructor(
     seed = "cedar-valley",
@@ -189,7 +213,26 @@ export class World {
 
   async ensureArea(position, radius = 2) {
     if (this._disposed) throw abortError("World is disposed");
-    const target = area(position, radius);
+    return this._ensureTarget(area(position, radius));
+  }
+
+  /**
+   * Admit the exact union of { x, z, radius } footprints as one dependency.
+   * All input and concurrent-pin capacity checks precede ownership changes.
+   * Pins cover the entire batch until it settles; success releases those pins.
+   * The latest batch remains the explicit cache footprint until new area,
+   * streaming, spawn or generation demand replaces it, or dimension/disposal
+   * clears it. Same-dimension save replacement preserves the cached footprint
+   * but cancels pending admissions, just as it does for a single area.
+   * Earlier concurrent batches are protected only until their own completion.
+   * Failures release ownership, not already generated terrain or saved edits.
+   */
+  async ensureAreas(footprints) {
+    if (this._disposed) throw abortError("World is disposed");
+    return this._ensureTarget(areaUnion(footprints, this.dimension));
+  }
+
+  async _ensureTarget(target) {
     const pins = new Set([
       ...this._pins.keys(),
       ...target.chunks.map((chunk) => chunk.key),
@@ -197,10 +240,14 @@ export class World {
     if (pins.size > MAX_CHUNKS)
       throw new RangeError("Too many concurrent chunk loads");
     const epoch = this._epoch;
+    const previousFocus = this._focus;
+    let completed = false;
     // Explicit callers already specify their dependency radius; do not pad it.
     this._focus = target;
     for (const { key } of target.chunks)
       this._pins.set(key, (this._pins.get(key) ?? 0) + 1);
+    // Retire a replaced batch even if all new dependencies are already resident.
+    if (target.keys || previousFocus?.keys) this._trimCache();
     // Pins outrank optional logical streaming work. Physical workers retain
     // their reservations even when their original caller is cancelled.
     const missing = target.chunks.filter(
@@ -224,6 +271,7 @@ export class World {
         target.chunks.map(({ cx, cz }) => this._requestChunk(cx, cz))
       );
       if (epoch !== this._epoch || this._disposed) throw abortError();
+      completed = true;
       return this;
     } finally {
       // An old dimension's finally must not unpin a new request with the same key.
@@ -233,7 +281,11 @@ export class World {
           if (count > 0) this._pins.set(key, count);
           else this._pins.delete(key);
         }
+        // Do not resurrect an older (possibly failed) batch or replace new demand.
+        if (!completed && target.keys && this._focus === target)
+          this._focus = this._streamFocus;
         this._cancelUnwanted();
+        if (!completed && target.keys) this._trimCache();
         this._refillStreaming();
         this._schedule();
       }
@@ -249,6 +301,9 @@ export class World {
     this._cancelUnwanted();
     this._trimCache();
     this._refillStreaming();
+    // A replaced batch may have blocked already-queued visual work. Refill can
+    // reuse every request without queuing a new one, so explicitly wake it.
+    this._schedule();
     return this;
   }
 
@@ -923,6 +978,7 @@ export class World {
         ([candidate]) =>
           candidate !== key &&
           !this._pins.has(candidate) &&
+          !this._focus?.keys?.has(candidate) &&
           !reserved.has(candidate) &&
           (explicit || !this._streamWanted.has(candidate))
       )
@@ -1012,18 +1068,21 @@ export class World {
 
   _trimCache() {
     const { cx = 0, cz = 0, radius = MAX_RADIUS } = this._focus ?? {};
+    const retained = this._focus?.keys;
     for (const [key, chunk] of this.chunks) {
       if (
         !this._pins.has(key) &&
+        !retained?.has(key) &&
         !this._streamWanted.has(key) &&
         (this._streamFocus ||
+          retained ||
           Math.max(Math.abs(chunk.cx - cx), Math.abs(chunk.cz - cz)) > radius)
       )
         this._removeChunk(key, chunk);
     }
     if (this.chunks.size > MAX_CHUNKS) {
       const unpinned = [...this.chunks.entries()]
-        .filter(([key]) => !this._pins.has(key))
+        .filter(([key]) => !this._pins.has(key) && !retained?.has(key))
         .sort(
           ([, a], [, b]) =>
             (b.cx - cx) ** 2 +

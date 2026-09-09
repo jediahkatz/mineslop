@@ -46,14 +46,14 @@ async function loadArea(world, area) {
     for (let cx = minCX; cx <= maxCX; cx++) columns.push({ cx, cz });
   const centerCX = Math.floor((minCX + maxCX) / 2);
   const centerCZ = Math.floor((minCZ + maxCZ) / 2);
-  // Request precisely the selected rectangle, with normal admission pins.
-  // The last request leaves retention centered on it, not on the origin or
-  // its far corner. No extra chunks or private World safety overrides.
+  // Retain precisely the selected rectangle as one public admission dependency.
+  // Keep its deterministic footprint order; retention is the declared union,
+  // not the last radius-zero request. No extra chunks or private overrides.
   columns.sort((a, b) =>
     Math.max(Math.abs(b.cx - centerCX), Math.abs(b.cz - centerCZ)) -
     Math.max(Math.abs(a.cx - centerCX), Math.abs(a.cz - centerCZ)));
-  await Promise.all(columns.map(({ cx, cz }) =>
-    world.ensureArea({ x: cx * 16 + 8, z: cz * 16 + 8 }, 0)));
+  await world.ensureAreas(columns.map(({ cx, cz }) =>
+    ({ x: cx * 16 + 8, z: cz * 16 + 8, radius: 0 })));
   assert.equal(world.generator.counters.chunkGenerations - before,
     (maxCX - minCX + 1) * (maxCZ - minCZ + 1));
   assert.equal(world.chunks.size, (maxCX - minCX + 1) * (maxCZ - minCZ + 1));

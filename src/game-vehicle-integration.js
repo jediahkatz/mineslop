@@ -42,8 +42,8 @@ export async function stageVehicleServices({
     for (const footprint of footprints) {
       if (footprint.dimension !== world.dimension || footprint.radius !== 1)
         throw new Error("Invalid saved vehicle footprint");
-      await world.ensureArea(footprint, footprint.radius);
     }
+    if (footprints.length) await world.ensureAreas(footprints);
     const checked = services.stagePlayerPose(position);
     if (!checked.ok)
       throw new Error(`Invalid saved vehicle pose: ${checked.reason}`);
