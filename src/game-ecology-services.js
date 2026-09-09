@@ -800,6 +800,10 @@ export class GameEcologyServices {
     const player = playerKill ? this._playerGuard() : () => true;
     if (!player || invoke(currentAction) !== true) return null;
     const dealt = Math.min(mob.health, Math.min(1000, amount));
+    const life = mob.life;
+    const meleeHit = playerKill && retaliate && hit?.source === "player" && hit.kind === "melee" &&
+      typeof hit.id === "string" && hit.id.length > 0 && hit.id.length <= 100
+      ? Object.freeze({ id: hit.id, source: "player", kind: "melee", dealt }) : null;
     const loaded = this._loadedGuard(mob.position);
     // Read current physical player facts without writing the shared AI context
     // or Wildlife's player vector during a detached preparation.
@@ -816,11 +820,11 @@ export class GameEcologyServices {
     const afterHit = () => {
       this.ecology.invalidateAvailability();
       this._dirty = true;
-      if (hit && !mob.dead && guard() && recipient()) {
+      if (meleeHit && !mob.dead && mob.life === life && guard() && recipient()) {
         // Keep the standalone reflection bridge's current player context, but
         // only synchronize after commit, never while preparing the base edit.
         this._syncPlayer();
-        this.ecology.retaliate(mob, { ...hit, dealt }, this.wildlife.context);
+        this.ecology.retaliate(mob, meleeHit, this.wildlife.context);
       }
       if (mob.dead) this.clearIntent(mob);
     };

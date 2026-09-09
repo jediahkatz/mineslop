@@ -21,6 +21,7 @@ const eyeFor = (game) => {
   return pose ? { ...pose.position, y: pose.position.y + game.player.eyeHeight }
     : game.player.eyePosition;
 };
+let meleeHitSerial = 0;
 
 /**
  * Game's entity dispatch. Horse/Ecology preparations own damage, death and all
@@ -141,6 +142,15 @@ export class GameMobActions {
       const host = game.ecologyServices;
       if (!host?.active || host.wildlife !== game.wildlife)
         return refuse("ecology-owner-unavailable");
+      if (melee === true) {
+        if (meleeHitSerial >= Number.MAX_SAFE_INTEGER) return refuse("melee-hit-id-exhausted");
+        // Runtime-only identity survives facade replacement, not an archive.
+        // The existing post-commit ecology bridge owns reflection; tool payment
+        // must not become a second Gameplay participant or a post-hit read guard.
+        options.hit = Object.freeze({
+          id: `player-melee:${++meleeHitSerial}`, source: "player", kind: "melee",
+        });
+      }
       plan = host.prepareHit(mob.id, amount, game.player.forward, options);
     }
     return plan?.participants ? {

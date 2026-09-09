@@ -43,6 +43,30 @@ as before. This change does not activate `CombatRuntime`, migrate that path
 to atomic victim/reward transactions, or implement friendly fire and projectile
 kinematics. Bow impact remains the existing hitscan behavior.
 
+## Direct guardian melee
+
+Normal Game melee now carries a unique, immutable, runtime-only hit identity
+into the existing guardian spike bridge. The receiver snapshots player-melee
+credit and dealt damage; after the base hit commits it rechecks the victim's
+life, host and player identity before reflecting. A paid weapon breaking does
+not invalidate an otherwise eligible same-life reaction.
+
+Victim damage and weapon payment retain their existing atomic transaction.
+Reflection is a separate guarded player-damage transaction, not a duplicate
+Gameplay participant in the base hit. It uses current armor, Protection and
+Resistance. A refused defense transaction has no raw-damage fallback and
+cannot replay the paid attack. Projectiles, environmental/unclassified hits,
+no-retaliation requests and dead or replaced guardians do not reflect.
+
+`test/game-guardian-primary.integration.test.js` proves one normal primary
+hit changes a native guardian from 30 to 24 health, the sword from 250 to 249
+durability, and the unarmored player from 20 to 18 health, with one reflection
+and a refused replay. `test/game-guardian-melee-guards.integration.test.js`
+adds 45 lifetime, refusal, mitigation, nonmelee, elder and cooldown cases.
+Native terrain and ordinary population provide the residents; the close
+approach, equipment and extended-spikes instant are authored. These are CPU
+Game/input/owner checks, not a GUI or naturally elapsed encounter claim.
+
 ## Regression and native evidence
 
 `test/progression-combat-field.integration.test.js` exercises 28 actual Game
@@ -99,6 +123,8 @@ the GUI recording; they do not establish how arbitrary supplied files arose.
 
 These checks do not establish resource acquisition from an empty inventory,
 full Java combat parity or the complete world/item goal. Other enchantment
-and potion consumers remain separate work. Existing native-retention,
-Game-frame-budget and renderer failures retain their recorded status; this
-bounded native interaction does not qualify sustained rendering or performance.
+and potion consumers remain separate work. Historical native-retention
+failures remain recorded; the current exact-union admission correction is
+separately qualified in `docs/world-area-admission.md`. Game-frame-budget and
+renderer failures retain their recorded status. These bounded interactions
+do not qualify sustained rendering or performance.
