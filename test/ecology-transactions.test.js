@@ -15,6 +15,7 @@ import {
   ecologyStore,
   ecologyWorld,
   feedHook,
+  fixtureLootObservation,
   monumentFixture,
 } from "./ecology-fixtures.js";
 
@@ -60,6 +61,7 @@ test("domain feeding atomically debits a symbolic food sink and enables assistan
   const fish = ecologyStore(f.coordinator, { RAW_COD: 2 });
   const wreck = { id: "wreck-1", kind: "shipwreck", dimension: "overworld", origin: { x: 14, y: 1, z: 0 } };
   f.structures.set(wreck.id, wreck);
+  f.ctx.observeLootAvailability = fixtureLootObservation;
   const plan = f.owner.prepareFeed(mob, "RAW_COD", f.ctx, { prepareConsume: feedHook(fish) });
   assert.ok(plan);
   assert.equal(fish.value.RAW_COD, 2);
@@ -93,6 +95,7 @@ test("feeding rejects stale hand, mob, descriptor, world epoch and capacity with
     const fish = ecologyStore(f.coordinator, { RAW_COD: 1 });
     const wreck = { id: "wreck", kind: "shipwreck", dimension: "overworld", origin: { x: 12, y: 1, z: 0 } };
     f.structures.set(wreck.id, wreck);
+    f.ctx.observeLootAvailability = fixtureLootObservation;
     const before = f.owner.serialize();
     const plan = f.owner.prepareFeed(mob, "RAW_COD", f.ctx, { prepareConsume: feedHook(fish) });
     assert.ok(plan);

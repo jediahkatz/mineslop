@@ -2,6 +2,7 @@ import {
   admitEcologySpawn,
   AQUATIC_AI_LIMITS,
   clearAquaticIntent,
+  currentDolphinGuide,
   ecologyBodySample,
   ecologyCanOccupy,
   ecologyDistance,
@@ -705,7 +706,7 @@ export class ExpansionEcology {
     const guard = this._capture(mob, ctx, true);
     const previous = this.state(mob?.id);
     if (!guard || !["dolphin", "turtle"].includes(mob.kind)) return null;
-    let next, guideDescriptor = null;
+    let next, guidanceCurrent = () => true;
     if (mob.kind === "dolphin") {
       const sample = ecologyBodySample(ctx.world, mob.position, ecologyCollider("dolphin"), ctx.sampleFluid);
       if (!ECOLOGY_SPECIES.dolphin.foodNames.includes(itemName) ||
@@ -719,9 +720,15 @@ export class ExpansionEcology {
         }) : [];
       const current = Array.isArray(descriptors) ? descriptors.slice(0, AQUATIC_AI_LIMITS.descriptors)
         .filter((descriptor) => descriptor && ctx.getStructure(descriptor.id) === descriptor) : [];
-      const guide = findDolphinGuide(mob.position, previous.dimension, current);
+      const observe = ctx.observeLootAvailability, getStructure = ctx.getStructure;
+      const observed = synchronousEcologyHook(observe) ? observe(current) : null;
+      const guide = findDolphinGuide(mob.position, previous.dimension, current, observed);
       if (!guide && !synchronousEcologyHook(ctx.applyEffect)) return null;
-      if (guide) guideDescriptor = ctx.getStructure(guide.id);
+      guidanceCurrent = () => ctx.observeLootAvailability === observe &&
+        ctx.getStructure === getStructure &&
+        current.every((descriptor) => getStructure(descriptor.id) === descriptor) &&
+        (observe === undefined || (synchronousEcologyHook(observed?.validate) &&
+          observed.validate() === true));
       next = {
         ...previous, assistTime: ECOLOGY_LIMITS.assistance,
         guide: guide ? { ...guide, remaining: ECOLOGY_LIMITS.guidance } : null,
@@ -733,7 +740,7 @@ export class ExpansionEcology {
     }
     const consume = prepareHook(prepareConsume, itemName, 1);
     const source = this._prepare([{ store: "entries", value: next }], ctx,
-      () => guard() && (!guideDescriptor || ctx.getStructure?.(guideDescriptor.id) === guideDescriptor));
+      () => guard() && guidanceCurrent());
     return this._plan(source, [consume], { ok: true, kind: mob.kind, guide: next.guide?.id ?? null });
   }
 
@@ -939,10 +946,26 @@ export class ExpansionEcology {
     const collider = ecologyCollider(mob.kind, state);
     const sample = ecologyBodySample(ctx.world, mob.position, collider, ctx.sampleFluid);
     if (!sample) { this.clearIntent(mob, ctx); return true; }
-    let next = null;
+    let next = null, dolphinGuideGoal = null, guidanceCurrent = () => true;
     if (mob.kind === "dolphin") {
-      const guide = state.guide && state.guide.remaining > step
+      let guide = state.guide && state.guide.remaining > step
         ? { ...state.guide, remaining: state.guide.remaining - step } : null;
+      if (guide && synchronousEcologyHook(ctx.getStructure) &&
+          synchronousEcologyHook(ctx.observeLootAvailability)) {
+        const observe = ctx.observeLootAvailability, getStructure = ctx.getStructure;
+        const descriptor = getStructure(guide.id), guideId = guide.id;
+        const observed = observe(descriptor ? [descriptor] : []);
+        if (synchronousEcologyHook(observed?.validate) && observed.validate() === true) {
+          guidanceCurrent = () => ctx.observeLootAvailability === observe &&
+            ctx.getStructure === getStructure && getStructure(guideId) === descriptor &&
+            observed.validate() === true;
+          const current = currentDolphinGuide(
+            mob.position, state.dimension, guide, descriptor, observed
+          );
+          dolphinGuideGoal = current.goal;
+          if (current.exhausted) guide = null;
+        }
+      }
       next = {
         ...state, air: sample.canBreathe ? ECOLOGY_LIMITS.dolphinAir : Math.max(0, state.air - step),
         dryTime: sample.waterImmersion < 0.08 ? Math.min(ECOLOGY_LIMITS.dolphinDry, state.dryTime + step) : 0,
@@ -955,11 +978,13 @@ export class ExpansionEcology {
     };
     if (next && Object.keys(next).some((key) => next[key] !== state[key])) {
       const guard = this._capture(mob, ctx);
-      const source = guard && this._prepare([{ store: "entries", value: next }], ctx, guard);
+      const source = guard && this._prepare([{ store: "entries", value: next }], ctx,
+        () => guard() && guidanceCurrent());
       if (!source || !this.coordinator.commit([source]).ok) return true;
       state = this.state(mob.id);
     }
-    const runtime = { ...ctx, dimension: ctx.world.dimension, ecologyStateFor: (entityId) => this.state(entityId) };
+    const runtime = { ...ctx, dimension: ctx.world.dimension, dolphinGuideGoal,
+      ecologyStateFor: (entityId) => this.state(entityId) };
     // Revisioned NPC availability becomes stale on movement/intent changes even
     // when no saved timer needed a participant. This revision is not save data.
     if (mob.kind === "villager") this._revision++;

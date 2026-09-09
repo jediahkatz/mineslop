@@ -37,6 +37,7 @@ export const AQUATIC_AI_LIMITS = Object.freeze({
   leash: 32,
   guideDistance: 96,
   descriptors: 8,
+  guideContainers: 64,
   structureIdentity: 1024,
   surfaceProbes: 32,
   waterCandidates: 12,
@@ -363,16 +364,58 @@ function guideFromDescriptor(descriptor, dimension) {
   };
 }
 
-/** Provider enumerates CACHED descriptors only (<=8); AI never describes or
- * generates terrain. Deterministic tie-breaking makes prepared feeds repeatable.
+/** Existing saved coordinates identify the structure, never a saved inventory.
+ * Resolve the current chest from the owner's detached availability observation.
+ * Unknown/unloaded anchors suspend targeting, not the persistent guide timer.
  */
-export function findDolphinGuide(position, dimension, descriptors) {
+export function currentDolphinGuide(position, dimension, guide, descriptor, observation) {
+  const unknown = { goal: null, exhausted: false };
+  const anchor = guideFromDescriptor(descriptor, dimension);
+  if (!guide || !anchor || guide.id !== anchor.id || guide.kind !== anchor.kind ||
+      ecologyDistance(guide.position, anchor.position) >= 0.01 ||
+      !Array.isArray(observation?.structures))
+    return unknown;
+  const loot = observation.structures.slice(0, AQUATIC_AI_LIMITS.descriptors)
+    .find((structure) => structure.id === guide.id);
+  if (!Array.isArray(loot?.containers) || !loot.containers.length ||
+      loot.containers.length > AQUATIC_AI_LIMITS.guideContainers)
+    return unknown;
+  let goal = null, bestId = null, distance = Infinity;
+  for (const container of loot.containers) {
+    if (!["untouched", "nonempty"].includes(container.status) ||
+        !finitePosition(container.position) || typeof container.id !== "string")
+      continue;
+    const at = {
+      x: container.position.x + 0.5,
+      y: container.position.y + 1,
+      z: container.position.z + 0.5,
+    };
+    const next = ecologyDistance(position, at);
+    if (next < distance || (next === distance && container.id < bestId)) {
+      goal = at;
+      bestId = container.id;
+      distance = next;
+    }
+  }
+  return {
+    goal,
+    exhausted: loot.containers.every((container) =>
+      ["empty", "destroyed"].includes(container.status)),
+  };
+}
+
+/** Cached descriptors alone never promise loot. The live provider still caps
+ * selection to four structures within 64; the AI's nominal bounds are ceilings.
+ * Deterministic chest-distance/structure-ID ties make paid feeds repeatable.
+ */
+export function findDolphinGuide(position, dimension, descriptors, observation) {
   if (!Array.isArray(descriptors)) return null;
   let best = null, distance = AQUATIC_AI_LIMITS.guideDistance;
   for (const descriptor of descriptors.slice(0, AQUATIC_AI_LIMITS.descriptors)) {
     const candidate = guideFromDescriptor(descriptor, dimension);
     if (!candidate) continue;
-    const next = ecologyDistance(position, candidate.position);
+    const { goal } = currentDolphinGuide(position, dimension, candidate, descriptor, observation);
+    const next = ecologyDistance(position, goal);
     if (next > 4 && (next < distance || (next === distance && candidate.id < best?.id))) {
       best = candidate;
       distance = next;
@@ -540,15 +583,11 @@ function dolphin(mob, brain, state, sample, dt, ctx, collider) {
       });
     }
   }
-  if (state.guide && synchronousEcologyHook(ctx.getStructure)) {
-    const current = guideFromDescriptor(ctx.getStructure(state.guide.id), state.dimension);
-    if (current && current.id === state.guide.id && current.kind === state.guide.kind &&
-      ecologyDistance(current.position, state.guide.position) < 0.01) {
-      mob.lookTarget = ecologyPoint(current.position);
-      if (distance <= 12 && ecologyDistance(mob.position, current.position) > 4)
-        steer(mob, current.position, mob.spec.speed * 0.7, dt, ctx, collider, "swimmer");
-      return; // Wait for the fed player instead of abandoning them.
-    }
+  if (state.guide && finitePosition(ctx.dolphinGuideGoal)) {
+    mob.lookTarget = ecologyPoint(ctx.dolphinGuideGoal);
+    if (distance <= 12 && ecologyDistance(mob.position, ctx.dolphinGuideGoal) > 4)
+      steer(mob, ctx.dolphinGuideGoal, mob.spec.speed * 0.7, dt, ctx, collider, "swimmer");
+    return; // Wait for the fed player instead of abandoning them.
   }
   if (state.assistTime > 0 && distance > 3 && distance <= 12)
     steer(mob, ctx.player, mob.spec.speed * 0.7, dt, ctx, collider, "swimmer");

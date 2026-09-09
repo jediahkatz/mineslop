@@ -65,6 +65,20 @@ export class GameMobIntegration {
         trading: progressionIntegration.services.trading,
         markers: this.markers, saved: archive.ecology, allowOverBudget: saved != null,
         readHabitat: (...args) => this.readHabitat(...args),
+        observeLootAvailability: (descriptors) => {
+          const current = () => this._current() &&
+            this.explorationServices === explorationServices &&
+            (this._game.explorationServices ?? null) === explorationServices &&
+            this.markers.index === explorationServices?.index;
+          if (!current()) return null;
+          const observed = explorationServices
+            ? explorationServices.observeLootAvailability(descriptors)
+            : { structures: Object.freeze([]), validate: () => true };
+          return observed && Object.freeze({
+            structures: observed.structures,
+            validate: () => current() && observed.validate(),
+          });
+        },
         // Owner API: normalization/activate/serialize must consult this current
         // sidecar, not the initial load (tracking and tombstones change in play).
         readHorses: () => this.horseSnapshot(),

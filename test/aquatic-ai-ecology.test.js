@@ -21,6 +21,7 @@ import {
   ecologyMob,
   ecologyState,
   ecologyWorld,
+  fixtureLootObservation,
   monumentFixture,
   solidWall,
 } from "./ecology-fixtures.js";
@@ -261,9 +262,13 @@ test("guidance rejects invented kinds and is bounded and deterministic over desc
   });
   const input = [descriptor("not-an-ocean-goal", 7, "village"), descriptor("far", 1000),
     descriptor("b", 12), descriptor("a", 12)];
-  assert.equal(findDolphinGuide(from, "overworld", input).id, "a");
-  assert.equal(findDolphinGuide(from, "nether", input), null);
-  assert.equal(findDolphinGuide(from, "overworld", Array(8).fill(input[0]).concat(input[2])), null);
+  const observed = fixtureLootObservation(input);
+  assert.equal(findDolphinGuide(from, "overworld", input, observed).id, "a");
+  assert.equal(findDolphinGuide(from, "nether", input, observed), null);
+  assert.equal(findDolphinGuide(from, "overworld",
+    Array(8).fill(input[0]).concat(input[2]), observed), null);
+  assert.equal(findDolphinGuide(from, "overworld", input), null,
+    "descriptors alone cannot establish useful loot");
 });
 
 test("guardian beam requires a visible full charge, LOS and a current attackable target", () => {

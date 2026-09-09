@@ -124,6 +124,21 @@ export function feedHook(store) {
   });
 }
 
+/** Authored unit-test entitlement only; real owner/native tests inspect Settlement. */
+export function fixtureLootObservation(descriptors) {
+  return {
+    structures: descriptors.map((descriptor) => ({
+      id: descriptor.id,
+      containers: [{
+        id: `${descriptor.id}/container/fixture`,
+        position: { ...descriptor.origin },
+        status: "untouched",
+      }],
+    })),
+    validate: () => true,
+  };
+}
+
 export function monumentFixture() {
   const structure = {
     id: "monument-fixture", kind: "ocean_monument", dimension: "overworld",

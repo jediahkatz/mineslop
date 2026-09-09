@@ -157,6 +157,7 @@ const sameBase = (a, b) => {
  * @property {function(string): object|null} getMob Current bounded Wildlife resident.
  * @property {function(string): object|null} getVillagerAssignment Read-only Trading/canonical marker bridge.
  * @property {function(object, object=): boolean} jobsitePresent Actual loaded World cell check.
+ * @property {function(object[]): object|null} observeLootAvailability Detached resident chest statuses and a synchronous revision guard; never preview loot.
  * @property {object[]} threats At most AQUATIC_AI_LIMITS.neighbors live actors.
  * @property {{x:number,y:number,z:number}} player Current physical feet.
  * @property {{x:number,y:number,z:number}} playerEye Current physical eye.
@@ -197,12 +198,12 @@ export class GameEcologyServices {
     context = world && createWorldContext(world), saved,
     coordinator = world?.coordinator, allowOverBudget = false,
     readPlayer, readHabitat, readHorses, prepareDrops, prepareExperience, prepareVillagerDeath,
-    getVillagerAssignment, jobsitePresent, isTrading, npcWaypoint,
+    getVillagerAssignment, jobsitePresent, isTrading, npcWaypoint, observeLootAvailability,
     onVillagerIntent, onEffectsChanged, onChange,
   } = {}) {
     const callbacks = {
       readPlayer, readHabitat, readHorses, prepareDrops, prepareExperience, prepareVillagerDeath,
-      getVillagerAssignment, jobsitePresent, isTrading, npcWaypoint,
+      getVillagerAssignment, jobsitePresent, isTrading, npcWaypoint, observeLootAvailability,
       onVillagerIntent, onEffectsChanged, onChange,
     };
     if (Object.values(callbacks).some((fn) => fn !== undefined && !synchronousEcologyHook(fn)))
@@ -429,6 +430,9 @@ export class GameEcologyServices {
       getMarker: (id) => this.markers?.getMarker(id) ?? null,
       nearbyStructures: (position, options) =>
         this.markers?.nearbyStructures(position, { ...options, dimension: this.world.dimension }) ?? [],
+      observeLootAvailability: this.hooks.observeLootAvailability
+        ? (descriptors) => invoke(this.hooks.observeLootAvailability, descriptors)
+        : undefined,
       applyEffect: (event) => this.effects.apply(event, this._effectContext()),
       onBeam: (mob, event) => this.attacks.beam(mob, event),
       shootBlaze: (mob, shot) => this.attacks.shootBlaze(mob, shot),

@@ -6,6 +6,7 @@ import {
   explorationServiceLimits,
   normalizeExplorationServicesSnapshot,
 } from "./exploration-host-state.js";
+import { observeExplorationLoot } from "./exploration-loot-availability.js";
 import {
   explorationOrdinary,
   explorationRefused,
@@ -275,6 +276,11 @@ export class GameExplorationServices {
 
   snapshot() {
     return this.serialize();
+  }
+
+  /** Synchronous read-only loot view and lifetime/revision guard for Ecology. */
+  observeLootAvailability(descriptors) {
+    return observeExplorationLoot(this, descriptors);
   }
 
   _acceptNotification(world, event) {
