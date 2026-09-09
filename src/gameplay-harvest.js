@@ -1,5 +1,11 @@
 import { BLOCK, BLOCKS } from "./blocks.js";
 import {
+  activeEnchantmentLevel,
+  fortuneDropChance,
+  fortuneOreMultiplier,
+  fortuneUniformCount,
+} from "./enchantment-effects.js";
+import {
   wearDraftHand,
   withBrokenToolNotice,
 } from "./gameplay-hand-actions.js";
@@ -78,6 +84,43 @@ const correctTool = (profile, item) =>
 const canHarvest = (profile, item) =>
   !profile.tier || (correctTool(profile, item) && item.tier >= profile.tier);
 
+const fortuneMaterials = new Map([
+  [BLOCK.NETHER_GOLD_ORE, { kind: "ore" }],
+  [BLOCK.NETHER_QUARTZ_ORE, { kind: "ore" }],
+  [BLOCK.GLOWSTONE, { kind: "uniform", maximum: 4 }],
+  [BLOCK.SEA_LANTERN, { kind: "uniform", maximum: 5 }],
+  [BLOCK.MELON, { kind: "uniform", maximum: 9 }],
+  [BLOCK.GRAVEL, { kind: "gravel" }],
+]);
+
+function fortuneProfile(blockId, profile, {
+  stack, context, mode = "survival", explosion = false, dropCount = 1,
+} = {}) {
+  if (!profile || !stack || mode !== "survival" || explosion ||
+      !Number.isSafeInteger(dropCount) || dropCount < 1 || dropCount > 64 ||
+      !canHarvest(profile, getItem(stack.id)))
+    return null;
+  const kind = profile.ore
+    ? { kind: (profile.block.harvestAs ?? blockId) === BLOCK.REDSTONE_ORE ? "uniform" : "ore" }
+    : fortuneMaterials.get(blockId);
+  if (!kind) return null;
+  const level = activeEnchantmentLevel(stack, "fortune", context);
+  return level > 0 ? { ...kind, level } : null;
+}
+
+/**
+ * Exact loot draw budget for a Fortune-affected mining action; zero means the
+ * existing unenchanted path. Game reserves these samples in its saved effects
+ * RNG, together with the World, hand, loot and XP transaction.
+ */
+export function fortuneHarvestDraws(blockId, options = {}) {
+  const profile = miningProfile(blockId);
+  const fortune = fortuneProfile(blockId, profile, options);
+  if (!fortune) return 0;
+  if (fortune.kind === "gravel") return options.dropId === BLOCK.AIR ? 0 : 1;
+  return 1 + Number(Boolean(profile.block.dropCount));
+}
+
 export function miningDuration(gameplay, blockId, { modifySpeed } = {}) {
   const profile = miningProfile(blockId);
   if (!profile || gameplay.dead) return Infinity;
@@ -98,19 +141,22 @@ export function miningDuration(gameplay, blockId, { modifySpeed } = {}) {
   );
 }
 
-function rangeCount(range, random) {
-  const [minimum, maximum] = range;
+function harvestRoll(random) {
   const sample = Number(random());
-  const bounded = Number.isFinite(sample)
+  return Number.isFinite(sample)
     ? Math.max(0, Math.min(1 - Number.EPSILON, sample))
     : 0;
-  return minimum + Math.floor(bounded * (maximum - minimum + 1));
+}
+
+function rangeCount(range, random) {
+  const [minimum, maximum] = range;
+  return minimum + Math.floor(harvestRoll(random) * (maximum - minimum + 1));
 }
 
 /**
  * Pure loot proposal. Geometry supplies a block-item override/multiplicity
- * (e.g. two slabs); material eligibility, ore ranges and silk belong here.
- * Explosions have no held tool and cannot borrow its silk touch or mining XP.
+ * (e.g. two slabs); material eligibility, ore ranges, Fortune and silk belong here.
+ * Explosions have no held tool and cannot borrow its enchantments or mining XP.
  */
 export function harvestDrops(
   blockId,
@@ -138,6 +184,7 @@ export function harvestDrops(
   const silk =
     !explosion && stack && enchantmentLevel(stack, "silk_touch", context) > 0;
   const intact = profile.block.silkDrop ?? (profile.ore ? blockId : null);
+  const fortune = fortuneProfile(blockId, profile, { stack, mode, context, explosion, dropCount });
   let drops = [];
   if (silk && intact) {
     drops = [{ id: intact, count: 1 }];
@@ -175,7 +222,9 @@ export function harvestDrops(
     if (id === BLOCK.AIR) return [];
     if (soil.has(blockId)) id = BLOCK.DIRT;
     if (blockId === BLOCK.STONE) id = BLOCK.COBBLESTONE;
-    if (blockId === BLOCK.GRAVEL && random() < 0.1) id = ITEM.FLINT;
+    if (blockId === BLOCK.GRAVEL &&
+        random() < fortuneDropChance("gravel", fortune?.level ?? 0))
+      id = ITEM.FLINT;
     if (getItem(id))
       drops = [
         {
@@ -186,13 +235,25 @@ export function harvestDrops(
         },
       ];
   }
+  if (fortune && !(silk && intact) && fortune.kind !== "gravel" && drops.length) {
+    const roll = harvestRoll(random);
+    drops = drops.map((drop) => ({
+      ...drop,
+      count: fortune.kind === "ore"
+        ? drop.count * fortuneOreMultiplier(fortune.level, roll)
+        : fortuneUniformCount(drop.count, fortune.level, roll, {
+          maximum: fortune.maximum,
+        }),
+    }));
+  }
   return drops.map((drop) => ({ ...drop, count: drop.count * dropCount }));
 }
 
 /** Hand wear, exhaustion and the loot proposal share one bounded player edit. */
 export function prepareHarvest(gameplay, blockId, options = {}) {
   if (!record(options) || !miningProfile(blockId)) return null;
-  const { notify = true, dropId, dropCount = 1 } = options;
+  const { notify = true, dropId, dropCount = 1, random = gameplay.random } = options;
+  if (typeof random !== "function") return null;
   const stack = gameplay.getHandStack();
   const held = getItem(stack?.id);
   const selected = gameplay.selected;
@@ -203,7 +264,7 @@ export function prepareHarvest(gameplay, blockId, options = {}) {
       drops = harvestDrops(blockId, {
         stack,
         mode: gameplay.mode,
-        random: gameplay.random,
+        random,
         context: gameplay.context,
         dropId,
         dropCount,

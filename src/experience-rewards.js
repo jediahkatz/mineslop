@@ -8,6 +8,12 @@ const oreRewards = new Map([
   [BLOCK.LAPIS_ORE, [2, 5]],
 ]);
 
+/** A bounded RNG reservation hint; eligibility and actual drops are checked below. */
+export function hasMiningExperience(id) {
+  const block = BLOCKS[id];
+  return Boolean(block?.oreExperience ?? oreRewards.get(block?.harvestAs ?? id));
+}
+
 function between(minimum, maximum, random) {
   const sample = Number(random());
   const value = Number.isFinite(sample)

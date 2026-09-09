@@ -2,7 +2,7 @@ import { BLOCK, BLOCKS } from "./blocks.js";
 import { cellAfterBreaking } from "./block-state.js";
 import { isBuildingBlock } from "./building-placement.js";
 import { miningExperience } from "./experience-rewards.js";
-import { harvestDrops, miningProfile } from "./gameplay-harvest.js";
+import { fortuneHarvestDraws, harvestDrops, miningProfile } from "./gameplay-harvest.js";
 import { progressionStationKind } from "./progression-station-state.js";
 import { TransactionInvariantError } from "./transactions.js";
 import { explosionTargets } from "./world-interactions.js";
@@ -140,9 +140,14 @@ export class GameHarvestActions {
       dropId: linked?.dropId,
       dropCount: linked?.dropCount ?? 1,
     };
+    const fortune = !explosion && fortuneHarvestDraws(hit.id, {
+      ...lootOptions, stack: gameplay.getHandStack(), mode, context: gameplay.context,
+    }) > 0;
     const harvest = explosion
       ? null
-      : gameplay.prepareHarvest(hit.id, lootOptions);
+      : fortune
+        ? game.progressionIntegration?.prepareFortuneHarvest(hit.id, lootOptions)
+        : gameplay.prepareHarvest(hit.id, lootOptions);
     if (!explosion && !harvest) return null;
     let drops = explosion
       ? harvestDrops(hit.id, {
@@ -154,7 +159,7 @@ export class GameHarvestActions {
         })
       : harvest.drops;
     if (!drops) return null;
-    const participants = harvest ? [harvest.participant] : [];
+    const participants = harvest ? [...(harvest.participants ?? [harvest.participant])] : [];
     if (containers.has(hit.id)) {
       const exploration = game.explorationServices?.prepareBreak(hit, {
         explosion,
@@ -240,7 +245,7 @@ export class GameHarvestActions {
     }
     const experience = explosion
       ? 0
-      : miningExperience(hit.id, drops, mode, gameplay.random);
+      : harvest.experience ?? miningExperience(hit.id, drops, mode, gameplay.random);
     if (experience) {
       const reward = this.prepareExperience(experience, position);
       if (!reward) return null;

@@ -65,7 +65,7 @@ export async function gameMobFixture(t, {
   saved = null, seed = "game-horse-ecology", generatorVersion = 3,
   root = null, document: suppliedDocument, activate = true,
   generatorFactory = gameMobGenerator, spawnPosition, world: suppliedWorld = null,
-  autoSpawn = false, admissionRadius = 1,
+  autoSpawn = false, admissionRadius = 1, overflowMaxEntries,
 } = {}) {
   assert.equal(typeof autoSpawn, "boolean");
   assert.ok(Number.isSafeInteger(admissionRadius) && admissionRadius >= 1 && admissionRadius <= 3);
@@ -100,7 +100,7 @@ export async function gameMobFixture(t, {
   const ownership = { context, coordinator };
   const gameplay = keep(new Gameplay({ ...ownership, mode: "survival" }));
   const settlement = keep(new Settlement(ownership));
-  const overflow = keep(new DropOverflow(ownership));
+  const overflow = keep(new DropOverflow({ ...ownership, maxEntries: overflowMaxEntries }));
   const fuses = keep(new Fuses(ownership));
   for (const [key, owner] of Object.entries({ gameplay, settlement, overflow, fuses }))
     if (saved?.[key]) assert.equal(owner.load(saved[key], { context }), true);

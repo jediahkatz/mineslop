@@ -1,12 +1,14 @@
 import { captureEntityContext } from "./entity-context.js";
 import { refusal, synchronous } from "./enchantment-domain.js";
 import { ExperienceFeedback } from "./experience-feedback.js";
+import { hasMiningExperience, miningExperience } from "./experience-rewards.js";
 import { isValidExperience } from "./experience.js";
 import { GameProgressionServices } from "./game-progression-services.js";
 import { currentConduitServices, updatePlayerVisualEffects } from "./game-conduit-services.js";
 import { normalizeProgressionArchive } from "./game-progression-state.js";
 import { GameProjectileServices } from "./game-projectile-services.js";
 import { Gameplay } from "./gameplay.js";
+import { fortuneHarvestDraws } from "./gameplay-harvest.js";
 import { playerDamageKind } from "./player-damage-kind.js";
 import { advancePlayerAir, airTickCount } from "./player-air-clock.js";
 import { PLAYER_WIDTH } from "./player.js";
@@ -212,6 +214,47 @@ export class GameProgressionIntegration {
     const current = captureEntityContext(this.world, this.gameplay.context);
     return () => this.running && current() &&
       this._player === owner.ref && this.pearls.life === owner.life;
+  }
+
+  /**
+   * Fortune's base/bonus loot rolls and mining XP use the existing saved effects
+   * stream, not Math.random or the enchanting-table seed. A refused/stale source,
+   * hand or destination leaves that stream untouched, so retries cannot reroll.
+   * The caller enlists these peers with World removal and every loot/XP sink.
+   */
+  prepareFortuneHarvest(blockId, options = {}) {
+    const current = this._captureRewardHost();
+    if (!current) return null;
+    const gameplay = this.gameplay;
+    const lootDraws = fortuneHarvestDraws(blockId, {
+      ...options, stack: gameplay.getHandStack(),
+      mode: gameplay.mode, context: gameplay.context,
+    });
+    if (!lootDraws) return null;
+    const draws = lootDraws + Number(hasMiningExperience(blockId));
+    const random = this.services.stations.prepareRandom(draws, { validate: current });
+    if (!random) return null;
+    let offset = 0;
+    const sample = () => {
+      if (offset >= random.rolls.length)
+        throw new RangeError("Fortune harvest exceeded its RNG reservation");
+      return random.rolls[offset++];
+    };
+    const harvest = gameplay.prepareHarvest(blockId, { ...options, random: sample });
+    if (!harvest || offset !== lootDraws) return null;
+    const experience = miningExperience(blockId, harvest.drops, gameplay.mode, sample);
+    if (offset !== draws) return null;
+    return Object.freeze({
+      participants: Object.freeze([
+        Object.freeze({
+          ...harvest.participant,
+          validate: () => current() && harvest.participant.validate(),
+        }),
+        random.participant,
+      ]),
+      drops: harvest.drops,
+      experience,
+    });
   }
 
   /** One replacement damage transaction; never recurse through Gameplay.damage. */
