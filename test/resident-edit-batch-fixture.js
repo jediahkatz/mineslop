@@ -74,6 +74,7 @@ export function residentBorrowersFixture(t, options = {}) {
   const f = horseFixture(t, { ...options, bind: false });
   const host = new GameEcologyServices({
     world: f.world, context: f.context, coordinator: f.coordinator,
+    saved: options.saved?.ecology,
     gameplay: f.gameplay, overflow: f.overflow, experienceOrbs: f.experience,
     readHorses: () => f.horses.serialize(),
     readPlayer: () => ({ ...f.readOwner(), health: f.gameplay.health,

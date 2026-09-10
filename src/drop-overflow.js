@@ -19,7 +19,9 @@ import {
 } from "./transactions.js";
 
 export const MAX_OVERFLOW_RECORDS = 1_000_000;
+export const OVERFLOW_AGGREGATE_LIMITS = Object.freeze({ parts: 64, records: 4096 });
 const MAX_FLUSH_WORK = 64;
+const preparedAdditions = new WeakMap();
 const keyFor = (entry) =>
   JSON.stringify([
     entry.dimension,
@@ -188,12 +190,17 @@ export class DropOverflow {
   }
 
   _prepareChanges(pending, prerequisite = () => true) {
+    return this.#prepareChanges(pending, prerequisite);
+  }
+
+  #prepareChanges(pending, prerequisite = () => true, { additive = false, consume = [] } = {}) {
     if (this._disposed || this._legacyBusy) return null;
     const revision = this._revision;
     const beforeBytes = this._bytes;
     const beforeSize = this.entries.size;
     const maximum = this.maxEntries;
     const entries = this.entries;
+    const coordinator = this.coordinator;
     const context = this.context;
     const seed = context?.seed;
     const generatorVersion = context?.generatorVersion;
@@ -222,13 +229,13 @@ export class DropOverflow {
       afterBytes < 0
     )
       return null;
-    let used = false;
-    return Object.freeze({
+    const token = { used: false };
+    const participant = Object.freeze({
       owner: this,
       beforeBytes,
       afterBytes,
       validate: () =>
-        !used &&
+        !token.used &&
         !this._disposed &&
         !this._legacyBusy &&
         this._revision === revision &&
@@ -236,7 +243,8 @@ export class DropOverflow {
         this.entries.size === beforeSize &&
         this.maxEntries === maximum &&
         this._bytes === beforeBytes &&
-        this.coordinator.usage(this) === beforeBytes &&
+        this.coordinator === coordinator &&
+        coordinator.usage(this) === beforeBytes &&
         this.context === context &&
         context?.seed === seed &&
         context?.generatorVersion === generatorVersion &&
@@ -244,7 +252,8 @@ export class DropOverflow {
         changes.every(({ key, previous }) => entries.get(key) === previous) &&
         prerequisite(),
       publish: () => {
-        used = true;
+        token.used = true;
+        for (const member of consume) member.used = true;
         for (const { key, next, bytes } of changes) {
           if (next === null) {
             entries.delete(key);
@@ -259,6 +268,8 @@ export class DropOverflow {
       },
       notify: () => this.onChange?.(),
     });
+    if (additive) preparedAdditions.set(participant, { owner: this, changes, token });
+    return participant;
   }
 
   /**
@@ -325,7 +336,57 @@ export class DropOverflow {
         }
       }
     }
-    return this._prepareChanges(pending);
+    return this.#prepareChanges(pending, undefined, { additive: true });
+  }
+
+  /**
+   * Combine distinct native add plans, including overlapping keys. Existing
+   * stock is counted once; all member guards and single-use tokens survive.
+   * Flush/generic changes and nested aggregates are deliberately unsupported.
+   * Work is bounded by member count and summed normalized record intents,
+   * independently of the unchanged archive capacity and single-add limits.
+   */
+  prepareParticipantBatch(parts) {
+    if (this._disposed || this._legacyBusy) return null;
+    const members = [], intents = [], seen = new Set();
+    try {
+      if (!Array.isArray(parts)) return null;
+      const length = Object.getOwnPropertyDescriptor(parts, "length")?.value;
+      if (!Number.isInteger(length) || length < 2 || length > OVERFLOW_AGGREGATE_LIMITS.parts)
+        return null;
+      let work = 0;
+      for (let index = 0; index < length; index++) {
+        const descriptor = Object.getOwnPropertyDescriptor(parts, index);
+        if (!descriptor || !Object.hasOwn(descriptor, "value")) return null;
+        const member = descriptor.value, intent = preparedAdditions.get(member);
+        if (!intent || intent.owner !== this || seen.has(member)) return null;
+        work += intent.changes.length;
+        if (work > OVERFLOW_AGGREGATE_LIMITS.records) return null;
+        seen.add(member);
+        members.push(member);
+        intents.push(intent);
+      }
+      if (members.some((member) => member.validate() !== true)) return null;
+    } catch {
+      return null;
+    }
+    const pending = new Map();
+    for (const { changes } of intents) {
+      for (const { key, previous, next } of changes) {
+        const added = next.count - (previous?.count ?? 0);
+        if (!Number.isSafeInteger(added) || added <= 0) return null;
+        const count = (pending.get(key)?.count ?? previous?.count ?? 0) + added;
+        if (!Number.isSafeInteger(count) || count <= 0) return null;
+        pending.set(key, { ...next, count });
+      }
+    }
+    // Native construction cannot be replaced by a claimed owner, spread clone,
+    // overridden public preparer, or a supplied member publisher.
+    return this.#prepareChanges(
+      pending,
+      () => members.every((member) => member.validate() === true),
+      { consume: intents.map(({ token }) => token) }
+    );
   }
 
   /** Compatibility wrapper; uniform optional delay/velocity applies to each drop. */
