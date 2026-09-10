@@ -202,6 +202,8 @@ export class GameMobPotionImpact {
       drops: drops.map((drop) => ({
         id: drop.id ?? ITEM[drop.name],
         count: drop.count,
+        ...(drop.durability === undefined ? {} : { durability: drop.durability }),
+        ...(drop.data === undefined ? {} : { data: drop.data }),
       })),
       position: point(mob.position),
       options: {
