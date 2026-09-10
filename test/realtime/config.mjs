@@ -34,6 +34,7 @@ export function readConfig(args = process.argv.slice(2), env = process.env) {
       quality: { type: "string" },
       "render-mode": { type: "string" },
       "render-distance": { type: "string" },
+      "route-mode": { type: "string" },
       output: { type: "string" },
       seed: { type: "string" },
       screenshot: { type: "string" },
@@ -61,6 +62,11 @@ export function readConfig(args = process.argv.slice(2), env = process.env) {
   const seed = values.seed ?? env.VOXELCRAFT_TEST_SEED ?? "cedar-valley";
   if (!seed || seed.length > 80)
     throw new Error("Seed must contain 1–80 characters");
+  const routeMode = values["route-mode"];
+  if (routeMode !== undefined && !["wall-time-v1", "spatial-32-v1"].includes(routeMode))
+    throw new Error("--route-mode must be wall-time-v1 or spatial-32-v1");
+  if (routeMode === "spatial-32-v1" && seed !== "cedar-valley")
+    throw new Error("spatial-32-v1 requires the fixed cedar-valley spawn");
   // Intentional local Vite test server, not a service credential.
   const base = new URL(env.VOXELCRAFT_TEST_URL ?? "http://127.0.0.1:5173"); // pragma: allowlist secret
   if (
@@ -75,6 +81,7 @@ export function readConfig(args = process.argv.slice(2), env = process.env) {
   url.searchParams.set("quality", quality);
   url.searchParams.set("seed", seed);
   if (values["view-diagnostics"]) url.searchParams.set("viewDiagnostics", "1");
+  if (routeMode === "spatial-32-v1") url.searchParams.set("routeMode", routeMode);
   const pixelRatio =
     values["pixel-ratio"] === undefined
       ? null
@@ -97,6 +104,7 @@ export function readConfig(args = process.argv.slice(2), env = process.env) {
     quality,
     renderMode,
     renderDistance,
+    ...(routeMode === undefined ? {} : { routeMode }),
     durationSeconds: number(
       values.duration ?? env.VOXELCRAFT_TEST_DURATION ?? "55",
       "--duration",
@@ -179,10 +187,11 @@ export async function chromeExecutable(configured) {
 }
 
 export const usage = `Usage: node test/realtime/run.mjs [options]
-  --duration <seconds>   Continuous generated-terrain traversal (default 55)
+  --duration <seconds>   Wall-time traversal only (default 55; unused by spatial mode)
   --quality <level>      low, medium, or high (default medium)
   --render-mode <mode>   nearby or extended; omitted uses the actual app default
   --render-distance <n> Explicit native radius: nearby 2–4, extended 2–12
+  --route-mode <mode>    wall-time-v1 (unchanged default) or opt-in spatial-32-v1
   --seed <seed>          Generator seed (default cedar-valley)
   --output <file.json>   JSON report, including failures
   --screenshot <file>    Optional generated-terrain capture AFTER measurement

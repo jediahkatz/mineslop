@@ -15,6 +15,7 @@ import {
 } from "./scenarios.mjs";
 import { evaluateBudgets } from "./statistics.js";
 import { runNaturalSurvival } from "./survival.mjs";
+import { traverseSpatial32 } from "./spatial-route.mjs";
 
 async function run(config) {
   const started = performance.now();
@@ -167,7 +168,8 @@ async function run(config) {
     stage = "native-mouse-verification";
     await verifyNativeMouse(input, report);
     stage = "generated-terrain-traversal";
-    await traverseTerrain(input, report);
+    if (config.routeMode === "spatial-32-v1") await traverseSpatial32(input, report);
+    else await traverseTerrain(input, report);
     if (config.screenshot) {
       stage = "optional-generated-terrain-capture";
       await mkdir(dirname(config.screenshot), { recursive: true });

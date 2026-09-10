@@ -464,7 +464,7 @@ export class ViewDiagnostics {
   }
 
   reset(label) {
-    this.enabled = label === LABEL;
+    this.enabled = label === LABEL || label === "generated-terrain-spatial-32-v1";
     this.collecting = this.enabled;
     this.observations = [];
     this.misses = 0;

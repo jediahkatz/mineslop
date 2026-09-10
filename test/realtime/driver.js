@@ -6,6 +6,7 @@ import { BotMetrics } from "./metrics.js";
 import { softwareRenderer } from "./statistics.js";
 import { installStreamingProbe } from "./streaming-probe.js";
 import { ViewDiagnostics } from "./view-diagnostics.js";
+import { SPATIAL32, Spatial32Guard } from "./spatial-route.js";
 
 const query = new URLSearchParams(location.search);
 const quality = query.get("quality") ?? "medium";
@@ -73,6 +74,11 @@ const metrics = new BotMetrics(game, {
   probeView,
   viewDiagnostics: query.get("viewDiagnostics") === "1" ? new ViewDiagnostics(game) : undefined,
 });
+const spatialRoute = query.get("routeMode") === SPATIAL32.mode ? new Spatial32Guard(game, {
+  hidden: () => document.hidden,
+  onStart: () => metrics.reset(SPATIAL32.label),
+  onStop: () => metrics.results({ stop: true }),
+}) : null;
 
 function plannedHeights() {
   const player = game.player;
@@ -200,6 +206,7 @@ function state({ planning = false, renderer = false } = {}) {
     },
     inputs: metrics.sessionInputs,
     live: metrics.live(),
+    ...(spatialRoute ? { spatialRoute: spatialRoute.status() } : {}),
     ...(planning ? { planning: plannedHeights() } : {}),
     ...(renderer ? { renderer: rendererInfo(), view: probeView() } : {}),
   };
@@ -274,6 +281,12 @@ window.__voxelBot = {
     results: (options) => metrics.results(options),
   },
   fixture: { prepareGround: prepareGroundFixture, inspect: inspectFixture },
+  ...(spatialRoute ? { spatialRoute: {
+    prepare: () => spatialRoute.prepare(),
+    begin: () => spatialRoute.begin(),
+    fail: (message) => spatialRoute.fail("controller", message),
+    results: () => spatialRoute.results(),
+  } } : {}),
 };
 metrics.wrap(window.__voxelBot, "state", "bot.state");
 
@@ -294,6 +307,7 @@ game
       });
     }
     metrics.attach();
+    spatialRoute?.install();
     // Extra ray sampling is opt-in; the normal realtime bot is unchanged.
     if (query.get("streamingProbe") === "1")
       window.__voxelBot.streaming = installStreamingProbe(game);

@@ -100,14 +100,92 @@ times. These focused runs omit Survival/resource acceptance. Software-renderer
 results cannot establish target-hardware smoothness, and CPU timings do not
 measure GPU completion or validate historical lighting/pixel gates.
 
+## Versioned 32-block control smoke (explicit opt-in)
+
+`--route-mode spatial-32-v1` is a separate diagnostic workload. Omitting this
+flag (or choosing `wall-time-v1`) retains the historical controller unchanged.
+Do not pool the new results with the older 45-second runs. `--duration` applies
+only to the historical controller, not this fixed-distance smoke.
+
+All limits are declared in `SPATIAL32` in `spatial-route.js`:
+
+- The fixed start is cedar-valley, overworld, generator 3, X277.5/Z446.5
+  within 0.02 blocks. The native takeoff column must be unobstructed. No pose,
+  velocity, gameplay-clock, terrain, rendering, fog, or preference writes are
+  used by this scenario, including its unmeasured setup.
+- A read-only 35×50-column profile includes the northbound corridor, braking
+  tail and existing menu-clearance footprint. Feet altitude is the maximum
+  occupied cell Y plus 3, including trees/fluids (79 on the frozen v2 seed).
+  This deliberately conservative altitude also leaves the subsequent menu
+  ascent unobstructed; it is not the old terrain-following route.
+- Unmeasured setup has a 60-second/512-control-tick budget and at most one
+  native double-Space takeoff, holding the second press for two observed
+  frames. Native mouse input aligns yaw 0 and pitch -0.42, each within 0.01.
+  Vertical holds lead release by 0.2 simulated seconds (two maximum 0.1-second
+  Player updates), then wait for actual coasting to stop before another hold.
+  Four consecutive frame endpoints must have no keys, speed below 0.025,
+  airborne flight, verified clearance and altitude within 0.5 of the target.
+  A status poll cannot manufacture a qualifying frame.
+- Measurement uses **one W hold only**: no boosting, strafing, camera sweep,
+  altitude correction, detour, retakeoff or recovery. The nominal pitch
+  remains -0.42; it is not adjusted to obtain a visibility pass.
+- Before and after every real frame, the test-page observer latches lost
+  flight, grounding, controls, pointer lock, page visibility, source knowledge
+  or clearance. The body plus one block above/below must be collision-free.
+  Altitude error must stay within 0.55, lateral drift within 0.4, horizontal
+  speed at most 8.01 and vertical speed below 0.025. Unexpected keys, heading
+  changes, early W release and world/player replacement fail the attempt.
+- The first complete rendered frame reaching 32 blocks cuts the measurement;
+  overshoot above 32.81 fails. The 45-second deadline and 4096-frame cap are
+  failures, not successful short measurements. No later good frame erases a
+  failed or unknown observation. There is no rearming API.
+- Native W release follows the cut, with a separate 10-second braking budget,
+  four stationary frames and a maximum total progress of 35.5. A late release
+  still fails the route even though its original measurement cut is retained.
+  The existing inventory/pause checks then run unchanged.
+
+`spatialSetup` and `spatialRoute` retain setup, full profile, start, endpoint,
+braking end, first failure, initial missing-source waits and CPU costs. Cell
+reads are capped at 200,000 for preflight and 2048 across each frame's two
+inspections. At most 128 snapshots are retained; validation continues after
+that retention cap and the first failure is stored independently. Source loss
+after readiness is an unknown failure, not a new wait/retry. Observer CPU time
+is reported separately from the inner `BotMetrics` phase timings.
+
+The legacy three-ray metric and `>= 0.4` predicate still run, regardless of
+physical completion. `--view-diagnostics` independently opts into the same v2
+per-miss hit-section data. Neither that diagnostic nor the frame guard proves
+GPU pixels. A valid short route, zero misses or a visibility pass cannot
+recover the seven unrecorded v1 hit-section states or establish a renderer fix.
+
+Start with one parent-guarded Nearby smoke on a **new** frozen benchmark host:
+
+```sh
+VOXELCRAFT_TEST_URL=http://127.0.0.1:<new-benchmark-port> \
+VOXELCRAFT_REQUIRE_NATIVE_MOUSE=1 CHROME_BIN=<parent-pinned-native-binary> \
+  /exec-daemon/node test/realtime/run.mjs \
+  --route-mode spatial-32-v1 --view-diagnostics \
+  --render-mode nearby --render-distance 3 --seed cedar-valley --quality medium \
+  --width 1280 --height 720 --pixel-ratio 1 --skip-fixture --skip-survival \
+  --output /opt/cursor/artifacts/<new-run>/01-nearby.json
+```
+
+Keep the parent's existing lease, kernel/runtime/profile guards and bounded
+outer runner. Preserve the failed attempt and stop if physical qualification
+fails; do not retake until it passes. Only after `spatialRoute.phase=complete`
+with no failure should an Extended12 arm use this same frozen mode/flags.
+Compare complete profiles and all start/end tolerances, not just FPS or misses.
+Record original process exit codes, JSON errors, frame failures and both source
+manifests. Existing v1/v2 hosts and evidence are not modified.
+
 ## Opt-in view-miss diagnostics
 
 Add `--view-diagnostics` to a parent-guarded run on a **new frozen benchmark
 build** to populate `terrain.viewDiagnostics`. The original three-ray probe,
 `terrain.view` counters and `>= 0.4` acceptance predicate remain unchanged.
-Only zero-of-three misses during `generated-terrain-traversal` are collected;
-warmup, menus and fixtures are excluded. A passing partial-ray sample is not
-a diagnostic miss.
+Only zero-of-three misses during `generated-terrain-traversal` or the explicitly
+selected `generated-terrain-spatial-32-v1` are collected; warmup, menus and
+fixtures are excluded. A passing partial-ray sample is not a diagnostic miss.
 
 Each observation includes its legacy sample/frame/time, player pose and
 flight/grounded state, actual fog near/far and camera view matrix, a downward
@@ -272,8 +350,15 @@ launch Chrome or claim to measure game performance:
 ```bash
 node --test test/realtime/helpers.test.mjs test/realtime/double-tap.test.mjs \
   test/realtime/mesh-budget.test.mjs test/realtime/menu-clearance.test.mjs \
-  test/realtime/chrome-discovery.test.mjs
+  test/realtime/chrome-discovery.test.mjs test/realtime/view-diagnostics.test.mjs \
+  test/realtime/spatial-route.test.mjs
 ```
+
+For frozen v2 obstruction/Player replay, prefix the same focused CPU command
+with `MINESLOP_REPLAY_ROOT=/tmp/mineslop-nearby-visibility-20260910_v2` and use
+`/exec-daemon/node`. The new CPU tests initialize detached fixtures and invoke
+the actual Player handlers/update; they do not synthesize browser DOM events
+or claim trusted browser input, measured FPS, or rendered-pixel acceptance.
 
 Package scripts, mise registration, dependency installation, and the actual
 headless run are coordinated by the parent task.
