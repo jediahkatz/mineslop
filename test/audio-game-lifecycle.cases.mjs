@@ -47,6 +47,8 @@ container.contains = (node) => node === container;
 container.matches = () => false;
 container.closest = () => null;
 container.requestPointerLock = () => Promise.resolve();
+container.appendChild = () => {};
+container.remove = () => {};
 const noop = () => {};
 const settleAudio = () => new Promise((resolve) => setImmediate(resolve));
 let callbacks;
@@ -73,14 +75,27 @@ mock.module("../src/textures.js", { namedExports: {
   }),
 } });
 class HeadlessRenderer {
-  constructor() {
+  constructor(_container, _world, { distantTerrain = true } = {}) {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera();
     this.renderer = { domElement: container };
-    this.renderRadius = 0;
+    this.quality = "medium";
+    this.renderDistanceOverride = null;
+    this.distantTerrain = distantTerrain;
+  }
+  get renderRadius() {
+    return this.renderDistanceOverride ?? renderer.QUALITY[this.quality].renderRadius;
+  }
+  configureTerrain({ radius, distantTerrain }) {
+    this.distantTerrain = distantTerrain;
+    return this.setRenderDistanceOverride(radius);
+  }
+  setRenderDistanceOverride(radius) {
+    this.renderDistanceOverride = radius;
+    return this.renderRadius;
   }
   registerContextResourceOwner() { return noop; }
-  setQuality() {}
+  setQuality(quality) { this.quality = quality; }
   setFullbrightInspection() {}
   setTime() {}
   setBiome() {}

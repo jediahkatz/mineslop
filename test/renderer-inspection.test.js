@@ -188,8 +188,10 @@ test("quality and biome switches retain fullbright, then restore the current bud
       );
       assert.ok(graphics.localLights.every((light) => light.intensity === 0), "static pool stays inert within its quality budget");
       assert.equal(graphics.daylightMaterial.uniforms.uBlockLightEnabled.value, 1);
-      assert.equal(graphics.daylightMaterial.uniforms.uBlockLightAtlas.value, graphics.blockLight.texture);
-      assert.equal(graphics.daylightMaterial.uniforms.uBlockLightValid.value, graphics.blockLight.validTexture);
+      assert.equal(graphics.daylightMaterial.uniforms.uBlockLightPages.value, graphics.blockLight.store.table);
+      for (const [index, bank] of graphics.blockLight.store.banks.entries())
+        assert.equal(graphics.daylightMaterial.uniforms[`uBlockLightBank${index}`].value, bank);
+      assert.equal(graphics.daylightMaterial.uniforms.uBlockLightPalette.value, graphics.blockLight.paletteTexture);
       assert.deepEqual(graphics.blockLight.sample(receiver), currentField, "current natural field restores without a frame");
       assert.equal(graphics.atmosphere.inspectionLight.intensity, 0);
       if (biome.category === "cave") {

@@ -36,14 +36,28 @@ mock.module("../src/effects.js", { namedExports: {
   },
 } });
 class HeadlessRenderer {
-  constructor() {
+  constructor(_container, _world, { distantTerrain = true } = {}) {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera();
     this.renderer = { domElement: container };
-    this.renderRadius = 0;
+    this.quality = "medium";
+    this.renderDistanceOverride = null;
+    this.distantTerrain = distantTerrain;
     this.budgets = [];
   }
-  setQuality() {} setFullbrightInspection() {} setTime() {} setBiome() {}
+  get renderRadius() {
+    return this.renderDistanceOverride ?? renderer.QUALITY[this.quality].renderRadius;
+  }
+  configureTerrain({ radius, distantTerrain }) {
+    this.distantTerrain = distantTerrain;
+    return this.setRenderDistanceOverride(radius);
+  }
+  setRenderDistanceOverride(radius) {
+    this.renderDistanceOverride = radius;
+    return this.renderRadius;
+  }
+  setQuality(quality) { this.quality = quality; }
+  setFullbrightInspection() {} setTime() {} setBiome() {}
   update() {} render() {} setTarget() {} observeFrame() {} dispose() {}
   rebuildDirty(budget) { this.budgets.push(budget); }
 }
@@ -95,6 +109,8 @@ export async function gravityGame(t, { seed = "gravity-game", saved = null } = {
     querySelector: () => null, documentElement: {}, exitPointerLock: noop,
   });
   container = new InputElement(doc);
+  container.appendChild = noop;
+  container.remove = noop;
   globalThis.document = doc;
   globalThis.window = doc.defaultView;
   let initializing = true;

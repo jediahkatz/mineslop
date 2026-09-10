@@ -69,6 +69,14 @@ import { createWorldContext } from "./world-spec.js";
 import {
   loadRenderDistance, normalizeRenderDistance, saveRenderDistance,
 } from "./render-distance-preferences.js";
+import { NEARBY_RENDER_RADII } from "./render-distance.js";
+import {
+  isRenderMode,
+  loadRenderModePreferences,
+  normalizeRenderModePreferences,
+  resolveRenderMode,
+  saveRenderModePreferences,
+} from "./render-mode-preferences.js";
 
 const LEGACY_KEY = "voxelcraft-world-v1";
 
@@ -83,7 +91,9 @@ export class VoxelGame {
     this.soundEnabled = true;
     this.controlPreferences = loadControlPreferences();
     this.viewPreferences = loadViewPreferences();
+    // Keep the extended choice intact even while Nearby is active.
     this.renderDistance = loadRenderDistance();
+    this.renderModePreferences = loadRenderModePreferences();
     this.paused = true;
     this.building = false;
     this.overlayOpen = false;
@@ -131,11 +141,9 @@ export class VoxelGame {
         if (result && !result.ok)
           this.ui.toast("The world clock could not change right now.");
       },
-      onQualityChange: (value) => {
-        this.quality = value;
-        this.graphics?.setQuality(value);
-      },
+      onQualityChange: (value) => this.setQuality(value),
       onRenderDistanceChange: (radius) => this.setRenderDistance(radius),
+      onRenderModeChange: (mode) => this.setRenderMode(mode),
       onSoundChange: (enabled) => {
         this.setSoundEnabled(enabled);
         if (enabled) audioOperation(this.audioEngine, "unlock");
@@ -180,7 +188,8 @@ export class VoxelGame {
     });
     this.ui.update({
       controlPreferences: this.controlPreferences,
-      renderDistance: this.renderDistance,
+      quality: this.quality,
+      renderSettings: this.renderSettings,
       fullbrightInspection: this.viewPreferences.fullbrightInspection,
       guiScale: this.viewPreferences.guiScale,
       showFps: this.viewPreferences.showFps,
@@ -859,13 +868,16 @@ export class VoxelGame {
   }
 
   prepareGraphics(world, quality) {
-    const graphics = new GameRenderer(this.container, world);
+    const policy = resolveRenderMode(this.renderModePreferences, this.renderDistance, quality);
+    const graphics = new GameRenderer(this.container, world, {
+      distantTerrain: policy.distantTerrain,
+    });
     try {
       // Use the existing regional limits for both classic and expanded saves.
       // Tail sealing and water fusion remain disabled.
       graphics.meshLimits = { regionalPages: true };
       graphics.setQuality(quality);
-      graphics.setRenderDistanceOverride(normalizeRenderDistance(this.renderDistance));
+      graphics.configureTerrain({ radius: policy.override, distantTerrain: policy.distantTerrain });
       graphics.setFullbrightInspection(this.viewPreferences.fullbrightInspection);
       // Storage publication may await a CAS. Do not present the candidate
       // canvas over the still-live source world while that transaction waits.
@@ -877,14 +889,77 @@ export class VoxelGame {
     }
   }
 
+  get renderSettings() {
+    const policy = resolveRenderMode(this.renderModePreferences, this.renderDistance, this.quality);
+    return { ...policy, radius: this.graphics?.renderRadius ?? policy.radius };
+  }
+
+  setQuality(quality) {
+    if (typeof quality !== "string" || !Object.hasOwn(NEARBY_RENDER_RADII, quality)) return false;
+    if (this.building || this.failed || this.transitionGate.busy || !this.graphics) {
+      this.ui.toast("Graphics cannot change while the world is loading or changing. Try again when it is ready.");
+      return false;
+    }
+    try {
+      const policy = this.renderSettings;
+      // Nearby's unpinned preset changes native demand too. Admit the live
+      // renderer before changing either quality effects or that preset.
+      this.graphics.configureTerrain({
+        radius: policy.override, distantTerrain: policy.distantTerrain,
+      });
+      this.graphics.setQuality(quality);
+    } catch (error) {
+      this.ui.toast(`Graphics setting unchanged: ${error.message}`);
+      return false;
+    }
+    this.quality = quality;
+    const renderSettings = this.renderSettings;
+    this.ui.update({ quality, renderSettings });
+    if (this.graphics && this.world && this.player)
+      this.world.updateStreaming(this.player.position, renderSettings.radius);
+    return true;
+  }
+
+  setRenderMode(mode) {
+    if (this.building || this.failed || this.transitionGate.busy || !this.graphics) {
+      this.ui.toast("Render mode cannot change while the world is loading or changing. Try again when it is ready.");
+      return false;
+    }
+    if (!isRenderMode(mode)) {
+      this.ui.toast("Render mode must be Nearby or Extended.");
+      return false;
+    }
+    const preferences = normalizeRenderModePreferences({
+      ...normalizeRenderModePreferences(this.renderModePreferences), mode,
+    });
+    const policy = resolveRenderMode(preferences, this.renderDistance, this.quality);
+    let radius;
+    try {
+      radius = this.graphics.configureTerrain({
+        radius: policy.override, distantTerrain: policy.distantTerrain,
+      });
+    } catch (error) {
+      this.ui.toast(`Render mode unchanged: ${error.message}`);
+      return false;
+    }
+    this.renderModePreferences = preferences;
+    this.ui.update({ renderSettings: this.renderSettings });
+    if (!saveRenderModePreferences(preferences))
+      this.ui.toast("Render mode changed for this session, but this browser could not save the setting.");
+    this.world.updateStreaming(this.player.position, radius);
+    return true;
+  }
+
   setRenderDistance(radius) {
     if (this.building || this.failed || this.transitionGate.busy || !this.graphics) {
       this.ui.toast("Render distance cannot change while the world is loading or changing. Try again when it is ready.");
       return false;
     }
+    const policy = this.renderSettings;
     // Do not normalize an invalid request into a different accepted value.
-    if (!Number.isInteger(radius) || normalizeRenderDistance(radius) !== radius) {
-      this.ui.toast("Render distance must be a whole number from 2 to 12.");
+    if (!Number.isInteger(radius) || normalizeRenderDistance(radius) !== radius ||
+        radius > policy.maxRadius) {
+      this.ui.toast(`Render distance must be a whole number from 2 to ${policy.maxRadius}.`);
       return false;
     }
     try {
@@ -893,9 +968,18 @@ export class VoxelGame {
       this.ui.toast(`Render distance unchanged: ${error.message}`);
       return false;
     }
-    this.renderDistance = radius;
-    this.ui.update({ renderDistance: radius });
-    if (!saveRenderDistance(radius))
+    let saved;
+    if (policy.mode === "nearby") {
+      this.renderModePreferences = normalizeRenderModePreferences({
+        ...normalizeRenderModePreferences(this.renderModePreferences), nearbyRadius: radius,
+      });
+      saved = saveRenderModePreferences(this.renderModePreferences);
+    } else {
+      this.renderDistance = radius;
+      saved = saveRenderDistance(radius);
+    }
+    this.ui.update({ renderSettings: this.renderSettings });
+    if (!saved)
       this.ui.toast("Render distance changed for this session, but this browser could not save the setting.");
     this.world.updateStreaming(this.player.position, radius);
     return true;
@@ -1589,7 +1673,7 @@ export class VoxelGame {
     this.gameplayState = gameplayState;
     this.ui.update({
       fps: this.fps,
-      renderDistance: this.renderDistance,
+      renderSettings: this.renderSettings,
       terrainStreaming: this.world.streamingStatus(),
       position: this.player.position,
       blockName: this.target ? BLOCKS[this.target.id]?.name : "",

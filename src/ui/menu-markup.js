@@ -65,8 +65,10 @@ export function menuMarkup() {
           </section>
           <section class="menu-page video-page" data-menu-page="video" hidden>
             <label class="setting-row" for="quality-setting"><span>Graphics</span><select id="quality-setting"><option value="low">Fast</option><option value="medium">Balanced</option><option value="high">Fancy</option></select></label>
+            <label class="setting-row" for="render-mode-setting"><span>Terrain Rendering</span><select id="render-mode-setting" aria-describedby="render-mode-help"><option value="nearby">Nearby</option><option value="extended">Extended (experimental)</option></select></label>
+            <p id="render-mode-help" class="settings-note">Nearby disables far terrain and preserves your previous Extended distance. Switching back restores it.</p>
             <label class="range-setting" for="render-distance-setting"><span>Render Distance <output id="render-distance-value" for="render-distance-setting"></output></span><input type="range" id="render-distance-setting" aria-describedby="render-distance-help terrain-streaming-status"></label>
-            <p id="render-distance-help" class="settings-note">Full-detail chunks, independent of Graphics. Saved in this browser, not world files. Distant silhouettes do not count as loaded detail.</p>
+            <p id="render-distance-help" class="settings-note">Full-detail chunks: Nearby 2–4, Extended 2–12. Nearby follows Graphics until you choose a distance. Choices stay in this browser, not world files. Distant silhouettes do not count as loaded detail.</p>
             <p id="terrain-streaming-status" class="settings-note">Preparing nearby terrain. Geometry and lighting build progressively.</p>
             <label class="setting-row" for="show-fps-setting"><span>Show FPS</span><input type="checkbox" id="show-fps-setting" aria-describedby="show-fps-help"></label>
             <p id="show-fps-help" class="settings-note">Small frame-rate counter. Updates twice a second; stays in this browser.</p>

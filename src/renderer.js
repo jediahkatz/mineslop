@@ -25,7 +25,7 @@ import { playerWaterFogFar } from "./player-visual-effects.js";
 import { raycast } from "./raycast.js";
 import { RenderScaleController } from "./render-scale.js";
 import { prepareArrivalMeshes } from "./renderer-arrival.js";
-import { validateRenderDistanceOverride } from "./render-distance.js";
+import { NEARBY_RENDER_RADII, validateRenderDistanceOverride } from "./render-distance.js";
 import {
   cancelSectionColumn,
   clearSectionJobs,
@@ -45,7 +45,7 @@ export { buildChunkGeometry } from "./chunk-mesh.js";
 export const QUALITY = {
   low: {
     pixelRatio: 0.8,
-    renderRadius: 2,
+    renderRadius: NEARBY_RENDER_RADII.low,
     clouds: false,
     shadows: false,
     localLights: 1,
@@ -53,7 +53,7 @@ export const QUALITY = {
   },
   medium: {
     pixelRatio: 1,
-    renderRadius: 3,
+    renderRadius: NEARBY_RENDER_RADII.medium,
     clouds: true,
     shadows: false,
     localLights: 1,
@@ -61,7 +61,7 @@ export const QUALITY = {
   },
   high: {
     pixelRatio: 1.25,
-    renderRadius: 4,
+    renderRadius: NEARBY_RENDER_RADII.high,
     clouds: true,
     shadows: true,
     localLights: 2,
@@ -72,6 +72,15 @@ const TARGET_COLOR = new THREE.Color("#000000");
 
 export function qualityFogDistance(radius) {
   return radius * CHUNK_SIZE - 3;
+}
+
+function applyRenderDistance(graphics, radius) {
+  graphics.renderDistanceOverride = radius;
+  graphics.viewCenter = null;
+  graphics.expandedFog = undefined;
+  graphics.scene.fog.near = qualityFogDistance(graphics.renderRadius) * 0.38;
+  graphics.scene.fog.far = qualityFogDistance(graphics.renderRadius);
+  return graphics.renderRadius;
 }
 
 export function hasTerrainRoof(world, position) {
@@ -152,7 +161,9 @@ export function createChunkMaterials(atlas) {
 }
 
 export class GameRenderer {
-  constructor(container, world, { waterFusion = false } = {}) {
+  constructor(container, world, { waterFusion = false, distantTerrain = true } = {}) {
+    if (typeof distantTerrain !== "boolean")
+      throw new RangeError("Distant terrain must be explicitly enabled or disabled");
     this.container = container;
     this.world = world;
     // Constructor-only experimental host opt-in. Game/UI never enables it.
@@ -214,7 +225,8 @@ export class GameRenderer {
     this.chunkGenerator = world.generator;
     this.chunkEpoch = geometryEpoch(world);
     this.atmosphere = new Atmosphere(this.scene, world);
-    this.distant = new DistantTerrain(this.scene, this.world, { atlas: this.atlas });
+    this.distant = distantTerrain
+      ? new DistantTerrain(this.scene, this.world, { atlas: this.atlas }) : null;
     this.localLights = Array.from(
       { length: LOCAL_LIGHT_LIMITS.maxSources },
       () => {
@@ -312,18 +324,47 @@ export class GameRenderer {
   }
 
   /** Set full-detail distance without changing graphics effects or resolution.
-   * Null restores the internal preset fallback for diagnostic callers. */
+   * Null restores the original nearby preset. */
   setRenderDistanceOverride(radius) {
     const spec = geometryWorldSpec(this.world);
     const next = validateRenderDistanceOverride(
       radius, radius === null ? null : this.renderer.getContext(), spec.maxY - spec.minY
     );
-    this.renderDistanceOverride = next;
-    this.viewCenter = null;
-    this.expandedFog = undefined;
-    this.scene.fog.near = qualityFogDistance(this.renderRadius) * 0.38;
-    this.scene.fog.far = qualityFogDistance(this.renderRadius);
-    return this.renderRadius;
+    return applyRenderDistance(this, next);
+  }
+
+  /** Validate the requested view before replacing its optional far-terrain owner.
+   * Nearby mode owns no LOD meshes, scene callbacks or boundary cache. */
+  configureTerrain({ radius, distantTerrain }) {
+    if (this.disposed || typeof distantTerrain !== "boolean")
+      throw new RangeError("The terrain renderer is unavailable or its mode is invalid");
+    const gl = this.renderer.getContext();
+    if (!gl || typeof gl.isContextLost !== "function" || gl.isContextLost())
+      throw new RangeError("Changing terrain mode requires a live WebGL2 context");
+    const spec = geometryWorldSpec(this.world);
+    const nextRadius = validateRenderDistanceOverride(
+      radius, radius === null ? null : gl, spec.maxY - spec.minY
+    );
+    const previous = this.distant ?? null;
+    let next = distantTerrain ? previous : null;
+    if (distantTerrain && !next) {
+      next = new DistantTerrain(this.scene, this.world, { atlas: this.atlas });
+      try {
+        if (this.daylightMaterial) next.setDaylight(this.daylightMaterial);
+      } catch (error) {
+        next.dispose();
+        throw error;
+      }
+    }
+    if (!distantTerrain) previous?.dispose();
+    this.distant = next;
+    if (previous !== next) {
+      // Far-owner changes invalidate cached native resource-admission refusals.
+      this.meshResourceRevision = (this.meshResourceRevision ?? 0) + 1;
+      this.nativeBoundaryCache = null;
+      this.detailBatchCache = null;
+    }
+    return applyRenderDistance(this, nextRadius);
   }
 
   removeChunk(key) {
@@ -624,44 +665,46 @@ export class GameRenderer {
           !hasTerrainRoof(this.world, this.camera.position);
     const coverage = this.detailCoverage();
     const nearFog = this.streamingFogDistance(this.camera.position, coverage);
-    const detailBatches = this.detailBatchCoverage();
-    const nativeBoundaryWork = { units: 0, elapsedMs: 0 };
-    // The batch cache is a publication snapshot, replaced on every relevant
-    // mesh/coverage revision. Reuse its read-only boundary snapshot while idle.
-    if (this.nativeBoundaryCache?.batches !== detailBatches ||
-        this.nativeBoundaryCache?.chunks !== this.chunks) {
-      const owners = new Set();
-      const boundaryStart = performance.now();
-      this.nativeBoundaryCache = { batches: detailBatches, chunks: this.chunks, owners,
-        value: publishedNativeBoundaries(this.chunks, detailBatches, this.nativeBoundaryCache?.value, owners, nativeBoundaryWork) };
-      nativeBoundaryWork.elapsedMs = performance.now() - boundaryStart;
+    const distant = this.distant;
+    if (distant) {
+      const detailBatches = this.detailBatchCoverage();
+      const nativeBoundaryWork = { units: 0, elapsedMs: 0 };
+      // This handoff belongs to the distant renderer, not to nearby drawing.
+      if (this.nativeBoundaryCache?.batches !== detailBatches ||
+          this.nativeBoundaryCache?.chunks !== this.chunks) {
+        const owners = new Set();
+        const boundaryStart = performance.now();
+        this.nativeBoundaryCache = { batches: detailBatches, chunks: this.chunks, owners,
+          value: publishedNativeBoundaries(this.chunks, detailBatches, this.nativeBoundaryCache?.value, owners, nativeBoundaryWork) };
+        nativeBoundaryWork.elapsedMs = performance.now() - boundaryStart;
+      }
+      distant.update(this.camera.position, {
+        radius: this.renderRadius,
+        quality: this.quality,
+        dimension: this.world.dimension,
+        outdoors,
+        coverage,
+        detailBatches,
+        nativeBoundaries: this.nativeBoundaryCache.value,
+        nativeBoundaryOwners: this.nativeBoundaryCache.owners,
+        nativeBoundaryWork,
+        allocationBudget: {
+          cpu: Math.max(0, (this.meshStats?.limits?.maxCpuBytes ?? Infinity) -
+            (this.meshStats?.combinedCpuBytes ?? 0)),
+          gpu: Math.max(0, (this.meshStats?.limits?.maxGpuBytes ?? Infinity) -
+            (this.meshStats?.gpuBytes ?? 0)),
+        },
+        detailSections: this.world.dimension === "end"
+          ? landmarkDetailSections(this.chunks, this.camera) : undefined,
+        budgetMs: this.quality === "high" ? 2 : 1,
+      });
     }
-    this.distant.update(this.camera.position, {
-      radius: this.renderRadius,
-      quality: this.quality,
-      dimension: this.world.dimension,
-      outdoors,
-      coverage,
-      detailBatches,
-      nativeBoundaries: this.nativeBoundaryCache.value,
-      nativeBoundaryOwners: this.nativeBoundaryCache.owners,
-      nativeBoundaryWork,
-      allocationBudget: {
-        cpu: Math.max(0, (this.meshStats?.limits?.maxCpuBytes ?? Infinity) -
-          (this.meshStats?.combinedCpuBytes ?? 0)),
-        gpu: Math.max(0, (this.meshStats?.limits?.maxGpuBytes ?? Infinity) -
-          (this.meshStats?.gpuBytes ?? 0)),
-      },
-      detailSections: this.world.dimension === "end"
-        ? landmarkDetailSections(this.chunks, this.camera) : undefined,
-      budgetMs: this.quality === "high" ? 2 : 1,
-    });
     const horizonVisible =
-      this.distant.ready && !underwater && !inLava &&
+      !!distant?.ready && !underwater && !inLava &&
       this.atmosphere.cameraMediumKnown !== false;
-    this.distant.group.visible = horizonVisible;
+    if (distant) distant.group.visible = horizonVisible;
     const targetFar = horizonVisible
-      ? Math.max(nearFog, this.distant.fogDistance)
+      ? Math.max(nearFog, distant.fogDistance)
       : nearFog;
     const fogDt = Math.max(0, Math.min(0.1, time - (this.lastFogTime ?? time)));
     this.lastFogTime = time;
@@ -680,7 +723,7 @@ export class GameRenderer {
     // conservative ramp for unknown terrain, caves, fluids and other dimensions.
     const horizontalNear =
       this.world.dimension === "overworld" && outdoors && horizonVisible &&
-      this.distant.terrainCoverageComplete
+      distant.terrainCoverageComplete
         ? horizontalFar * 0.85
         : Math.min(
             horizontalFar * 0.38,
@@ -722,8 +765,8 @@ export class GameRenderer {
         : { near: horizontalNear, far: horizontalFar };
     const fog = endVisualFog({
       dimension: this.world.dimension, outdoors, horizonVisible,
-      terrainComplete: this.distant.terrainCoverageComplete,
-      availableDistance: this.distant.fogDistance,
+      terrainComplete: distant?.terrainCoverageComplete === true,
+      availableDistance: distant?.fogDistance ?? 0,
       horizontalFar, detailFar: qualityFogDistance(this.renderRadius),
       base: baseFog, eyeY: this.camera.position.y, minY: spec.minY,
       forward: this.camera.getWorldDirection(new THREE.Vector3()),

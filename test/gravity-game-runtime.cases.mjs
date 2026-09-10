@@ -232,7 +232,7 @@ test("late real horse dismount is consumed before gravity and the sole mesh budg
   f.frame();
   assert.deepEqual(events, ["exit-published", "gravity"]);
   assert.equal(game.world.get(bx, by, bz), BLOCK.SAND);
-  assert.deepEqual(game.graphics.budgets.slice(budgets), [1]);
+  assert.deepEqual(game.graphics.budgets.slice(budgets), [2]);
   assert.equal(gameGravityOccupied(game, [bx, by - 1, bz, bx + 1, by + 1, bz + 1]), true);
 });
 
@@ -380,7 +380,7 @@ test("commit-heavy real Game frames expose measured work, not a framerate claim"
     assert.ok(stats.prepared <= LIMITS.mutationsPerUpdate);
     assert.ok(stats.evaluated <= LIMITS.evaluationsPerTick);
     assert.ok(stats.scanCells <= LIMITS.scanCellsPerUpdate);
-    assert.deepEqual(game.graphics.budgets.slice(budgets), [1]);
+    assert.deepEqual(game.graphics.budgets.slice(budgets), [2]);
   }
   assert.equal(peakCommits, LIMITS.mutationsPerUpdate);
   const summary = (values) => {

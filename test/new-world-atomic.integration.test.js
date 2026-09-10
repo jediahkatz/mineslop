@@ -6,6 +6,8 @@ import { WorldStorage } from "../src/storage.js";
 import { World } from "../src/world.js";
 import { Gameplay } from "../src/gameplay.js";
 import { GameArchive } from "../src/game-archive.js";
+import { BLOCK } from "../src/blocks.js";
+import { NEARBY_RENDER_RADII } from "../src/render-distance.js";
 import * as playerModule from "../src/player.js";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -18,14 +20,28 @@ class Presentation {
   dispose() { this.disposed = true; }
 }
 class Renderer extends Presentation {
-  constructor() {
+  constructor(_container, _world, { distantTerrain = true } = {}) {
     if (fault === "renderer") throw new Error("injected renderer construction");
     super();
     this.camera = new PerspectiveCamera();
     this.scene = new Scene();
-    this.renderer = { domElement: {} };
+    this.renderer = { domElement: { remove() {} } };
+    this.quality = "medium";
+    this.renderDistanceOverride = null;
+    this.distantTerrain = distantTerrain;
   }
-  setQuality() {}
+  get renderRadius() {
+    return this.renderDistanceOverride ?? NEARBY_RENDER_RADII[this.quality];
+  }
+  configureTerrain({ radius, distantTerrain }) {
+    this.distantTerrain = distantTerrain;
+    return this.setRenderDistanceOverride(radius);
+  }
+  setRenderDistanceOverride(radius) {
+    this.renderDistanceOverride = radius;
+    return this.renderRadius;
+  }
+  setQuality(quality) { this.quality = quality; }
   setFullbrightInspection() {}
   setTime() {}
   rebuildDirty() {}
@@ -93,6 +109,7 @@ async function fixture(t) {
   const game = Object.create(VoxelGame.prototype);
   Object.assign(game, {
     world: oldWorld, gameplay: oldGameplay, storage,
+    container: { appendChild() {} },
     player: new Player(null, oldWorld), quality: "low", soundEnabled: false,
     viewPreferences: { fullbrightInspection: true, showFps: true },
     controlPreferences: { inputMode: "remote", sensitivity: 1.2 },
@@ -284,11 +301,68 @@ test("invalid direct new-world initialization rejects before screens, admission 
       { persistNewWorld: true, generatorVersion }), RangeError);
 });
 
+test("renderer constructor refusal preserves live owners and unsaved source state without storage writes", async (t) => {
+  const f = await fixture(t);
+  Object.assign(f.game, { graphics: new Renderer(), failed: false });
+  assert.equal(f.oldWorld.loadEdits({ ...f.archive.world,
+    edits: [["overworld", 3, 65, 3, BLOCK.DIRT, 0, 0]],
+  }), true);
+  f.oldGameplay.health = 13;
+  const source = { world: f.oldWorld, gameplay: f.oldGameplay,
+    player: f.game.player, graphics: f.game.graphics,
+    archive: f.game.archive, storage: f.storage };
+  const state = structuredClone({
+    world: f.oldWorld.serialize(), gameplay: f.oldGameplay.serialize(),
+  });
+  const coordinator = f.oldWorld.coordinator;
+  const reserved = coordinator.budget.totalBytes;
+  assert.ok(reserved > 0, "unsaved source edits hold a real owner reservation");
+  const disposals = [source.world, source.gameplay, source.player, source.graphics]
+    .map((owner) => t.mock.method(owner, "dispose"));
+  const activate = t.mock.method(f.game, "activatePreparedWorld");
+  const replace = t.mock.method(f.storage, "replace");
+  const save = t.mock.method(f.storage, "save");
+  const writes = ["put", "delete", "clear"]
+    .map((method) => t.mock.method(IDBObjectStore.prototype, method));
+  fault = "renderer";
+  const error = await f.run().then(() => assert.fail("expected constructor refusal"), (error) => error);
+  assert.equal(error.message, "injected renderer construction");
+  assert.equal(error.reloadRequired, undefined);
+  assert.equal(f.game.failed, false);
+  assert.equal(f.game.started, true);
+  assert.equal(f.game.building, false);
+  for (const [key, owner] of Object.entries(source))
+    assert.equal(f.game[key], owner, `${key} source owner retained`);
+  assert.equal(source.world._disposed, false);
+  assert.equal(source.player.disposed, false);
+  assert.equal(source.graphics.disposed, false);
+  for (const dispose of disposals)
+    assert.equal(dispose.mock.callCount(), 0, "source owners are never retired");
+  assert.deepEqual(f.oldWorld.serialize(), state.world, "unsaved source edits survive");
+  assert.deepEqual(f.oldGameplay.serialize(), state.gameplay, "unsaved gameplay survives");
+  assert.equal(f.oldWorld.coordinator, coordinator);
+  assert.equal(coordinator.budget.totalBytes, reserved, "source reservations survive");
+  assert.equal(f.stages.length, 1);
+  assert.equal(f.stages[0].world._disposed, true, "detached candidate terrain released");
+  assert.equal(f.stages[0].world.coordinator.budget.totalBytes, 0, "candidate reservations released");
+  assert.equal(activate.mock.callCount(), 0, "constructor refusal precedes live activation");
+  assert.equal(replace.mock.callCount(), 0, "replacement publication is never entered");
+  assert.equal(save.mock.callCount(), 0, "no rollback save rewrites the source archive");
+  for (const write of writes)
+    assert.equal(write.mock.callCount(), 0, "no transient IndexedDB writes");
+  assert.equal(await records(f.storage), f.before, "archive bytes, revision and timestamp stay unchanged");
+});
+
 test("post-teardown failure exposes reload recovery and retires pending UI callbacks", async (t) => {
   const f = await fixture(t);
-  fault = "renderer";
-  const error = await f.run().then(() => assert.fail("expected renderer failure"), (error) => error);
+  fault = "render";
+  const error = await f.run().then(() => assert.fail("expected render failure"), (error) => error);
   assert.equal(error.reloadRequired, true);
+  assert.equal(error.cause?.message, "injected render");
+  assert.equal(f.oldWorld._disposed, true);
+  assert.equal(f.game.world, null);
+  assert.equal(f.game.player, null);
+  assert.equal(f.game.failed, true);
   const element = (tag) => ({
     tag, children: [],
     append(...children) { this.children.push(...children); },

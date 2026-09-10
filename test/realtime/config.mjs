@@ -32,6 +32,8 @@ export function readConfig(args = process.argv.slice(2), env = process.env) {
     options: {
       duration: { type: "string" },
       quality: { type: "string" },
+      "render-mode": { type: "string" },
+      "render-distance": { type: "string" },
       output: { type: "string" },
       seed: { type: "string" },
       screenshot: { type: "string" },
@@ -47,6 +49,14 @@ export function readConfig(args = process.argv.slice(2), env = process.env) {
   const quality = values.quality ?? env.VOXELCRAFT_TEST_QUALITY ?? "medium";
   if (!["low", "medium", "high"].includes(quality))
     throw new Error("--quality must be low, medium, or high");
+  const renderMode = values["render-mode"] ?? env.VOXELCRAFT_TEST_RENDER_MODE ?? null;
+  if (renderMode !== null && !["nearby", "extended"].includes(renderMode))
+    throw new Error("--render-mode must be nearby or extended");
+  const distanceValue = values["render-distance"] ?? env.VOXELCRAFT_TEST_RENDER_DISTANCE;
+  const renderDistance = distanceValue === undefined ? null
+    : number(distanceValue, "--render-distance", 2, renderMode === "extended" ? 12 : 4);
+  if (renderDistance !== null && !Number.isInteger(renderDistance))
+    throw new Error("--render-distance must be a whole number");
   const seed = values.seed ?? env.VOXELCRAFT_TEST_SEED ?? "cedar-valley";
   if (!seed || seed.length > 80)
     throw new Error("Seed must contain 1–80 characters");
@@ -83,6 +93,8 @@ export function readConfig(args = process.argv.slice(2), env = process.env) {
     url: url.href,
     seed,
     quality,
+    renderMode,
+    renderDistance,
     durationSeconds: number(
       values.duration ?? env.VOXELCRAFT_TEST_DURATION ?? "55",
       "--duration",
@@ -166,6 +178,8 @@ export async function chromeExecutable(configured) {
 export const usage = `Usage: node test/realtime/run.mjs [options]
   --duration <seconds>   Continuous generated-terrain traversal (default 55)
   --quality <level>      low, medium, or high (default medium)
+  --render-mode <mode>   nearby or extended; omitted uses the actual app default
+  --render-distance <n> Explicit native radius: nearby 2–4, extended 2–12
   --seed <seed>          Generator seed (default cedar-valley)
   --output <file.json>   JSON report, including failures
   --screenshot <file>    Optional generated-terrain capture AFTER measurement

@@ -120,6 +120,30 @@ test("invalid durations, qualities, URLs, and budgets fail before browser launch
   assert.throws(() => readConfig(["--seed", ""], {}), /Seed/);
 });
 
+test("render comparison options are explicit, preserve the real default, and obey per-mode limits", () => {
+  const defaults = readConfig([], {});
+  assert.equal(defaults.renderMode, null);
+  assert.equal(defaults.renderDistance, null);
+  const extended = readConfig(["--render-mode", "extended", "--render-distance", "12"], {
+    VOXELCRAFT_TEST_RENDER_MODE: "nearby", VOXELCRAFT_TEST_RENDER_DISTANCE: "3",
+  });
+  assert.equal(extended.renderMode, "extended");
+  assert.equal(extended.renderDistance, 12);
+  const nearby = readConfig([], {
+    VOXELCRAFT_TEST_RENDER_MODE: "nearby", VOXELCRAFT_TEST_RENDER_DISTANCE: "4",
+  });
+  assert.equal(nearby.renderMode, "nearby");
+  assert.equal(nearby.renderDistance, 4);
+  assert.equal(readConfig(["--render-distance", "2"], {}).renderMode, null);
+  for (const args of [
+    ["--render-mode", "unknown"],
+    ["--render-distance", "6"],
+    ["--render-mode", "nearby", "--render-distance", "12"],
+    ["--render-mode", "extended", "--render-distance", "13"],
+    ["--render-mode", "extended", "--render-distance", "2.5"],
+  ]) assert.throws(() => readConfig(args, {}), /--render-/);
+});
+
 test("terrain planning reaches obstacle clearance with Space/Shift and boosts with Ctrl", () => {
   const state = {
     position: { x: 3, y: 30, z: -4 },

@@ -2,6 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { arch, cpus, platform, totalmem } from "node:os";
 import { dirname } from "node:path";
 import { chromium } from "playwright";
+import { DEFAULT_RENDER_MODE, RENDER_MODE_KEY } from "../../src/render-mode-preferences.js";
+import { RENDER_DISTANCE_KEY } from "../../src/render-distance-preferences.js";
 import { chromeExecutable, readConfig, usage } from "./config.mjs";
 import { bounded, RealInputs } from "./input.mjs";
 import {
@@ -79,6 +81,26 @@ async function run(config) {
       viewport: config.viewport,
       deviceScaleFactor: 1,
     });
+    if (config.renderMode !== null || config.renderDistance !== null) {
+      const mode = config.renderMode ?? DEFAULT_RENDER_MODE.mode;
+      report.renderPreferenceSetup = {
+        origin: new URL(config.url).origin,
+        modeKey: RENDER_MODE_KEY,
+        preferences: { ...DEFAULT_RENDER_MODE, mode,
+          nearbyRadius: mode === "nearby" ? config.renderDistance : null },
+        distanceKey: RENDER_DISTANCE_KEY,
+        extendedRadius: mode === "extended" ? config.renderDistance : null,
+      };
+      // Explicit starting preferences in this fresh context only. The ordinary
+      // Game constructor/renderer owns their application; no renderer override.
+      await context.addInitScript((setup) => {
+        if (location.origin !== setup.origin) return;
+        if (localStorage.getItem(setup.modeKey) === null)
+          localStorage.setItem(setup.modeKey, JSON.stringify(setup.preferences));
+        if (setup.extendedRadius !== null && localStorage.getItem(setup.distanceKey) === null)
+          localStorage.setItem(setup.distanceKey, String(setup.extendedRadius));
+      }, report.renderPreferenceSetup);
+    }
     const page = await context.newPage();
     page.setDefaultTimeout(config.timeoutMs);
     page.on("pageerror", (error) => {
@@ -114,6 +136,10 @@ async function run(config) {
       throw new Error(initial.error ?? "Driver not ready");
     report.initial = initial;
     report.renderer = initial.renderer;
+    if (initial.renderMode !== (config.renderMode ?? DEFAULT_RENDER_MODE.mode))
+      throw new Error(`Requested terrain mode is not active: ${initial.renderMode}`);
+    if (config.renderDistance !== null && initial.world.renderRadius !== config.renderDistance)
+      throw new Error(`Requested native radius is not active: ${initial.world.renderRadius}`);
     report.browser.userAgent = await page.evaluate(() => navigator.userAgent);
     report.loadElapsedMs = performance.now() - started;
     try {

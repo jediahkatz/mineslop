@@ -7,6 +7,11 @@ terrain height observations to ascend/descend with Space/Shift after a real
 double-Space Creative flight toggle. It never writes player
 position or velocity during a measured segment.
 
+The double tap queues fresh down/up/down inputs without waiting between slow
+renderer acknowledgements. Flight enablement holds the second press across two
+observed frames for physical takeoff, then releases it. The game's 350 ms
+double-tap window and simulation clock remain unchanged.
+
 The dedicated `index.html` loads the real styles and statically imports the
 actual `VoxelGame` class. It uses the actual generated world, worker, renderer,
 player physics, wildlife, UI, and IndexedDB archive. `window.__voxelBot` exists
@@ -17,12 +22,19 @@ only on this test page; no production globals or flags are required.
 Required:
 - The app's existing dependencies.
 - `playwright` as a development dependency (install the latest release).
-- An installed Chrome/Chromium executable. No Playwright browser download is
+- An installed direct Chrome/Chromium binary. No Playwright browser download is
   needed. `CHROME_BIN` overrides filesystem discovery of common Linux paths.
+  Shell wrappers are refused: VM desktop launchers may force a shared profile
+  and debugging port. Binary-header discovery is not runtime-identity proof.
 - A frozen production benchmark host, built with `npm run build:realtime` and
   served with `npm run preview:realtime` on port 5175. Set
   `VOXELCRAFT_TEST_URL` to that server. The development server also supports
   this test entrypoint, but hot reload can invalidate a run while source changes.
+
+If the shell sets `NODE_ENV=development`, explicitly build with
+`NODE_ENV=production npm run build:realtime`. A production comparison must
+report `initial.build.production: true`; a compiled bundle alone does not
+establish that build mode.
 
 From the repository root, after installing dependencies and starting
 the benchmark host through the package/mise workflow:
@@ -60,6 +72,34 @@ Optional `--screenshot /opt/cursor/artifacts/voxelcraft_realtime_terrain.png`
 captures the real generated world after traversal measurement stops and
 before any synthetic setup. It is automated-test evidence, not a manual demo.
 
+## Comparing Nearby and Extended
+
+`--render-mode nearby|extended` and `--render-distance N` seed only the fresh
+test context's browser preferences before the ordinary Game constructor runs.
+Omit both to exercise the actual app default. Nearby accepts 2–4 chunks;
+Extended accepts 2–12. The report includes the seeded values, actual far-owner
+mode, native radius and generator version. A mode/radius mismatch fails before
+measurement.
+
+Use the same frozen build, seed, quality, viewport and resolution policy for
+both modes. For example, run these sequentially on an otherwise idle renderer:
+
+On a shared GPU-validation VM, these commands must remain inside its
+parent-controlled lease/runtime/private-profile launch checks. This runner does
+not acquire a GPU lease or prove exclusive GPU use by itself.
+
+```sh
+node test/realtime/run.mjs --render-mode extended --render-distance 12 --quality medium --pixel-ratio 1 --duration 45 --skip-fixture --skip-survival
+node test/realtime/run.mjs --render-mode nearby --render-distance 3 --quality medium --pixel-ratio 1 --duration 45 --skip-fixture --skip-survival
+```
+
+Repeat in reversed order to expose warmup/order effects. Fixed resolution is an
+explicit diagnostic setting, not a production optimization. Compare traversal
+coverage, camera/terrain evidence and simulation-clock rate as well as raw frame
+times. These focused runs omit Survival/resource acceptance. Software-renderer
+results cannot establish target-hardware smoothness, and CPU timings do not
+measure GPU completion or validate historical lighting/pixel gates.
+
 ## Coverage
 
 The run verifies native pointer capture and actual mouse-to-camera yaw/pitch
@@ -83,6 +123,13 @@ It checks chunk crossings, loaded player columns, bounded caches/work queues,
 and actual screen-facing rays through rendered terrain rather than a blank-sky
 camera. Warmup, menu tests, and fixture construction are excluded from its
 timings.
+
+Before the menu checks, a separately reported native-input setup reads a loaded
+25×25-block footprint and ascends above its highest occupied cell. It permits
+one two-frame double-Space takeoff and one ascent hold, with the existing bounded
+control waits. This prevents a naturally landed player facing a wall from being
+mistaken for lost input. It never changes terrain or player pose directly, and
+no recovery gesture is inserted after an overlay closes or the game resumes.
 
 Separate real-world control checks open inventory with E, close it with E and
 Escape, hold movement while overlays are open, verify no stuck keys, verify
@@ -136,6 +183,11 @@ The JSON report records:
 - Observed day-cycle rate against wall time, explicit clock discontinuities,
   and drawing-buffer resolution changes during adaptive rendering.
 
+Queue and residency checks use the same R+2 source/shape footprint as World
+streaming, including cold-start requests (up to 841 at R12). Physical generation
+remains capped at two jobs. Retained meshes and visible/drawable chunks keep
+their separate R+1 and R bounds; request capacity is not a mesh allowance.
+
 CPU phase times include instrumentation and nested calls; they are not
 additive, and do not claim GPU completion. The report records post-frame and
 post-player observation CPU time separately; event capture and wrapper
@@ -171,7 +223,9 @@ altitude planning, bounded requests, and measurement wrappers. They do not
 launch Chrome or claim to measure game performance:
 
 ```bash
-node --test test/realtime/helpers.test.mjs
+node --test test/realtime/helpers.test.mjs test/realtime/double-tap.test.mjs \
+  test/realtime/mesh-budget.test.mjs test/realtime/menu-clearance.test.mjs \
+  test/realtime/chrome-discovery.test.mjs
 ```
 
 Package scripts, mise registration, dependency installation, and the actual

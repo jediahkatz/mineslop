@@ -34,11 +34,13 @@ mock.module("../src/textures.js", { namedExports: {
 } });
 // GPU/DOM transport only. Real weather borrows a real instanced cloud mesh.
 class HeadlessRenderer {
-  constructor() {
+  constructor(_container, _world, { distantTerrain = true } = {}) {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera();
     this.renderer = { domElement: container };
-    this.renderRadius = 0;
+    this.quality = "medium";
+    this.renderDistanceOverride = null;
+    this.distantTerrain = distantTerrain;
     this.events = [];
     this.atmosphere = {
       cameraMediumKnown: true, underwater: false, inLava: false,
@@ -46,8 +48,20 @@ class HeadlessRenderer {
     };
     this.scene.add(this.atmosphere.clouds);
   }
+  get renderRadius() {
+    return this.renderDistanceOverride ?? renderer.QUALITY[this.quality].renderRadius;
+  }
+  configureTerrain({ radius, distantTerrain }) {
+    this.distantTerrain = distantTerrain;
+    return this.setRenderDistanceOverride(radius);
+  }
+  setRenderDistanceOverride(radius) {
+    this.renderDistanceOverride = radius;
+    return this.renderRadius;
+  }
   registerContextResourceOwner() { return noop; }
-  setQuality() {} setFullbrightInspection() {} setTime() {} setBiome() {}
+  setQuality(quality) { this.quality = quality; }
+  setFullbrightInspection() {} setTime() {} setBiome() {}
   setTarget() {} observeFrame() {}
   update() {
     this.events.push("atmosphere");
@@ -102,6 +116,8 @@ export async function weatherGame(t, { seed = "weather-game", saved = null, gene
     querySelector: () => null, documentElement: {}, exitPointerLock: noop,
   });
   container = new InputElement(doc);
+  container.appendChild = noop;
+  container.remove = noop;
   const contexts = [];
   globalThis.document = doc;
   globalThis.window = doc.defaultView;

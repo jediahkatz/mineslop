@@ -14,6 +14,7 @@ import { createFpsSettings } from "./ui/fps-settings.js";
 import { createGuiSettings } from "./ui/gui-settings.js";
 import { createHUD } from "./ui/hud.js";
 import { createInspectionSettings } from "./ui/inspection-settings.js";
+import { createQualitySettings } from "./ui/quality-settings.js";
 import { createRenderDistanceSettings } from "./ui/render-distance-settings.js";
 import { createInventory } from "./ui/inventory.js";
 import { createMenuNavigation } from "./ui/menu-navigation.js";
@@ -37,6 +38,7 @@ export function createUI({
   onTimeChange,
   onQualityChange,
   onRenderDistanceChange,
+  onRenderModeChange,
   onSoundChange,
   onControlPreferencesChange,
   onFullbrightInspectionChange,
@@ -124,10 +126,19 @@ export function createUI({
       ? (enabled) => void runAction(onFullbrightInspectionChange, enabled)
       : undefined,
   });
+  const qualitySettings = createQualitySettings(root, {
+    listen,
+    onChange: onQualityChange
+      ? (quality) => void runAction(onQualityChange, quality)
+      : undefined,
+  });
   const renderDistanceSettings = createRenderDistanceSettings(root, {
     listen,
     onChange: onRenderDistanceChange
       ? (radius) => void runAction(onRenderDistanceChange, radius)
+      : undefined,
+    onModeChange: onRenderModeChange
+      ? (mode) => void runAction(onRenderModeChange, mode)
       : undefined,
   });
   const fpsSettings = createFpsSettings(root, {
@@ -493,6 +504,7 @@ export function createUI({
     generatorVersion,
     quality,
     renderDistance,
+    renderSettings,
     terrainStreaming,
     soundEnabled,
     controlPreferences,
@@ -592,8 +604,9 @@ export function createUI({
         !Number.isInteger(generatorVersion) ||
         generatorVersion < 1 ||
         generatorVersion >= GENERATOR_VERSION;
-    if (quality !== undefined) $("#quality-setting").value = quality;
-    if (renderDistance !== undefined) renderDistanceSettings.update(renderDistance);
+    if (quality !== undefined) qualitySettings.update(quality);
+    if (renderSettings !== undefined) renderDistanceSettings.update(renderSettings);
+    else if (renderDistance !== undefined) renderDistanceSettings.update(renderDistance);
     if (terrainStreaming !== undefined) {
       const { loaded, demand, error } = terrainStreaming;
       setText($("#terrain-streaming-status"), demand
@@ -668,11 +681,6 @@ export function createUI({
     $("#sound-setting"),
     "change",
     (event) => void runAction(onSoundChange, event.target.checked)
-  );
-  listen(
-    $("#quality-setting"),
-    "change",
-    (event) => void runAction(onQualityChange, event.target.value)
   );
   listen($("#time-setting"), "input", (event) => {
     const time = Number(event.target.value);
@@ -837,7 +845,6 @@ export function createUI({
   $(".death-quit-button").hidden = !onQuit;
   $(".hud-pause").disabled = !onPause;
   $("#sound-setting").disabled = !onSoundChange;
-  $("#quality-setting").disabled = !onQualityChange;
   $("#time-setting").disabled = !onTimeChange;
   $("#dimension-setting").disabled = !onDimensionChange;
   updateStorageButtons();

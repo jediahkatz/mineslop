@@ -64,7 +64,7 @@ export function daylightRenderer(t, world, feet, quality = "low") {
   graphics.setBiome(world.getBiome?.(Math.floor(feet.x), Math.floor(feet.z), feet.y));
   graphics.setTime(0.5);
   t.after(() => {
-    graphics.distant.dispose();
+    graphics.distant?.dispose();
     graphics.skyColumns?.dispose();
     for (const key of [...graphics.chunks.keys()]) graphics.removeChunk(key);
     for (const material of Object.values(graphics.materials)) material.dispose();
