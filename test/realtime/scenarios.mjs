@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { traversalPlan } from "./input.mjs";
+import { bounded, traversalPlan } from "./input.mjs";
 import { streamingWithinBudget } from "./mesh-budget.js";
 import { distance } from "./statistics.js";
 
@@ -368,22 +368,115 @@ export async function traverseTerrain(input, report) {
     );
 }
 
-async function moveForward(input, baseline) {
+function withinMenuClearance(state, clearance) {
+  const { position, flying, grounded } = state;
+  const { bounds, targetAltitude } = clearance;
+  return flying && !grounded && Number.isFinite(position.y) &&
+    position.y >= targetAltitude &&
+    position.x >= bounds.minX + 1 && position.x <= bounds.maxX - 1 &&
+    position.z >= bounds.minZ + 1 && position.z <= bounds.maxZ - 1;
+}
+
+export async function prepareMenuControls(input, report) {
+  const started = performance.now();
+  const before = await settle(input);
+  if (!before.active || !before.enabled || !before.allowFlight)
+    throw new Error("Menu clearance setup requires active Creative controls");
+  const clearance = await bounded(input.page.evaluate(() => {
+    const { player, world } = window.__voxelBot.game;
+    const x = Math.floor(player.position.x), z = Math.floor(player.position.z);
+    const bounds = { minX: x - 12, maxX: x + 13, minZ: z - 12, maxZ: z + 13 };
+    let highestOccupiedY = world.minY - 1;
+    // Read every column, including trees and water, without generating or editing
+    // cells. A one-block horizontal margin and two blocks above occupied cells
+    // keep the player body clear, including shapes taller than their owner cell.
+    for (let px = bounds.minX; px < bounds.maxX; px++)
+      for (let pz = bounds.minZ; pz < bounds.maxZ; pz++) {
+        if (!world.isLoaded(px, pz))
+          throw new Error(`Menu clearance needs a loaded column at ${px},${pz}`);
+        for (let y = world.maxY - 1; y > highestOccupiedY; y--)
+          if (world.get(px, y, pz) !== 0) {
+            highestOccupiedY = y;
+            break;
+          }
+      }
+    return {
+      bounds, columns: 25 * 25, highestOccupiedY,
+      targetAltitude: highestOccupiedY + 3,
+    };
+  }), input.config.timeoutMs, "Read loaded menu clearance");
+  report.menuSetup = {
+    label: "unmeasured-native-menu-clearance",
+    measurement: "Before both inventory/pause assertions and their metrics; excluded from traversal",
+    ...clearance,
+    before: { position: before.position, flying: before.flying, grounded: before.grounded },
+    limits: { takeoffGestures: 1, holdSecondFrames: 2, ascentHolds: 1, waitTimeoutMs: input.config.timeoutMs },
+    takeoffGestures: 0,
+    ascentHolds: 0,
+  };
+  try {
+    if (!before.flying) {
+      report.menuSetup.takeoffGestures++;
+      await input.doubleTap("Space", { holdSecondFrames: 2 });
+    }
+    const airborne = await input.until(
+      (state) => state.flying && !state.grounded,
+      "Menu setup takes off through native double-Space"
+    );
+    if (airborne.position.y < clearance.targetAltitude) {
+      report.menuSetup.ascentHolds++;
+      await input.down("Space", { flight: true });
+      await input.until(
+        (state) => {
+          if (!state.active || !state.enabled || !state.flying)
+            throw new Error("Menu clearance ascent lost active flight");
+          return state.position.y >= clearance.targetAltitude;
+        },
+        "Native Space reaches the menu clearance altitude"
+      );
+    }
+  } finally {
+    await input.release();
+    report.menuSetup.elapsedMs = performance.now() - started;
+  }
+  const ready = await settle(input);
+  report.menuSetup.elapsedMs = performance.now() - started;
+  report.menuSetup.after = {
+    position: ready.position, velocity: ready.velocity, flying: ready.flying,
+    grounded: ready.grounded, keys: ready.keys,
+  };
+  if (!assertion(report, "Menu checks start stationary in verified terrain clearance",
+    ready.active && ready.enabled && !ready.colliding && ready.keys.length === 0 &&
+      (input.lookMode !== "native-mouse" || ready.locked) &&
+      withinMenuClearance(ready, clearance), report.menuSetup))
+    throw new Error("Native menu clearance setup failed");
+  return clearance;
+}
+
+async function moveForward(input, baseline, clearance) {
+  if (!withinMenuClearance(baseline, clearance))
+    throw new Error("Fresh W baseline left the prepared menu clearance");
   await input.down("KeyW");
   return input.until(
-    (state) => distance(state.position, baseline.position, true) > 0.15,
+    (state) => {
+      if (!withinMenuClearance(state, clearance))
+        throw new Error("Fresh W movement left the prepared menu clearance");
+      return distance(state.position, baseline.position, true) > 0.15;
+    },
     "Fresh W input moves the player"
   );
 }
 
 export async function checkMenus(input, report) {
-  await settle(input);
+  // Traversal can land against solid terrain. Prepare once, before any overlay
+  // opens; never insert recovery input between cancellation/resume assertions.
+  const clearance = await prepareMenuControls(input, report);
   await input.page.evaluate(() =>
     window.__voxelBot.metrics.reset("generated-terrain-menu-controls")
   );
   try {
     for (const closingKey of ["KeyE", "Escape"]) {
-      await moveForward(input, await input.state());
+      await moveForward(input, await input.state(), clearance);
       await input.press("KeyE");
       const opened = await input.until(
         (state) => state.overlayOpen,
@@ -416,15 +509,16 @@ export async function checkMenus(input, report) {
           distance(resumed.position, still.position) < 0.03,
         { start: resumed.position, end: still.position, keys: still.keys }
       );
-      const moving = await moveForward(input, still);
+      const moving = await moveForward(input, still, clearance);
       assertion(
         report,
         `Movement resumes after ${closingKey} closes inventory`,
-        distance(still.position, moving.position, true) > 0.15
+        distance(still.position, moving.position, true) > 0.15,
+        { start: still.position, end: moving.position, keys: moving.keys }
       );
       await settle(input);
     }
-    await moveForward(input, await input.state());
+    await moveForward(input, await input.state(), clearance);
     await input.down("ControlLeft");
     await input.press("Escape");
     const paused = await input.until(
@@ -474,11 +568,12 @@ export async function checkMenus(input, report) {
         displacement: distance(resumed.position, still.position),
       }
     );
-    const moving = await moveForward(input, still);
+    const moving = await moveForward(input, still, clearance);
     assertion(
       report,
       "Fresh W works after pause/resume",
-      distance(still.position, moving.position, true) > 0.15
+      distance(still.position, moving.position, true) > 0.15,
+      { start: still.position, end: moving.position, keys: moving.keys }
     );
   } finally {
     report.menuControls = await input.page.evaluate(() =>
