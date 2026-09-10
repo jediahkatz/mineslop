@@ -107,10 +107,49 @@ export class RealInputs {
     await this.up(key);
   }
 
-  async doubleTap(key) {
-    // Two real press/release pairs, never a repeated keydown or DOM dispatch.
-    await this.press(key);
-    await this.press(key);
+  async doubleTap(key, { holdSecondFrames = 0 } = {}) {
+    if (!Number.isInteger(holdSecondFrames) || holdSecondFrames < 0 || holdSecondFrames > 2)
+      throw new RangeError("Second-press hold must be an integer from 0 to 2 frames");
+    await bounded(this.up(key), this.config.timeoutMs, `Release held ${key} before double tap`);
+    // Reserve the final down before sending. Individual ACKs must not change
+    // ownership out of order; even a rejected send may have reached Chromium.
+    this.held.add(key);
+    let failure;
+    try {
+      // Queue the ordered down/up/down intent without a renderer ACK between
+      // presses. Use the same Playwright Keyboard so its pressed-key/repeat and
+      // modifier bookkeeping stays authoritative; never supply event timestamps.
+      const sends = ["down", "up", "down"].map((direction) =>
+        Promise.resolve().then(() => this.page.keyboard[direction](key)).then(() => {
+          if (direction === "down") {
+            this.counts.keydown++;
+            this.counts.byKey[key] = (this.counts.byKey[key] ?? 0) + 1;
+            if (key === "Space") this.lastSpacePressAt = performance.now();
+          } else this.counts.keyup++;
+        }));
+      const results = await bounded(
+        Promise.allSettled(sends), this.config.timeoutMs, `Double-tap ${key} burst`
+      );
+      const errors = results.filter(({ status }) => status === "rejected").map(({ reason }) => reason);
+      if (errors.length)
+        throw new AggregateError(errors, `Double-tap ${key} send failed: ${errors.map(String).join("; ")}`);
+      // Flight enablement explicitly holds the second press across real frame
+      // observations so the player physically leaves the ground before release.
+      if (holdSecondFrames) await this.frames(holdSecondFrames);
+    } catch (error) {
+      failure = error;
+      throw error;
+    } finally {
+      try {
+        await bounded(this.up(key), this.config.timeoutMs, `Release double-tap ${key}`);
+      } catch (error) {
+        // up() keeps the key owned after failure, allowing release() to retry.
+        if (failure)
+          throw new AggregateError([failure, error],
+            `Double-tap ${key} failed and release failed: ${failure.message}; ${error.message}`);
+        throw error;
+      }
+    }
   }
 
   async setHeld(keys, { flight = false } = {}) {

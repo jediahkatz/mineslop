@@ -140,7 +140,8 @@ async function play() {
     (state) => state.active && state.enabled,
     "Native flight controls active"
   );
-  if (!(await input.state()).flying) await input.doubleTap("Space");
+  if (!(await input.state()).flying)
+    await input.doubleTap("Space", { holdSecondFrames: 2 });
   await input.until(
     (state) => state.flying,
     "Double-Space enables Creative flight"

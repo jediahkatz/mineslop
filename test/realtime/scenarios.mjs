@@ -126,15 +126,16 @@ async function warmupFlight(input, report) {
       "Creative double-Space disables flight"
     );
   }
-  await input.doubleTap("Space");
+  await input.doubleTap("Space", { holdSecondFrames: 2 });
   state = await input.until(
-    (next) => next.flying,
+    (next) => next.flying && !next.grounded,
     "Creative double-Space enables flight"
   );
   assertion(
     report,
     "Creative flight toggles through two fresh Space presses",
-    state.allowFlight && state.flying
+    state.allowFlight && state.flying && !state.grounded,
+    { holdSecondFrames: 2, grounded: state.grounded, position: state.position }
   );
   const facingDeadline = performance.now() + 6000;
   while (performance.now() < facingDeadline) {
@@ -502,7 +503,8 @@ export async function checkSurvivalFixture(input, report) {
     "Creative setup for flight transition"
   );
   await startPlaying(input);
-  if (!(await input.state()).flying) await input.doubleTap("Space");
+  if (!(await input.state()).flying)
+    await input.doubleTap("Space", { holdSecondFrames: 2 });
   await input.until(
     (state) => state.flying,
     "Native double-Space enables flight before Survival transition"
