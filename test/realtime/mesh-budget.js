@@ -1,3 +1,5 @@
+import { renderDistanceLayout, streamingDistanceLayout } from "../../src/render-distance.js";
+
 /** Count cached buffers separately from attached, visible and drawable chunks. */
 export function chunkMeshCounts(graphics) {
   let visibleChunkMeshes = 0;
@@ -24,6 +26,13 @@ export function chunkMeshCounts(graphics) {
 }
 
 export function streamingWithinBudget(maxima, radius) {
+  let detail, streaming;
+  try {
+    detail = renderDistanceLayout(radius);
+    streaming = streamingDistanceLayout(radius);
+  } catch {
+    return false;
+  }
   const counts = [
     maxima.cachedChunks,
     maxima.requestedChunks,
@@ -34,11 +43,13 @@ export function streamingWithinBudget(maxima, radius) {
   ];
   return (
     counts.every((value) => Number.isInteger(value) && value >= 0) &&
-    maxima.cachedChunks <= (2 * (radius + 2) + 1) ** 2 &&
-    maxima.requestedChunks <= (2 * (radius + 1) + 1) ** 2 + 2 &&
+    maxima.cachedChunks <= streaming.retainedChunks &&
+    // Logical requests include the R+2 source/shape halo, just like residency.
+    // Physical worker slots remain a separate two-job ceiling.
+    maxima.requestedChunks <= streaming.demandChunks &&
     maxima.inFlightChunks <= 2 &&
-    maxima.retainedChunkMeshes <= (2 * (radius + 1) + 1) ** 2 &&
-    maxima.visibleChunkMeshes <= (2 * radius + 1) ** 2 &&
+    maxima.retainedChunkMeshes <= detail.sourceChunks &&
+    maxima.visibleChunkMeshes <= detail.visibleChunks &&
     maxima.drawnChunkMeshes <= maxima.visibleChunkMeshes
   );
 }
