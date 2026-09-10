@@ -40,6 +40,7 @@ export function readConfig(args = process.argv.slice(2), env = process.env) {
       width: { type: "string" },
       height: { type: "string" },
       "pixel-ratio": { type: "string" },
+      "view-diagnostics": { type: "boolean", default: false },
       "skip-fixture": { type: "boolean", default: false },
       "skip-survival": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
@@ -73,6 +74,7 @@ export function readConfig(args = process.argv.slice(2), env = process.env) {
   const url = new URL("/test/realtime/index.html", base);
   url.searchParams.set("quality", quality);
   url.searchParams.set("seed", seed);
+  if (values["view-diagnostics"]) url.searchParams.set("viewDiagnostics", "1");
   const pixelRatio =
     values["pixel-ratio"] === undefined
       ? null
@@ -120,6 +122,7 @@ export function readConfig(args = process.argv.slice(2), env = process.env) {
     screenshot: values.screenshot ? resolve(values.screenshot) : null,
     syntheticControls: !values["skip-fixture"],
     naturalSurvival: !values["skip-survival"],
+    viewDiagnostics: values["view-diagnostics"],
     requireNativeMouse: env.VOXELCRAFT_REQUIRE_NATIVE_MOUSE === "1",
     chromeBin: env.CHROME_BIN ?? null,
     viewport: {
@@ -186,6 +189,7 @@ export const usage = `Usage: node test/realtime/run.mjs [options]
   --width <pixels>       Browser viewport width (default 1280)
   --height <pixels>      Browser viewport height (default 720)
   --pixel-ratio <ratio>  Explicit resolution-only experiment, recorded in the report
+  --view-diagnostics    Bounded CPU side-channel for legacy traversal view misses
   --skip-fixture        Omit the separately labeled synthetic Survival checks
   --skip-survival       Omit the natural-tree gathering/crafting/save flow
 

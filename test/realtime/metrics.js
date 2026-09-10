@@ -64,11 +64,12 @@ function countInput(counter, event) {
 export class BotMetrics {
   constructor(
     game,
-    { probeView, clock = () => performance.now(), eventTarget = document } = {}
+    { probeView, viewDiagnostics, clock = () => performance.now(), eventTarget = document } = {}
   ) {
     this.game = game;
     this.clock = clock;
     this.probeView = probeView;
+    this.viewDiagnostics = viewDiagnostics;
     this.eventTarget = eventTarget;
     this.recording = false;
     this.sessionInputs = inputCounter();
@@ -82,6 +83,7 @@ export class BotMetrics {
 
   attach() {
     const game = this.game;
+    this.viewDiagnostics?.attachCoverage(game.graphics);
     this.wrap(game, "frame", "game.frame", {
       before: (now) => this.beforeFrame(now),
       after: () => this.afterFrame(),
@@ -251,6 +253,7 @@ export class BotMetrics {
 
   reset(label) {
     this.attach();
+    this.viewDiagnostics?.reset(label);
     const now = this.clock();
     const start = copyPosition(this.game.player.position);
     const chunk = [
@@ -321,6 +324,7 @@ export class BotMetrics {
 
   beforeFrame(now) {
     this.sessionFrames++;
+    this.viewDiagnostics?.beginFrame();
     const data = this.data;
     if (data.lastRaf !== null && now > data.lastRaf)
       data.intervals.push(now - data.lastRaf);
@@ -395,6 +399,11 @@ export class BotMetrics {
       if (view.terrainRaysHit > 0) data.view.terrainVisible++;
       data.view.last = view;
       data.nextViewAt = this.clock() + 500;
+      this.viewDiagnostics?.record(view, {
+        sample: data.view.samples,
+        frame: data.frames,
+        elapsedMs: this.clock() - data.startedAt,
+      });
     }
   }
 
@@ -416,6 +425,7 @@ export class BotMetrics {
     if (stop && this.recording) {
       data.endedAt = this.clock();
       this.recording = false;
+      this.viewDiagnostics?.stop();
     }
     const elapsedMs = (data.endedAt ?? this.clock()) - data.startedAt;
     const simulatedSeconds =
@@ -497,6 +507,7 @@ export class BotMetrics {
           ? data.view.terrainVisible / data.view.samples
           : null,
       },
+      ...(this.viewDiagnostics ? { viewDiagnostics: this.viewDiagnostics.results() } : {}),
       mining: {
         progressFrames: data.miningProgressFrames,
         maximumProgress: data.maxMiningProgress,

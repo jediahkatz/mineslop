@@ -100,6 +100,53 @@ times. These focused runs omit Survival/resource acceptance. Software-renderer
 results cannot establish target-hardware smoothness, and CPU timings do not
 measure GPU completion or validate historical lighting/pixel gates.
 
+## Opt-in view-miss diagnostics
+
+Add `--view-diagnostics` to a parent-guarded run on a **new frozen benchmark
+build** to populate `terrain.viewDiagnostics`. The original three-ray probe,
+`terrain.view` counters and `>= 0.4` acceptance predicate remain unchanged.
+Only zero-of-three misses during `generated-terrain-traversal` are collected;
+warmup, menus and fixtures are excluded. A passing partial-ray sample is not
+a diagnostic miss.
+
+Each observation includes its legacy sample/frame/time, player pose and
+flight/grounded state, actual fog near/far and camera view matrix, a downward
+surface/eye/feet-clearance probe, source residency/request/dirty state, the
+renderer’s actual same-frame detail-coverage return, and group/draw-candidate
+metadata. It records first full-voxel and render-box/fluid hits with both radial
+and camera-forward depths. Partial shapes, waterlogging, unloaded cells and
+unknown shape neighbors stay distinguishable. No terrain is generated.
+
+Version 2 adds `rays[].legacySampling`: the first voxel's entry/exit interval,
+last actual legacy grid point, and radial-limit/point-spacing exclusions. It
+does not re-read terrain or change the old probe. Each hit's `hitSection`
+identifies its owning voxel section (not its boundary face), the production
+section-coverage predicate, and source-to-physical range counts/ownership.
+An incomplete column may contain a covered hit section. Conversely, a drawable
+page somewhere in the column does not establish the hit section's coverage.
+Empty sections, dirty tickets, source-incarnation mismatches, unsupported
+specialized water/materials and capped inspections remain explicit.
+
+Hard limits: 128 observations per traversal, 64 blocks per ray (the three
+legacy directions plus one downward surface ray), 4,096 unique cell reads and
+256 mesh-node inspection units per observation, shared with both passes of the
+hit-section checks. Each ray checks full-voxel occupancy
+and shape geometry separately, sharing the read cache. Local coverage metadata
+covers at most radius 4 / 81 columns; the captured renderer-mask count is not
+that truncated footprint. Caps/unknowns are explicit, and later misses count
+as `dropped` without further sampling.
+
+These are **CPU candidates and scene metadata, not GPU pixels or screen-area
+coverage**. Cutout alpha, animated geometry, frustum/occlusion, distant geometry
+and GPU completion are not ray-tested. A no-hit result only concerns the
+bounded ray; a hit beyond unloaded data is not an authoritative first surface.
+Section eligibility does not prove a triangle at the hit, source freshness,
+or pixel contribution. Miss-only diagnostics cannot supply a replacement
+visibility fraction: the legacy-positive samples have not been reclassified.
+`viewDiagnostics.cpuMs` is included in existing `observerCpuMs`, not subtracted
+from RAF timing. Observer overhead can alter a wall-time-controlled route, so
+diagnostic runs are not observer-free performance comparisons.
+
 ## Coverage
 
 The run verifies native pointer capture and actual mouse-to-camera yaw/pitch

@@ -5,6 +5,7 @@ import { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT } from "../../src/terrain.js";
 import { BotMetrics } from "./metrics.js";
 import { softwareRenderer } from "./statistics.js";
 import { installStreamingProbe } from "./streaming-probe.js";
+import { ViewDiagnostics } from "./view-diagnostics.js";
 
 const query = new URLSearchParams(location.search);
 const quality = query.get("quality") ?? "medium";
@@ -68,7 +69,10 @@ function probeView() {
   };
 }
 
-const metrics = new BotMetrics(game, { probeView });
+const metrics = new BotMetrics(game, {
+  probeView,
+  viewDiagnostics: query.get("viewDiagnostics") === "1" ? new ViewDiagnostics(game) : undefined,
+});
 
 function plannedHeights() {
   const player = game.player;
